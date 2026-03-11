@@ -8,9 +8,11 @@ publish = false
 [features]
 default = []
 pdfium = ["libviprs/pdfium", "dep:pdfium-render"]
+ported_tests = []
 
 [dependencies]
 libviprs = { path = "../libviprs" }
 pdfium-render = { version = "0.8", optional = true }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
 flate2 = "1"
 tempfile = "3"
