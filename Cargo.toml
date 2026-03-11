@@ -1,0 +1,16 @@
+[package]
+name = "libviprs-tests"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[features]
+default = []
+pdfium = ["libviprs/pdfium", "dep:pdfium-render"]
+
+[dependencies]
+libviprs = { path = "../libviprs" }
+pdfium-render = { version = "0.8", optional = true }
+flate2 = "1"
+tempfile = "3"
