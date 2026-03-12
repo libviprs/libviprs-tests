@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use libviprs::{decode_file, PixelFormat, Raster};
+use libviprs::{PixelFormat, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -73,10 +73,17 @@ fn test_colourspace_roundtrip() {
     let test = Raster::constant(100, 100, &[50.0, 0.0, 0.0, 42.0], Interpretation::Lab);
 
     let colour_spaces = [
-        Interpretation::Xyz, Interpretation::Lch, Interpretation::Cmc,
-        Interpretation::Labs, Interpretation::ScRgb, Interpretation::Hsv,
-        Interpretation::Srgb, Interpretation::Yxy, Interpretation::OkLab,
-        Interpretation::OkLch, Interpretation::Lab,
+        Interpretation::Xyz,
+        Interpretation::Lch,
+        Interpretation::Cmc,
+        Interpretation::Labs,
+        Interpretation::ScRgb,
+        Interpretation::Hsv,
+        Interpretation::Srgb,
+        Interpretation::Yxy,
+        Interpretation::OkLab,
+        Interpretation::OkLch,
+        Interpretation::Lab,
     ];
 
     let mut im = test.clone();
@@ -132,7 +139,9 @@ fn test_colourspace_mono() {
         let mut im = test_grey.clone();
 
         let colour_spaces = [
-            Interpretation::Xyz, Interpretation::Lab, Interpretation::Srgb,
+            Interpretation::Xyz,
+            Interpretation::Lab,
+            Interpretation::Srgb,
             mono_fmt,
         ];
         for &cs in &colour_spaces {
@@ -148,12 +157,17 @@ fn test_colourspace_mono() {
         assert!(alpha_diff < 1.0, "Alpha not preserved in grey round-trip");
 
         // Grey value tolerance depends on bit depth
-        let grey_threshold = if mono_fmt == Interpretation::Grey16 { 30.0 } else { 1.0 };
+        let grey_threshold = if mono_fmt == Interpretation::Grey16 {
+            30.0
+        } else {
+            1.0
+        };
         let grey_diff = (after[0] - before[0]).abs();
         assert!(
             grey_diff < grey_threshold,
             "Grey value mismatch: before={}, after={}, diff={grey_diff}",
-            before[0], after[0]
+            before[0],
+            after[0]
         );
     }
 }
@@ -179,7 +193,9 @@ fn test_colourspace_cmyk() {
     let cmyk = test.colourspace(Interpretation::Cmyk);
 
     let colour_spaces = [
-        Interpretation::Xyz, Interpretation::Lab, Interpretation::Lch,
+        Interpretation::Xyz,
+        Interpretation::Lab,
+        Interpretation::Lch,
         Interpretation::Srgb,
     ];
 
@@ -389,11 +405,18 @@ fn test_icc() {
     let exported = imported.icc_export();
     let de = exported.de76(&test);
     let max_de: f64 = de.max_value();
-    assert!(max_de < 6.0, "ICC import+export dE76 should be < 6, got {max_de}");
+    assert!(
+        max_de < 6.0,
+        "ICC import+export dE76 should be < 6, got {max_de}"
+    );
 
     // Export at 16-bit depth
     let exported_16 = imported.icc_export_with(16, Intent::Perceptual, None);
-    assert_eq!(exported_16.format().bytes_per_channel(), 2, "16-bit export should be 16bpc");
+    assert_eq!(
+        exported_16.format().bytes_per_channel(),
+        2,
+        "16-bit export should be 16bpc"
+    );
 
     // With output_profile = sRGB
     let exported_srgb = imported.icc_export_with(8, Intent::Perceptual, Some(&srgb_profile));

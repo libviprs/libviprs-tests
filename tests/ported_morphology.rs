@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use libviprs::{decode_file, PixelFormat, Raster};
+use libviprs::{PixelFormat, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -136,21 +136,16 @@ fn test_erode() {
     let mut im = black_image(100, 100);
     im.draw_circle_filled(&[255], 50, 50, 25);
 
-    let kernel: &[&[u8]] = &[
-        &[128, 255, 128],
-        &[255, 255, 255],
-        &[128, 255, 128],
-    ];
+    let kernel: &[&[u8]] = &[&[128, 255, 128], &[255, 255, 255], &[128, 255, 128]];
     let im2 = im.erode(kernel);
 
     assert_eq!(im.width(), im2.width());
     assert_eq!(im.height(), im2.height());
     assert_eq!(im.format(), im2.format());
 
-    let avg_before: f64 = im.data().iter().map(|&b| b as f64).sum::<f64>()
-        / im.data().len() as f64;
-    let avg_after: f64 = im2.data().iter().map(|&b| b as f64).sum::<f64>()
-        / im2.data().len() as f64;
+    let avg_before: f64 = im.data().iter().map(|&b| b as f64).sum::<f64>() / im.data().len() as f64;
+    let avg_after: f64 =
+        im2.data().iter().map(|&b| b as f64).sum::<f64>() / im2.data().len() as f64;
     assert!(
         avg_before > avg_after,
         "Erosion should reduce the average pixel value: before={avg_before}, after={avg_after}"
@@ -181,21 +176,16 @@ fn test_dilate() {
     let mut im = black_image(100, 100);
     im.draw_circle_filled(&[255], 50, 50, 25);
 
-    let kernel: &[&[u8]] = &[
-        &[128, 255, 128],
-        &[255, 255, 255],
-        &[128, 255, 128],
-    ];
+    let kernel: &[&[u8]] = &[&[128, 255, 128], &[255, 255, 255], &[128, 255, 128]];
     let im2 = im.dilate(kernel);
 
     assert_eq!(im.width(), im2.width());
     assert_eq!(im.height(), im2.height());
     assert_eq!(im.format(), im2.format());
 
-    let avg_before: f64 = im.data().iter().map(|&b| b as f64).sum::<f64>()
-        / im.data().len() as f64;
-    let avg_after: f64 = im2.data().iter().map(|&b| b as f64).sum::<f64>()
-        / im2.data().len() as f64;
+    let avg_before: f64 = im.data().iter().map(|&b| b as f64).sum::<f64>() / im.data().len() as f64;
+    let avg_after: f64 =
+        im2.data().iter().map(|&b| b as f64).sum::<f64>() / im2.data().len() as f64;
     assert!(
         avg_after > avg_before,
         "Dilation should increase the average pixel value: before={avg_before}, after={avg_after}"
@@ -233,10 +223,9 @@ fn test_rank() {
     assert_eq!(im.height(), im2.height());
     assert_eq!(im.format(), im2.format());
 
-    let avg_before: f64 = im.data().iter().map(|&b| b as f64).sum::<f64>()
-        / im.data().len() as f64;
-    let avg_after: f64 = im2.data().iter().map(|&b| b as f64).sum::<f64>()
-        / im2.data().len() as f64;
+    let avg_before: f64 = im.data().iter().map(|&b| b as f64).sum::<f64>() / im.data().len() as f64;
+    let avg_after: f64 =
+        im2.data().iter().map(|&b| b as f64).sum::<f64>() / im2.data().len() as f64;
     assert!(
         avg_after > avg_before,
         "Max rank filter should increase average: before={avg_before}, after={avg_after}"

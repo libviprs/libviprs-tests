@@ -8,8 +8,8 @@
 
 use std::path::Path;
 
-use libviprs::{decode_file, PixelFormat, Raster};
 use libviprs::source::decode_bytes;
+use libviprs::{PixelFormat, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -72,7 +72,11 @@ fn test_target_new_memory() {
     let raster = Raster::new(w, h, PixelFormat::Rgb8, data.clone()).unwrap();
 
     // Read back and compare byte-for-byte.
-    assert_eq!(raster.data(), data.as_slice(), "Round-tripped pixel data must match");
+    assert_eq!(
+        raster.data(),
+        data.as_slice(),
+        "Round-tripped pixel data must match"
+    );
 }
 
 // ===========================================================================
@@ -161,7 +165,10 @@ fn test_image_write_to_target_file() {
     encode_to_target(&im, &mut target, "jpeg").unwrap();
 
     let buf2 = im.encode_to_buffer("jpeg").unwrap();
-    assert_eq!(buf, buf2, "Target and buffer encoding should produce identical bytes");
+    assert_eq!(
+        buf, buf2,
+        "Target and buffer encoding should produce identical bytes"
+    );
 }
 
 // ===========================================================================
@@ -193,7 +200,10 @@ fn test_target_new_to_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("out.jpg");
     let target = Target::new_to_file(&path).unwrap();
-    assert!(target.filename().is_some(), "File-based target should have a filename");
+    assert!(
+        target.filename().is_some(),
+        "File-based target should have a filename"
+    );
 }
 
 // ===========================================================================
@@ -335,7 +345,10 @@ fn test_connection_matrix() {
     let matrix_data = mono.matrix_save();
     let im2 = Raster::matrix_load(&matrix_data);
 
-    let max_diff: f64 = mono.data().iter().zip(im2.data().iter())
+    let max_diff: f64 = mono
+        .data()
+        .iter()
+        .zip(im2.data().iter())
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(max_diff < 0.001, "Matrix round-trip should be lossless");
@@ -390,7 +403,10 @@ fn test_connection_csv() {
     let csv_data = mono.csv_save();
     let im2 = Raster::csv_load(&csv_data);
 
-    let max_diff: f64 = mono.data().iter().zip(im2.data().iter())
+    let max_diff: f64 = mono
+        .data()
+        .iter()
+        .zip(im2.data().iter())
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(max_diff < 0.001);
@@ -420,7 +436,10 @@ fn test_connection_ppm() {
     let ppm_data = mono.ppm_save();
     let im2 = Raster::ppm_load(&ppm_data);
 
-    let max_diff: f64 = mono.data().iter().zip(im2.data().iter())
+    let max_diff: f64 = mono
+        .data()
+        .iter()
+        .zip(im2.data().iter())
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(max_diff < 0.001);
@@ -449,7 +468,11 @@ fn test_connection_dz() {
     let mono = colour.extract_band(1);
 
     let blob = mono.dzsave_buffer();
-    assert!(blob.len() > 1000, "DeepZoom blob should be non-trivial, got {} bytes", blob.len());
+    assert!(
+        blob.len() > 1000,
+        "DeepZoom blob should be non-trivial, got {} bytes",
+        blob.len()
+    );
 }
 
 #[test]
@@ -476,7 +499,10 @@ fn test_connection_tiff() {
     let tiff_data = mono.tiff_save();
     let im2 = Raster::tiff_load(&tiff_data);
 
-    let max_diff: f64 = mono.data().iter().zip(im2.data().iter())
+    let max_diff: f64 = mono
+        .data()
+        .iter()
+        .zip(im2.data().iter())
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(max_diff < 0.001);

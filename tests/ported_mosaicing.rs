@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use libviprs::{decode_file, Raster};
+use libviprs::{Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -21,25 +21,36 @@ fn ref_image(name: &str) -> std::path::PathBuf {
 
 /// Mosaic file pairs: (left, right) for horizontal join.
 const MOSAIC_FILES: [&str; 8] = [
-    "cd1.1.jpg", "cd1.2.jpg",
-    "cd2.1.jpg", "cd2.2.jpg",
-    "cd3.1.jpg", "cd3.2.jpg",
-    "cd4.1.jpg", "cd4.2.jpg",
+    "cd1.1.jpg",
+    "cd1.2.jpg",
+    "cd2.1.jpg",
+    "cd2.2.jpg",
+    "cd3.1.jpg",
+    "cd3.2.jpg",
+    "cd4.1.jpg",
+    "cd4.2.jpg",
 ];
 
 /// Tie-point marks for each mosaic file pair (x, y).
 const MOSAIC_MARKS: [(i32, i32); 8] = [
-    (489, 140), (66, 141),
-    (453, 40),  (15, 43),
-    (500, 122), (65, 121),
-    (495, 58),  (40, 57),
+    (489, 140),
+    (66, 141),
+    (453, 40),
+    (15, 43),
+    (500, 122),
+    (65, 121),
+    (495, 58),
+    (40, 57),
 ];
 
 /// Vertical tie-point marks for joining horizontal strips.
 const MOSAIC_VERTICAL_MARKS: [(i32, i32); 6] = [
-    (388, 44),  (364, 346),
-    (384, 17),  (385, 629),
-    (527, 42),  (503, 959),
+    (388, 44),
+    (364, 346),
+    (384, 17),
+    (385, 629),
+    (527, 42),
+    (503, 959),
 ];
 
 #[test]
@@ -200,8 +211,10 @@ fn test_mosaic() {
         let horizontal_part = im.mosaic(
             &sec_im,
             MergeDirection::Horizontal,
-            ref_x, ref_y,
-            sec_x, sec_y,
+            ref_x,
+            ref_y,
+            sec_x,
+            sec_y,
         );
 
         mosaiced = Some(match mosaiced {
@@ -213,8 +226,10 @@ fn test_mosaic() {
                 prev.mosaic(
                     &horizontal_part,
                     MergeDirection::Vertical,
-                    vref_x, vref_y,
-                    vsec_x, vsec_y,
+                    vref_x,
+                    vref_y,
+                    vsec_x,
+                    vsec_y,
                 )
             }
         });
@@ -263,8 +278,10 @@ fn test_globalbalance() {
         let horizontal_part = im.mosaic(
             &sec_im,
             MergeDirection::Horizontal,
-            ref_x, ref_y,
-            sec_x, sec_y,
+            ref_x,
+            ref_y,
+            sec_x,
+            sec_y,
         );
 
         mosaiced = Some(match mosaiced {
@@ -276,8 +293,10 @@ fn test_globalbalance() {
                 prev.mosaic(
                     &horizontal_part,
                     MergeDirection::Vertical,
-                    vref_x, vref_y,
-                    vsec_x, vsec_y,
+                    vref_x,
+                    vref_y,
+                    vsec_x,
+                    vsec_y,
                 )
             }
         });

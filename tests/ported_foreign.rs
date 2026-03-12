@@ -12,11 +12,11 @@ use std::io::Cursor;
 use std::path::Path;
 
 use image::ImageEncoder;
-use libviprs::{
-    decode_file, extract_page_image, generate_pyramid, pdf_info, EngineConfig, FsSink, Layout,
-    PixelFormat, PyramidPlanner, Raster, TileFormat,
-};
 use libviprs::source::decode_bytes;
+use libviprs::{
+    EngineConfig, FsSink, Layout, PixelFormat, PyramidPlanner, Raster, TileFormat, decode_file,
+    extract_page_image, generate_pyramid, pdf_info,
+};
 
 // ---------------------------------------------------------------------------
 // Fixture path
@@ -97,7 +97,6 @@ fn count_files(dir: &Path, ext: &str) -> usize {
     count
 }
 
-
 // ===========================================================================
 // 1.1 JPEG
 // ===========================================================================
@@ -118,11 +117,17 @@ fn test_jpeg_load_pixel_values() {
     let raster = decode_file(&ref_image("sample.jpg")).unwrap();
     // Real photo should have diverse pixel values, not all zero
     let all_zero = raster.data().iter().all(|&b| b == 0);
-    assert!(!all_zero, "Decoded JPEG pixel data should not be all zeroes");
+    assert!(
+        !all_zero,
+        "Decoded JPEG pixel data should not be all zeroes"
+    );
     // Check that pixel data has some variation (not a flat image)
     let min = *raster.data().iter().min().unwrap();
     let max = *raster.data().iter().max().unwrap();
-    assert!(max - min > 50, "Expected pixel value range in real photo, got {min}..{max}");
+    assert!(
+        max - min > 50,
+        "Expected pixel value range in real photo, got {min}..{max}"
+    );
 }
 
 #[test]
@@ -170,11 +175,13 @@ fn test_jpeg_shrink_on_load() {
         // JPEG shrink-on-load gives approximate dimensions (within ±1)
         assert!(
             (shrunk.width() as i64 - expected_w as i64).abs() <= 1,
-            "shrink={factor}: width {}, expected ~{expected_w}", shrunk.width()
+            "shrink={factor}: width {}, expected ~{expected_w}",
+            shrunk.width()
         );
         assert!(
             (shrunk.height() as i64 - expected_h as i64).abs() <= 1,
-            "shrink={factor}: height {}, expected ~{expected_h}", shrunk.height()
+            "shrink={factor}: height {}, expected ~{expected_h}",
+            shrunk.height()
         );
     }
 }
@@ -206,7 +213,11 @@ fn test_jpeg_sequential() {
     assert_eq!(normal.width(), sequential.width());
     assert_eq!(normal.height(), sequential.height());
     assert_eq!(normal.format(), sequential.format());
-    assert_eq!(normal.data(), sequential.data(), "Sequential and normal decode should produce identical pixels");
+    assert_eq!(
+        normal.data(),
+        sequential.data(),
+        "Sequential and normal decode should produce identical pixels"
+    );
 }
 
 #[test]
@@ -274,7 +285,8 @@ fn test_jpeg_save_quality() {
     assert!(
         buf_low.len() < buf_high.len(),
         "Low quality JPEG ({}) should be smaller than high quality ({})",
-        buf_low.len(), buf_high.len()
+        buf_low.len(),
+        buf_high.len()
     );
 
     // Both should decode back with same dimensions
@@ -308,7 +320,10 @@ fn test_jpeg_save_quality() {
 fn test_jpeg_save_icc() {
     let im = decode_file(&ref_image("sample.jpg")).unwrap();
     let original_icc = im.get_field("icc-profile-data");
-    assert!(original_icc.is_some(), "sample.jpg should have an ICC profile");
+    assert!(
+        original_icc.is_some(),
+        "sample.jpg should have an ICC profile"
+    );
 
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("icc_test.jpg");
@@ -316,7 +331,10 @@ fn test_jpeg_save_icc() {
 
     let im2 = decode_file(&out).unwrap();
     let saved_icc = im2.get_field("icc-profile-data");
-    assert!(saved_icc.is_some(), "ICC profile should be preserved in saved JPEG");
+    assert!(
+        saved_icc.is_some(),
+        "ICC profile should be preserved in saved JPEG"
+    );
 }
 
 #[test]
@@ -351,7 +369,10 @@ fn test_jpeg_save_exif() {
     let saved_exif = im2.get_field("exif-data");
 
     if original_exif.is_some() {
-        assert!(saved_exif.is_some(), "EXIF data should be preserved in saved JPEG");
+        assert!(
+            saved_exif.is_some(),
+            "EXIF data should be preserved in saved JPEG"
+        );
     }
 }
 
@@ -388,7 +409,8 @@ fn test_jpeg_save_subsample() {
     assert!(
         buf_444.len() > buf_420.len(),
         "4:4:4 ({}) should be larger than 4:2:0 ({})",
-        buf_444.len(), buf_420.len()
+        buf_444.len(),
+        buf_420.len()
     );
 
     let im_444 = decode_bytes(&buf_444).unwrap();
@@ -561,9 +583,18 @@ fn test_jpegsave_exif() {
 
     let buf = im.encode_jpeg(85).unwrap();
     let im2 = decode_bytes(&buf).unwrap();
-    assert_eq!(im2.get_field("exif-ifd2-UserComment").unwrap().as_str(), "Hello UserComment");
-    assert_eq!(im2.get_field("exif-ifd0-Software").unwrap().as_str(), "TestSoftware");
-    assert_eq!(im2.get_field("exif-ifd0-XPComment").unwrap().as_str(), "TestXPComment");
+    assert_eq!(
+        im2.get_field("exif-ifd2-UserComment").unwrap().as_str(),
+        "Hello UserComment"
+    );
+    assert_eq!(
+        im2.get_field("exif-ifd0-Software").unwrap().as_str(),
+        "TestSoftware"
+    );
+    assert_eq!(
+        im2.get_field("exif-ifd0-XPComment").unwrap().as_str(),
+        "TestXPComment"
+    );
 
     // Test tag removal via typeof==0
     im.set_typeof("exif-ifd0-Software", 0);
@@ -728,7 +759,10 @@ fn test_png_load_palette() {
     assert!(raster.width() > 0);
     assert!(raster.height() > 0);
     let non_zero = raster.data().iter().any(|&b| b != 0);
-    assert!(non_zero, "Palette PNG decode should produce non-zero pixels");
+    assert!(
+        non_zero,
+        "Palette PNG decode should produce non-zero pixels"
+    );
 }
 
 #[test]
@@ -736,10 +770,17 @@ fn test_png_load_palette() {
 fn test_png_load_rgba() {
     // Use the real rgba.png fixture to test RGBA PNG loading
     let raster = decode_file(&ref_image("rgba.png")).unwrap();
-    assert_eq!(raster.format(), PixelFormat::Rgba8, "rgba.png should decode as RGBA8");
+    assert_eq!(
+        raster.format(),
+        PixelFormat::Rgba8,
+        "rgba.png should decode as RGBA8"
+    );
     assert!(raster.width() > 0);
     assert!(raster.height() > 0);
-    assert!(raster.format().has_alpha(), "rgba.png should have an alpha channel");
+    assert!(
+        raster.format().has_alpha(),
+        "rgba.png should have an alpha channel"
+    );
     let non_zero = raster.data().iter().any(|&b| b != 0);
     assert!(non_zero);
 }
@@ -808,7 +849,8 @@ fn test_png_save_compression() {
     assert!(
         buf_best.len() <= buf_fast.len(),
         "Max compression ({}) should be ≤ min compression ({})",
-        buf_best.len(), buf_fast.len()
+        buf_best.len(),
+        buf_fast.len()
     );
 
     let im_fast = decode_bytes(&buf_fast).unwrap();
@@ -816,7 +858,11 @@ fn test_png_save_compression() {
     assert_eq!(im_fast.width(), im.width());
     assert_eq!(im_best.width(), im.width());
     // PNG is lossless — pixel data should be identical
-    assert_eq!(im_fast.data(), im_best.data(), "PNG compression should be lossless");
+    assert_eq!(
+        im_fast.data(),
+        im_best.data(),
+        "PNG compression should be lossless"
+    );
 }
 
 #[test]
@@ -848,7 +894,11 @@ fn test_png_save_interlace() {
     let im2 = decode_bytes(&buf).unwrap();
     assert_eq!(im2.width(), im.width());
     assert_eq!(im2.height(), im.height());
-    assert_eq!(im2.data(), im.data(), "Interlaced PNG round-trip should be lossless");
+    assert_eq!(
+        im2.data(),
+        im.data(),
+        "Interlaced PNG round-trip should be lossless"
+    );
 }
 
 #[test]
@@ -880,7 +930,8 @@ fn test_png_save_palette() {
     assert!(
         buf_palette.len() < buf_full.len(),
         "Palette PNG ({}) should be smaller than full-colour ({})",
-        buf_palette.len(), buf_full.len()
+        buf_palette.len(),
+        buf_full.len()
     );
 
     let im2 = decode_bytes(&buf_palette).unwrap();
@@ -951,7 +1002,10 @@ fn test_png_exif() {
         im.save_png(&out, 6).unwrap();
 
         let im2 = decode_file(&out).unwrap();
-        assert!(im2.get_field("exif-data").is_some(), "EXIF should be preserved in PNG");
+        assert!(
+            im2.get_field("exif-data").is_some(),
+            "EXIF should be preserved in PNG"
+        );
     }
 }
 
@@ -972,11 +1026,17 @@ fn test_tiff_load_dimensions() {
 fn test_tiff_load_pixels() {
     let raster = decode_file(&ref_image("sample.tif")).unwrap();
     let all_zero = raster.data().iter().all(|&b| b == 0);
-    assert!(!all_zero, "Decoded TIFF pixel data should not be all zeroes");
+    assert!(
+        !all_zero,
+        "Decoded TIFF pixel data should not be all zeroes"
+    );
     // Verify real photo has diverse pixel values
     let min = *raster.data().iter().min().unwrap();
     let max = *raster.data().iter().max().unwrap();
-    assert!(max - min > 50, "Expected pixel value range in real TIFF, got {min}..{max}");
+    assert!(
+        max - min > 50,
+        "Expected pixel value range in real TIFF, got {min}..{max}"
+    );
 }
 
 #[test]
@@ -1004,7 +1064,10 @@ fn test_tiff_load_pixels() {
 fn test_tiff_multipage() {
     let tiff_path = ref_image("multi-channel-z-series.ome.tif");
     let page_count = tiff_page_count(&tiff_path).unwrap();
-    assert!(page_count > 1, "OME TIFF should have multiple pages, got {page_count}");
+    assert!(
+        page_count > 1,
+        "OME TIFF should have multiple pages, got {page_count}"
+    );
 
     for p in 1..=page_count {
         let raster = decode_tiff_page(&tiff_path, p).unwrap();
@@ -1185,7 +1248,10 @@ fn test_tiff_save_lzw() {
 
     let lzw_size = std::fs::metadata(&out_lzw).unwrap().len();
     let none_size = std::fs::metadata(&out_none).unwrap().len();
-    assert!(lzw_size < none_size, "LZW ({lzw_size}) should be smaller than none ({none_size})");
+    assert!(
+        lzw_size < none_size,
+        "LZW ({lzw_size}) should be smaller than none ({none_size})"
+    );
 }
 
 #[test]
@@ -1342,32 +1408,56 @@ fn test_tiffjp2k() {
 
     // Tile only
     let out1 = dir.path().join("jp2k_tile.tif");
-    im.save_tiff_tiled(&out1, TiffCompression::Jp2k, 128, 128, false, false).unwrap();
+    im.save_tiff_tiled(&out1, TiffCompression::Jp2k, 128, 128, false, false)
+        .unwrap();
     let im2 = decode_file(&out1).unwrap();
     assert_eq!(im2.width(), im.width());
     assert_eq!(im2.height(), im.height());
-    let max_diff: u16 = im.data().iter().zip(im2.data().iter())
+    let max_diff: u16 = im
+        .data()
+        .iter()
+        .zip(im2.data().iter())
         .map(|(&a, &b)| (a as i16 - b as i16).unsigned_abs())
-        .max().unwrap_or(0);
-    assert!(max_diff <= 80, "JP2K tile max_diff={max_diff}, expected <=80");
+        .max()
+        .unwrap_or(0);
+    assert!(
+        max_diff <= 80,
+        "JP2K tile max_diff={max_diff}, expected <=80"
+    );
 
     // Tile + pyramid
     let out2 = dir.path().join("jp2k_tile_pyramid.tif");
-    im.save_tiff_tiled(&out2, TiffCompression::Jp2k, 128, 128, true, false).unwrap();
+    im.save_tiff_tiled(&out2, TiffCompression::Jp2k, 128, 128, true, false)
+        .unwrap();
     let im3 = decode_file(&out2).unwrap();
-    let max_diff2: u16 = im.data().iter().zip(im3.data().iter())
+    let max_diff2: u16 = im
+        .data()
+        .iter()
+        .zip(im3.data().iter())
         .map(|(&a, &b)| (a as i16 - b as i16).unsigned_abs())
-        .max().unwrap_or(0);
-    assert!(max_diff2 <= 80, "JP2K tile+pyramid max_diff={max_diff2}, expected <=80");
+        .max()
+        .unwrap_or(0);
+    assert!(
+        max_diff2 <= 80,
+        "JP2K tile+pyramid max_diff={max_diff2}, expected <=80"
+    );
 
     // Tile + pyramid + subifd
     let out3 = dir.path().join("jp2k_tile_pyramid_subifd.tif");
-    im.save_tiff_tiled(&out3, TiffCompression::Jp2k, 128, 128, true, true).unwrap();
+    im.save_tiff_tiled(&out3, TiffCompression::Jp2k, 128, 128, true, true)
+        .unwrap();
     let im4 = decode_file(&out3).unwrap();
-    let max_diff3: u16 = im.data().iter().zip(im4.data().iter())
+    let max_diff3: u16 = im
+        .data()
+        .iter()
+        .zip(im4.data().iter())
         .map(|(&a, &b)| (a as i16 - b as i16).unsigned_abs())
-        .max().unwrap_or(0);
-    assert!(max_diff3 <= 80, "JP2K tile+pyramid+subifd max_diff={max_diff3}, expected <=80");
+        .max()
+        .unwrap_or(0);
+    assert!(
+        max_diff3 <= 80,
+        "JP2K tile+pyramid+subifd max_diff={max_diff3}, expected <=80"
+    );
 }
 
 // ===========================================================================
@@ -1499,12 +1589,11 @@ fn test_pdf_dpi_scale() {
 ///
 /// Reference: test_foreign.py::test_pdf
 fn test_pdf_background() {
-    let white = extract_page_image_with_background(
-        Path::new(FIXTURE_PDF), 1, &[255.0, 255.0, 255.0],
-    ).unwrap();
-    let red = extract_page_image_with_background(
-        Path::new(FIXTURE_PDF), 1, &[255.0, 0.0, 0.0],
-    ).unwrap();
+    let white =
+        extract_page_image_with_background(Path::new(FIXTURE_PDF), 1, &[255.0, 255.0, 255.0])
+            .unwrap();
+    let red =
+        extract_page_image_with_background(Path::new(FIXTURE_PDF), 1, &[255.0, 0.0, 0.0]).unwrap();
 
     assert_eq!(white.width(), red.width());
     assert_eq!(white.height(), red.height());
@@ -1537,12 +1626,15 @@ fn test_pdf_background() {
 /// Note: no fixture file in the libvips reference suite — generate one into
 /// tests/fixtures/password.pdf if this test is un-ignored.
 fn test_pdf_password() {
-    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/password.pdf");
+    let fixture =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/password.pdf");
 
     // Attempt without password
     let result = pdf_info(&fixture);
-    assert!(result.is_err(), "Password-protected PDF should fail without password");
+    assert!(
+        result.is_err(),
+        "Password-protected PDF should fail without password"
+    );
 
     // With password
     let info = pdf_info_with_password(&fixture, "secret").unwrap();
@@ -1650,7 +1742,10 @@ fn test_dz_layout_deepzoom() {
 
     // DeepZoom should produce a .dzi manifest
     let dzi = dir.path().join("deepzoom_out.dzi");
-    assert!(dzi.exists(), "DZI manifest should exist for DeepZoom layout");
+    assert!(
+        dzi.exists(),
+        "DZI manifest should exist for DeepZoom layout"
+    );
     let manifest = std::fs::read_to_string(&dzi).unwrap();
     assert!(manifest.contains(&format!("Width=\"{}\"", src.width())));
     assert!(manifest.contains(&format!("Height=\"{}\"", src.height())));
@@ -1892,7 +1987,8 @@ fn test_dz_skip_blanks() {
     assert!(
         result_skip.tiles_produced <= result_no.tiles_produced,
         "skip_blanks should produce ≤ tiles: {} vs {}",
-        result_skip.tiles_produced, result_no.tiles_produced
+        result_skip.tiles_produced,
+        result_no.tiles_produced
     );
 }
 
@@ -1966,7 +2062,17 @@ fn test_dz_region() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("region");
     let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
-    generate_pyramid_region(&src, &plan, &sink, &EngineConfig::default(), 0, 0, region_w, region_h).unwrap();
+    generate_pyramid_region(
+        &src,
+        &plan,
+        &sink,
+        &EngineConfig::default(),
+        0,
+        0,
+        region_w,
+        region_h,
+    )
+    .unwrap();
 
     let dzi = dir.path().join("region.dzi");
     assert!(dzi.exists());
@@ -2064,7 +2170,10 @@ fn test_gifload_animation_dispose_background() {
     assert_eq!(im.width(), expected.width());
     assert_eq!(im.height(), expected.height());
     let diff = im.max_diff(&expected);
-    assert_eq!(diff, 0.0, "dispose-background GIF max_diff={diff}, expected 0");
+    assert_eq!(
+        diff, 0.0,
+        "dispose-background GIF max_diff={diff}, expected 0"
+    );
 }
 
 #[test]
@@ -2091,7 +2200,10 @@ fn test_gifload_animation_dispose_previous() {
     assert_eq!(im.width(), expected.width());
     assert_eq!(im.height(), expected.height());
     let diff = im.max_diff(&expected);
-    assert_eq!(diff, 0.0, "dispose-previous GIF max_diff={diff}, expected 0");
+    assert_eq!(
+        diff, 0.0,
+        "dispose-previous GIF max_diff={diff}, expected 0"
+    );
 }
 
 #[test]
@@ -2117,10 +2229,16 @@ fn test_gifload_truncated() {
     assert!(im.is_ok(), "Truncated GIF should load normally");
 
     let fail_warn = decode_file_fail_on(&ref_image("truncated.gif"), "warning");
-    assert!(fail_warn.is_err(), "Truncated GIF should fail with fail_on=warning");
+    assert!(
+        fail_warn.is_err(),
+        "Truncated GIF should fail with fail_on=warning"
+    );
 
     let fail_trunc = decode_file_fail_on(&ref_image("truncated.gif"), "truncated");
-    assert!(fail_trunc.is_err(), "Truncated GIF should fail with fail_on=truncated");
+    assert!(
+        fail_trunc.is_err(),
+        "Truncated GIF should fail with fail_on=truncated"
+    );
 }
 
 #[test]
@@ -2145,10 +2263,16 @@ fn test_gifload_frame_error() {
     assert_eq!(im.width(), 800);
 
     let fail_trunc = decode_file_fail_on(&ref_image("garden.gif"), "truncated");
-    assert!(fail_trunc.is_ok(), "GIF with frame error should succeed with fail_on=truncated");
+    assert!(
+        fail_trunc.is_ok(),
+        "GIF with frame error should succeed with fail_on=truncated"
+    );
 
     let fail_warn = decode_file_fail_on(&ref_image("garden.gif"), "warning");
-    assert!(fail_warn.is_err(), "GIF with frame error should fail with fail_on=warning");
+    assert!(
+        fail_warn.is_err(),
+        "GIF with frame error should fail with fail_on=warning"
+    );
 }
 
 #[test]
@@ -2191,7 +2315,8 @@ fn test_gifsave() {
     assert!(
         buf_interlaced.len() >= buf.len(),
         "Interlaced GIF ({}) should be >= non-interlaced ({})",
-        buf_interlaced.len(), buf.len()
+        buf_interlaced.len(),
+        buf.len()
     );
 
     // More dither should produce a larger file
@@ -2200,7 +2325,8 @@ fn test_gifsave() {
     assert!(
         buf_hi.len() >= buf_lo.len(),
         "Higher dither ({}) should produce >= size than lower ({})",
-        buf_hi.len(), buf_lo.len()
+        buf_hi.len(),
+        buf_lo.len()
     );
 }
 
@@ -2278,7 +2404,10 @@ fn test_avifsave_lossless() {
     assert_eq!(im2.width(), im.width());
     assert_eq!(im2.height(), im.height());
     let diff = im.max_diff(&im2);
-    assert_eq!(diff, 0.0, "Lossless AVIF roundtrip max_diff={diff}, expected 0");
+    assert_eq!(
+        diff, 0.0,
+        "Lossless AVIF roundtrip max_diff={diff}, expected 0"
+    );
 }
 
 #[test]
@@ -2305,7 +2434,8 @@ fn test_avifsave_q() {
     assert!(
         buf_high.len() > buf_low.len(),
         "Q=90 AVIF ({}) should be larger than Q=10 ({})",
-        buf_high.len(), buf_low.len()
+        buf_high.len(),
+        buf_low.len()
     );
 }
 
@@ -2336,7 +2466,8 @@ fn test_avifsave_chroma() {
     assert!(
         buf_off.len() > buf_on.len(),
         "Chroma off ({}) should be larger than chroma on ({})",
-        buf_off.len(), buf_on.len()
+        buf_off.len(),
+        buf_on.len()
     );
 }
 
@@ -2361,7 +2492,10 @@ fn test_avifsave_chroma() {
 fn test_avifsave_icc() {
     let im = decode_file(&ref_image("sample.jpg")).unwrap();
     let original_icc = im.get_field("icc-profile-data");
-    assert!(original_icc.is_some(), "sample.jpg should have an ICC profile");
+    assert!(
+        original_icc.is_some(),
+        "sample.jpg should have an ICC profile"
+    );
 
     let buf = im.encode_heif(50, "av1").unwrap();
     let im2 = decode_bytes(&buf).unwrap();
@@ -2594,7 +2728,10 @@ fn test_jp2ksave() {
     let buf_lossless = im.encode_jp2k(0, true).unwrap();
     let im3 = decode_bytes(&buf_lossless).unwrap();
     let diff = im.max_diff(&im3);
-    assert_eq!(diff, 0.0, "Lossless JP2K roundtrip max_diff={diff}, expected 0");
+    assert_eq!(
+        diff, 0.0,
+        "Lossless JP2K roundtrip max_diff={diff}, expected 0"
+    );
 
     // Q variation
     let buf_low = im.encode_jp2k(10, false).unwrap();
@@ -2602,7 +2739,8 @@ fn test_jp2ksave() {
     assert!(
         buf_high.len() > buf_low.len(),
         "Q=90 JP2K ({}) should be larger than Q=10 ({})",
-        buf_high.len(), buf_low.len()
+        buf_high.len(),
+        buf_low.len()
     );
 
     // Chroma subsample
@@ -2611,7 +2749,8 @@ fn test_jp2ksave() {
     assert!(
         buf_sub_off.len() > buf_sub_on.len(),
         "No subsample ({}) should be larger than with subsample ({})",
-        buf_sub_off.len(), buf_sub_on.len()
+        buf_sub_off.len(),
+        buf_sub_on.len()
     );
 
     // 16-bit roundtrip
@@ -2943,7 +3082,10 @@ fn test_csv() {
     assert_eq!(im2.width(), 10);
     assert_eq!(im2.height(), 10);
 
-    let max_diff: f64 = im.data().iter().zip(im2.data().iter())
+    let max_diff: f64 = im
+        .data()
+        .iter()
+        .zip(im2.data().iter())
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(max_diff < 0.001, "CSV round-trip should be lossless");
@@ -2982,7 +3124,10 @@ fn test_matrix() {
     assert_eq!(im2.width(), 10);
     assert_eq!(im2.height(), 10);
 
-    let max_diff: f64 = im.data().iter().zip(im2.data().iter())
+    let max_diff: f64 = im
+        .data()
+        .iter()
+        .zip(im2.data().iter())
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(max_diff < 0.001, "Matrix round-trip should be lossless");
@@ -3011,7 +3156,9 @@ fn test_bmp() {
     {
         let encoder = image::codecs::bmp::BmpEncoder::new(&mut buf);
         let data = vec![128u8; 10 * 10 * 3];
-        encoder.write_image(&data, 10, 10, image::ColorType::Rgb8.into()).unwrap();
+        encoder
+            .write_image(&data, 10, 10, image::ColorType::Rgb8.into())
+            .unwrap();
     }
 
     let dir = tempfile::tempdir().unwrap();
@@ -3092,10 +3239,22 @@ fn test_magickload() {
     );
 
     // density should change SVG size
-    let im100 = magickload_with(&svg_path, MagickLoadOptions { density: Some("100") }).unwrap();
+    let im100 = magickload_with(
+        &svg_path,
+        MagickLoadOptions {
+            density: Some("100"),
+        },
+    )
+    .unwrap();
     let w100 = im100.width();
     let h100 = im100.height();
-    let im200 = magickload_with(&svg_path, MagickLoadOptions { density: Some("200") }).unwrap();
+    let im200 = magickload_with(
+        &svg_path,
+        MagickLoadOptions {
+            density: Some("200"),
+        },
+    )
+    .unwrap();
     // At 2× density, dimensions should roughly double
     assert!(im200.width() > w100, "2× density width should be larger");
     assert!(im200.height() > h100, "2× density height should be larger");
@@ -3105,16 +3264,27 @@ fn test_magickload() {
     let im = magickload(&gif_path).unwrap();
     let width = im.width();
     let height = im.height();
-    let im_all = magickload_with(&gif_path, MagickLoadOptions { n: Some(-1), ..Default::default() }).unwrap();
+    let im_all = magickload_with(
+        &gif_path,
+        MagickLoadOptions {
+            n: Some(-1),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     assert_eq!(im_all.width(), width);
     assert_eq!(im_all.height(), height * 5);
 
     // page/n for range of pages
-    let im_pages = magickload_with(&gif_path, MagickLoadOptions {
-        page: Some(1),
-        n: Some(2),
-        ..Default::default()
-    }).unwrap();
+    let im_pages = magickload_with(
+        &gif_path,
+        MagickLoadOptions {
+            page: Some(1),
+            n: Some(2),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     assert_eq!(im_pages.width(), width);
     assert_eq!(im_pages.height(), height * 2);
     assert_eq!(im_pages.get_int("page-height"), Some(height as i32));
@@ -3150,7 +3320,8 @@ fn test_magickload() {
 
     // ---- ICC metadata via magick ----
     let im = magickload(&ref_image("sample.jpg")).unwrap();
-    let icc = im.get_field("icc-profile-data")
+    let icc = im
+        .get_field("icc-profile-data")
         .expect("sample.jpg should have ICC profile via magickload");
     assert_eq!(icc.len(), 564, "ICC profile length should be 564");
 }
@@ -3360,7 +3531,8 @@ fn test_uhdrsave_gainmap_scale_factor() {
     let buf = scrgb.encode_uhdr(75).unwrap();
     let im2 = decode_bytes(&buf).unwrap();
     assert_eq!(
-        im2.get_field("gainmap-scale-factor").unwrap().as_u32(), 2,
+        im2.get_field("gainmap-scale-factor").unwrap().as_u32(),
+        2,
         "Default gainmap-scale-factor should be 2 for scRGB"
     );
 
@@ -3368,7 +3540,8 @@ fn test_uhdrsave_gainmap_scale_factor() {
     let buf4 = scrgb.encode_uhdr_gainmap_scale(75, 4).unwrap();
     let im3 = decode_bytes(&buf4).unwrap();
     assert_eq!(
-        im3.get_field("gainmap-scale-factor").unwrap().as_u32(), 4,
+        im3.get_field("gainmap-scale-factor").unwrap().as_u32(),
+        4,
         "Explicit gainmap-scale-factor should be 4"
     );
 }
@@ -3464,7 +3637,10 @@ fn test_uhdr_dzsave() {
     let base = dir.path().join("uhdr_dz");
     let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Jpeg { quality: 80 });
     let result = generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
-    assert!(result.tiles_produced > 0, "Should produce tiles from UHDR source");
+    assert!(
+        result.tiles_produced > 0,
+        "Should produce tiles from UHDR source"
+    );
 }
 
 // ===========================================================================
@@ -3498,11 +3674,20 @@ fn test_fail_on() {
     let csv_data = b"1,2,3\n4,5";
 
     let result = Raster::csv_load(csv_data);
-    assert!(result.is_ok(), "Truncated CSV should load normally by default");
+    assert!(
+        result.is_ok(),
+        "Truncated CSV should load normally by default"
+    );
 
     let fail_trunc = decode_bytes_fail_on(csv_data, "truncated");
-    assert!(fail_trunc.is_err(), "Truncated CSV should fail with fail_on=truncated");
+    assert!(
+        fail_trunc.is_err(),
+        "Truncated CSV should fail with fail_on=truncated"
+    );
 
     let fail_warn = decode_bytes_fail_on(csv_data, "warning");
-    assert!(fail_warn.is_err(), "Truncated CSV should fail with fail_on=warning");
+    assert!(
+        fail_warn.is_err(),
+        "Truncated CSV should fail with fail_on=warning"
+    );
 }

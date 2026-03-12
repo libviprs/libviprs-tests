@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use libviprs::{decode_file, PixelFormat, Raster};
+use libviprs::{PixelFormat, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -36,7 +36,7 @@ fn make_test_colour() -> Raster {
             let r = (dx * dx + dy * dy).sqrt();
             let v = if r > 0.5 { (r * 200.0).min(255.0) } else { 0.0 };
             let off = ((y * w + x) * 3) as usize;
-            data[off]     = ((v * 1.0 + 2.0) as u16).min(255) as u8;
+            data[off] = ((v * 1.0 + 2.0) as u16).min(255) as u8;
             data[off + 1] = ((v * 2.0 + 3.0) as u16).min(255) as u8;
             data[off + 2] = ((v * 3.0 + 4.0) as u16).min(255) as u8;
         }
@@ -88,7 +88,10 @@ fn test_cast() {
 
     // Cast to unsigned should clip to 0
     let result = neg.cast(PixelFormat::Gray8);
-    assert!(result.avg() >= 0.0, "Negative cast to unsigned should clip to 0");
+    assert!(
+        result.avg() >= 0.0,
+        "Negative cast to unsigned should clip to 0"
+    );
 
     // Cast max uchar to signed char should clip
     let im = Raster::new(1, 1, PixelFormat::Gray8, vec![255u8]).unwrap();
@@ -952,7 +955,10 @@ fn test_composite() {
 /// Reference: test_conversion.py::test_composite
 fn test_composite_non_separable() {
     let colour = make_test_colour();
-    let base = colour.add_const(100.0).bandjoin_const(255.0).cast(PixelFormat::RgbaF32);
+    let base = colour
+        .add_const(100.0)
+        .bandjoin_const(255.0)
+        .cast(PixelFormat::RgbaF32);
     let overlay = colour.bandjoin_const(128.0).cast(PixelFormat::RgbaF32);
 
     for mode in &[
@@ -987,10 +993,16 @@ fn test_composite_non_separable() {
 fn test_flip() {
     let colour = make_test_colour();
     let result = colour.fliphor().flipver().fliphor().flipver();
-    let max_diff: f64 = colour.data().iter().zip(result.data().iter())
+    let max_diff: f64 = colour
+        .data()
+        .iter()
+        .zip(result.data().iter())
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
-    assert!(max_diff < 1.0, "Double flip should be identity, max diff = {max_diff}");
+    assert!(
+        max_diff < 1.0,
+        "Double flip should be identity, max diff = {max_diff}"
+    );
 }
 
 #[test]
@@ -1315,7 +1327,10 @@ fn test_rot() {
 
     // rot(90).rot(270) = identity
     let round = test.rot(Angle::D90).rot(Angle::D270);
-    let max_diff: f64 = test.data().iter().zip(round.data().iter())
+    let max_diff: f64 = test
+        .data()
+        .iter()
+        .zip(round.data().iter())
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(max_diff < 1.0);
@@ -1368,7 +1383,10 @@ fn test_rot45() {
         let round = test.rot45(*fwd).rot45(*rev);
         assert_eq!(round.width(), test.width());
         assert_eq!(round.height(), test.height());
-        let max_diff: f64 = test.data().iter().zip(round.data().iter())
+        let max_diff: f64 = test
+            .data()
+            .iter()
+            .zip(round.data().iter())
             .map(|(&a, &b)| (a as f64 - b as f64).abs())
             .fold(0.0_f64, f64::max);
         assert!(max_diff < 1.0, "rot45 roundtrip failed for {fwd:?}/{rev:?}");

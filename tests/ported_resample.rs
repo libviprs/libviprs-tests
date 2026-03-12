@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use libviprs::{decode_file, PixelFormat, Raster};
+use libviprs::{PixelFormat, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -174,11 +174,17 @@ mod affine {
                 x = x.affine([0.0, 1.0, 1.0, 0.0], interp);
             }
 
-            let max_diff = im.data().iter().zip(x.data().iter())
+            let max_diff = im
+                .data()
+                .iter()
+                .zip(x.data().iter())
                 .map(|(&a, &b)| (a as i16 - b as i16).unsigned_abs() as u8)
                 .max()
                 .unwrap_or(0);
-            assert_eq!(max_diff, 0, "4× rotation round-trip should be identity for {interp}");
+            assert_eq!(
+                max_diff, 0,
+                "4× rotation round-trip should be identity for {interp}"
+            );
         }
     }
 
@@ -208,11 +214,17 @@ mod affine {
         let im2 = im.similarity(90.0, 1.0);
         let im3 = im.affine([0.0, -1.0, 1.0, 0.0], "bilinear");
 
-        let max_diff = im2.data().iter().zip(im3.data().iter())
+        let max_diff = im2
+            .data()
+            .iter()
+            .zip(im3.data().iter())
             .map(|(&a, &b)| (a as i16 - b as i16).unsigned_abs())
             .max()
             .unwrap_or(0);
-        assert!(max_diff < 50, "similarity(90) vs affine rotation: max_diff={max_diff}");
+        assert!(
+            max_diff < 50,
+            "similarity(90) vs affine rotation: max_diff={max_diff}"
+        );
     }
 
     #[test]
@@ -234,7 +246,10 @@ mod affine {
         let im2 = im.similarity(0.0, 2.0);
         let im3 = im.affine([2.0, 0.0, 0.0, 2.0], "bilinear");
 
-        let max_diff = im2.data().iter().zip(im3.data().iter())
+        let max_diff = im2
+            .data()
+            .iter()
+            .zip(im3.data().iter())
             .map(|(&a, &b)| (a as i16 - b as i16).unsigned_abs())
             .max()
             .unwrap_or(0);
@@ -265,7 +280,10 @@ mod affine {
         let im2 = im.rotate(90.0);
         let im3 = im.affine([0.0, -1.0, 1.0, 0.0], "bilinear");
 
-        let max_diff = im2.data().iter().zip(im3.data().iter())
+        let max_diff = im2
+            .data()
+            .iter()
+            .zip(im3.data().iter())
             .map(|(&a, &b)| (a as i16 - b as i16).unsigned_abs())
             .max()
             .unwrap_or(0);
@@ -361,7 +379,11 @@ mod advanced_resampling {
         // Exact height for a range of sizes
         for height in (2..=440).rev().step_by(13) {
             let im = Raster::thumbnail(&path, height, None, false);
-            assert_eq!(im.height(), height, "Thumbnail height mismatch for target={height}");
+            assert_eq!(
+                im.height(),
+                height,
+                "Thumbnail height mismatch for target={height}"
+            );
         }
 
         // Width and height constraints
@@ -431,11 +453,7 @@ mod advanced_resampling {
     ///
     /// Reference: test_resample.py::test_thumbnail_icc
     fn test_thumbnail_icc() {
-        let im = Raster::thumbnail_with_profile(
-            &ref_image("sample-xyb.jpg"),
-            442,
-            "srgb",
-        );
+        let im = Raster::thumbnail_with_profile(&ref_image("sample-xyb.jpg"), 442, "srgb");
         assert_eq!(im.width(), 290);
         assert_eq!(im.height(), 442);
         assert_eq!(im.format().channels(), 3);

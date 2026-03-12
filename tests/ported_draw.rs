@@ -68,13 +68,25 @@ fn test_draw_circle() {
     // Outline circle
     let mut im = black_image(100, 100);
     im.draw_circle(&[100], 50, 50, 25);
-    assert_eq!(pixel_at(&im, 25, 50), 100, "Pixel on circle should be ink value");
-    assert_eq!(pixel_at(&im, 26, 50), 0, "Pixel inside outline-only circle should be 0");
+    assert_eq!(
+        pixel_at(&im, 25, 50),
+        100,
+        "Pixel on circle should be ink value"
+    );
+    assert_eq!(
+        pixel_at(&im, 26, 50),
+        0,
+        "Pixel inside outline-only circle should be 0"
+    );
 
     // Filled circle
     let mut im = black_image(100, 100);
     im.draw_circle_filled(&[100], 50, 50, 25);
-    assert_eq!(pixel_at(&im, 25, 50), 100, "Pixel on filled circle boundary");
+    assert_eq!(
+        pixel_at(&im, 25, 50),
+        100,
+        "Pixel on filled circle boundary"
+    );
     assert_eq!(pixel_at(&im, 26, 50), 100, "Pixel inside filled circle");
     assert_eq!(pixel_at(&im, 24, 50), 0, "Pixel outside filled circle");
 }
@@ -107,7 +119,11 @@ fn test_draw_flood() {
     let mut im2 = black_image(100, 100);
     im2.draw_circle_filled(&[100], 50, 50, 25);
 
-    assert_eq!(abs_max_diff(&im, &im2), 0, "Flood-filled outline should match filled circle");
+    assert_eq!(
+        abs_max_diff(&im, &im2),
+        0,
+        "Flood-filled outline should match filled circle"
+    );
 }
 
 #[test]
@@ -131,10 +147,22 @@ fn test_draw_flood() {
 fn test_draw_flood_out_of_bounds() {
     let mut im = black_image(100, 100);
 
-    assert!(im.draw_flood(&[100], 200, 50).is_err(), "x=200 should be out of bounds");
-    assert!(im.draw_flood(&[100], 50, 200).is_err(), "y=200 should be out of bounds");
-    assert!(im.draw_flood(&[100], -1, 50).is_err(), "x=-1 should be out of bounds");
-    assert!(im.draw_flood(&[100], 50, -1).is_err(), "y=-1 should be out of bounds");
+    assert!(
+        im.draw_flood(&[100], 200, 50).is_err(),
+        "x=200 should be out of bounds"
+    );
+    assert!(
+        im.draw_flood(&[100], 50, 200).is_err(),
+        "y=200 should be out of bounds"
+    );
+    assert!(
+        im.draw_flood(&[100], -1, 50).is_err(),
+        "x=-1 should be out of bounds"
+    );
+    assert!(
+        im.draw_flood(&[100], 50, -1).is_err(),
+        "y=-1 should be out of bounds"
+    );
 }
 
 #[test]
@@ -166,7 +194,11 @@ fn test_draw_image() {
     let mut im3 = black_image(100, 100);
     im3.draw_circle_filled(&[100], 50, 50, 25);
 
-    assert_eq!(abs_max_diff(&im2, &im3), 0, "draw_image should match direct filled circle");
+    assert_eq!(
+        abs_max_diff(&im2, &im3),
+        0,
+        "draw_image should match direct filled circle"
+    );
 }
 
 #[test]
@@ -260,7 +292,11 @@ fn test_draw_rect() {
         im2.draw_line(&[100], 25, y, 74, y);
     }
 
-    assert_eq!(abs_max_diff(&im, &im2), 0, "Filled rect should match line-drawn region");
+    assert_eq!(
+        abs_max_diff(&im, &im2),
+        0,
+        "Filled rect should match line-drawn region"
+    );
 }
 
 #[test]

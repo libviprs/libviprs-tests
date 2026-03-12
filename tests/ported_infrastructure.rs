@@ -8,8 +8,10 @@
 
 use std::path::Path;
 
-use libviprs::{decode_file, generate_pyramid, EngineConfig, FsSink, Layout, PixelFormat,
-               PyramidPlanner, Raster, TileFormat};
+use libviprs::{
+    EngineConfig, FsSink, Layout, PixelFormat, PyramidPlanner, Raster, TileFormat, decode_file,
+    generate_pyramid,
+};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -59,7 +61,10 @@ mod metadata {
 
         let im2 = decode_file(&out).unwrap();
         let profile2 = im2.get_field("icc-profile-data");
-        assert!(profile2.is_some(), "ICC profile should be preserved after save");
+        assert!(
+            profile2.is_some(),
+            "ICC profile should be preserved after save"
+        );
     }
 
     #[test]
@@ -90,7 +95,10 @@ mod metadata {
             im.save(&out).unwrap();
 
             let im2 = decode_file(&out).unwrap();
-            assert!(im2.get_field("xmp-data").is_some(), "XMP should be preserved");
+            assert!(
+                im2.get_field("xmp-data").is_some(),
+                "XMP should be preserved"
+            );
         }
     }
 
@@ -123,8 +131,14 @@ mod metadata {
         im.save_stripped(&out).unwrap();
 
         let im2 = decode_file(&out).unwrap();
-        assert!(im2.get_field("icc-profile-data").is_none(), "ICC should be stripped");
-        assert!(im2.get_field("exif-data").is_none(), "EXIF should be stripped");
+        assert!(
+            im2.get_field("icc-profile-data").is_none(),
+            "ICC should be stripped"
+        );
+        assert!(
+            im2.get_field("exif-data").is_none(),
+            "EXIF should be stripped"
+        );
     }
 
     #[test]
@@ -158,7 +172,11 @@ mod metadata {
 
         let im2 = decode_file(&out).unwrap();
         if let Some(MetadataValue::Blob(profile)) = im2.get_field("icc-profile-data") {
-            assert_eq!(profile.len(), srgb_icc.len(), "ICC profile size should match");
+            assert_eq!(
+                profile.len(),
+                srgb_icc.len(),
+                "ICC profile size should match"
+            );
         } else {
             panic!("Custom ICC profile should be preserved");
         }
@@ -193,9 +211,8 @@ mod threading {
     /// Reference: test_threading.sh
     fn test_threading_consistency() {
         let src = decode_file(&ref_image("sample.jpg")).unwrap();
-        let planner = PyramidPlanner::new(
-            src.width(), src.height(), 256, 0, Layout::DeepZoom,
-        ).unwrap();
+        let planner =
+            PyramidPlanner::new(src.width(), src.height(), 256, 0, Layout::DeepZoom).unwrap();
         let plan = planner.plan();
 
         let dir1 = tempfile::tempdir().unwrap();
@@ -215,7 +232,10 @@ mod threading {
         let tile_path = format!("{}/0_0.png", top.level);
         let t1 = std::fs::read(base1.join(&tile_path)).unwrap();
         let t4 = std::fs::read(base4.join(&tile_path)).unwrap();
-        assert_eq!(t1, t4, "Tiles should be identical regardless of thread count");
+        assert_eq!(
+            t1, t4,
+            "Tiles should be identical regardless of thread count"
+        );
     }
 
     #[test]
@@ -463,10 +483,7 @@ mod pipeline {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
 
         // Chain multiple operations
-        let result = im
-            .resize(0.5, 0.5)
-            .gaussblur(2.0)
-            .resize(2.0, 2.0);
+        let result = im.resize(0.5, 0.5).gaussblur(2.0).resize(2.0, 2.0);
 
         // Force evaluation
         let _px = result.getpoint(0, 0);
@@ -512,9 +529,8 @@ mod timeout {
     /// Reference: manual — observe module usage
     fn test_progress_cancel() {
         let src = decode_file(&ref_image("sample.jpg")).unwrap();
-        let planner = PyramidPlanner::new(
-            src.width(), src.height(), 256, 0, Layout::DeepZoom,
-        ).unwrap();
+        let planner =
+            PyramidPlanner::new(src.width(), src.height(), 256, 0, Layout::DeepZoom).unwrap();
         let plan = planner.plan();
 
         let dir = tempfile::tempdir().unwrap();
@@ -522,9 +538,9 @@ mod timeout {
         let sink = FsSink::new(base, plan.clone(), TileFormat::Png);
 
         let observer = CollectingObserver::new();
-        let _result = generate_pyramid_observed(
-            &src, &plan, &sink, &EngineConfig::default(), &observer,
-        ).unwrap();
+        let _result =
+            generate_pyramid_observed(&src, &plan, &sink, &EngineConfig::default(), &observer)
+                .unwrap();
 
         assert!(
             observer.event_count() > 0,
@@ -717,7 +733,7 @@ mod cli {
     ///
     /// Reference: test_cli.sh
     fn test_cli_max_coord_flag() {
-        use libviprs::{set_max_coord, get_max_coord};
+        use libviprs::{get_max_coord, set_max_coord};
 
         set_max_coord(1000);
         assert_eq!(get_max_coord(), 1000);
@@ -750,7 +766,7 @@ mod cli {
     ///
     /// Reference: test_cli.sh
     fn test_cli_max_coord_env() {
-        use libviprs::{init_from_env, get_max_coord};
+        use libviprs::{get_max_coord, init_from_env};
 
         std::env::set_var("VIPS_MAX_COORD", "500");
         init_from_env();

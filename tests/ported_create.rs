@@ -370,9 +370,13 @@ fn test_invertlut() {
     assert_eq!(im.format().channels(), 3);
 
     let p = im.getpoint(0, 0);
-    for &v in &p { assert!(v.abs() < 0.001); }
+    for &v in &p {
+        assert!(v.abs() < 0.001);
+    }
     let p = im.getpoint(255, 0);
-    for &v in &p { assert!((v - 1.0).abs() < 0.001); }
+    for &v in &p {
+        assert!((v - 1.0).abs() < 0.001);
+    }
 
     let p = im.getpoint((0.2 * 255.0) as u32, 0);
     assert!((p[0] - 0.1).abs() < 0.1);
@@ -828,18 +832,45 @@ fn test_xyz() {
 /// Reference: test_create.py::test_sdf
 fn test_sdf() {
     // Circle SDF
-    let im = Raster::sdf(128, 128, "circle", &SdfParams { a: [64, 64], r: Some(32), ..Default::default() });
+    let im = Raster::sdf(
+        128,
+        128,
+        "circle",
+        &SdfParams {
+            a: [64, 64],
+            r: Some(32),
+            ..Default::default()
+        },
+    );
     assert_eq!(im.width(), 128);
     let p = im.getpoint(45, 35);
     assert!((p[0] - 2.670).abs() < 0.1);
 
     // Box SDF
-    let im = Raster::sdf(128, 128, "box", &SdfParams { a: [10, 10], b: Some([50, 40]), ..Default::default() });
+    let im = Raster::sdf(
+        128,
+        128,
+        "box",
+        &SdfParams {
+            a: [10, 10],
+            b: Some([50, 40]),
+            ..Default::default()
+        },
+    );
     let p = im.getpoint(45, 35);
     assert!((p[0] - (-5.0)).abs() < 0.1);
 
     // Line SDF
-    let im = Raster::sdf(128, 128, "line", &SdfParams { a: [10, 10], b: Some([50, 40]), ..Default::default() });
+    let im = Raster::sdf(
+        128,
+        128,
+        "line",
+        &SdfParams {
+            a: [10, 10],
+            b: Some([50, 40]),
+            ..Default::default()
+        },
+    );
     let p = im.getpoint(45, 35);
     assert!((p[0] - 1.0).abs() < 0.1);
 }

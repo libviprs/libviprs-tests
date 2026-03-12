@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use libviprs::{decode_file, PixelFormat, Raster};
+use libviprs::{PixelFormat, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -29,7 +29,10 @@ fn pixel_f64(im: &Raster, x: u32, y: u32) -> Vec<f64> {
     let raw = view.pixel(0, 0).unwrap();
     match im.format().bytes_per_channel() {
         1 => raw.iter().map(|&b| b as f64).collect(),
-        2 => raw.chunks(2).map(|c| u16::from_ne_bytes([c[0], c[1]]) as f64).collect(),
+        2 => raw
+            .chunks(2)
+            .map(|c| u16::from_ne_bytes([c[0], c[1]]) as f64)
+            .collect(),
         _ => vec![],
     }
 }
@@ -37,13 +40,7 @@ fn pixel_f64(im: &Raster, x: u32, y: u32) -> Vec<f64> {
 /// Perform a point convolution on `image` at position `(px, py)` with the
 /// given `kernel` (2D f64 matrix) and `scale` divisor.
 /// This is the reference (scalar) implementation used to verify the API.
-fn point_conv(
-    image: &Raster,
-    kernel: &[Vec<f64>],
-    scale: f64,
-    px: u32,
-    py: u32,
-) -> Vec<f64> {
+fn point_conv(image: &Raster, kernel: &[Vec<f64>], scale: f64, px: u32, py: u32) -> Vec<f64> {
     let kh = kernel.len();
     let kw = kernel[0].len();
     let channels = image.format().channels();
@@ -107,16 +104,47 @@ fn test_conv() {
     let mono = colour.extract_band(1);
 
     let kernels = vec![
-        (vec![vec![-1.0,-1.0,-1.0], vec![-1.0,16.0,-1.0], vec![-1.0,-1.0,-1.0]], 8.0),
-        (vec![vec![1.0,1.0,1.0], vec![1.0,1.0,1.0], vec![1.0,1.0,1.0]], 9.0),
-        (vec![vec![1.0,1.0,1.0], vec![-2.0,-2.0,-2.0], vec![1.0,1.0,1.0]], 1.0),
-        (vec![vec![1.0,2.0,1.0], vec![0.0,0.0,0.0], vec![-1.0,-2.0,-1.0]], 1.0),
+        (
+            vec![
+                vec![-1.0, -1.0, -1.0],
+                vec![-1.0, 16.0, -1.0],
+                vec![-1.0, -1.0, -1.0],
+            ],
+            8.0,
+        ),
+        (
+            vec![
+                vec![1.0, 1.0, 1.0],
+                vec![1.0, 1.0, 1.0],
+                vec![1.0, 1.0, 1.0],
+            ],
+            9.0,
+        ),
+        (
+            vec![
+                vec![1.0, 1.0, 1.0],
+                vec![-2.0, -2.0, -2.0],
+                vec![1.0, 1.0, 1.0],
+            ],
+            1.0,
+        ),
+        (
+            vec![
+                vec![1.0, 2.0, 1.0],
+                vec![0.0, 0.0, 0.0],
+                vec![-1.0, -2.0, -1.0],
+            ],
+            1.0,
+        ),
     ];
 
     for im in [&mono, &colour] {
         for (kernel_data, scale) in &kernels {
             for _precision in [Precision::Integer, Precision::Float] {
-                let kernel = Kernel { data: kernel_data.clone(), scale: *scale };
+                let kernel = Kernel {
+                    data: kernel_data.clone(),
+                    scale: *scale,
+                };
                 let convolved = im.conv(&kernel, _precision);
 
                 let result = pixel_f64(&convolved, 25, 50);
@@ -177,7 +205,11 @@ fn test_compass() {
     let mono = colour.extract_band(1);
 
     let sharp = Kernel {
-        data: vec![vec![-1.0,-1.0,-1.0], vec![-1.0,16.0,-1.0], vec![-1.0,-1.0,-1.0]],
+        data: vec![
+            vec![-1.0, -1.0, -1.0],
+            vec![-1.0, 16.0, -1.0],
+            vec![-1.0, -1.0, -1.0],
+        ],
         scale: 8.0,
     };
 
@@ -332,7 +364,10 @@ fn test_spcor() {
         let cor = im.spcor(&small);
         let (v, x, y) = cor.maxpos();
 
-        assert!((v - 1.0).abs() < 0.001, "NCC perfect match should be 1.0, got {v}");
+        assert!(
+            (v - 1.0).abs() < 0.001,
+            "NCC perfect match should be 1.0, got {v}"
+        );
         assert_eq!(x, 25, "Match x position");
         assert_eq!(y, 50, "Match y position");
     }
@@ -422,7 +457,10 @@ fn test_sharpen() {
 
             // With m1=0 and m2=0, sharpen should be identity
             let noop = im.sharpen(sigma, 0.0, 0.0);
-            let max_diff: u8 = im.data().iter().zip(noop.data().iter())
+            let max_diff: u8 = im
+                .data()
+                .iter()
+                .zip(noop.data().iter())
                 .map(|(&a, &b)| (a as i16 - b as i16).unsigned_abs() as u8)
                 .max()
                 .unwrap_or(0);

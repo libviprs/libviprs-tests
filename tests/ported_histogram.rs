@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use libviprs::{decode_file, PixelFormat, Raster};
+use libviprs::{PixelFormat, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -93,7 +93,10 @@ fn test_hist_equal() {
     assert_eq!(im.width(), im2.width());
     assert_eq!(im.height(), im2.height());
     assert!(im.avg() < im2.avg(), "Equalized avg should be higher");
-    assert!(im.deviate() < im2.deviate(), "Equalized deviate should be higher");
+    assert!(
+        im.deviate() < im2.deviate(),
+        "Equalized deviate should be higher"
+    );
 }
 
 #[test]
@@ -152,7 +155,10 @@ fn test_hist_local() {
     let im3 = im.hist_local(10, 10, Some(3.0));
     assert_eq!(im.width(), im3.width());
     assert_eq!(im.height(), im3.height());
-    assert!(im3.deviate() < im2.deviate(), "Clamped CLAHE should have less contrast than unlimited");
+    assert!(
+        im3.deviate() < im2.deviate(),
+        "Clamped CLAHE should have less contrast than unlimited"
+    );
 }
 
 #[test]
@@ -184,7 +190,10 @@ fn test_hist_match() {
     let matched = im.hist_match(&im2);
 
     // Matching to the same histogram should be identity
-    let max_diff: f64 = im.data().iter().zip(matched.data().iter())
+    let max_diff: f64 = im
+        .data()
+        .iter()
+        .zip(matched.data().iter())
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(
@@ -215,7 +224,10 @@ fn test_hist_norm() {
     let im = Raster::identity();
     let im2 = im.hist_norm();
 
-    let max_diff: f64 = im.data().iter().zip(im2.data().iter())
+    let max_diff: f64 = im
+        .data()
+        .iter()
+        .zip(im2.data().iter())
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(max_diff < 0.001, "hist_norm of identity should be identity");
@@ -272,7 +284,10 @@ fn test_hist_map() {
     let im = Raster::identity();
     let im2 = im.maplut(&im);
 
-    let max_diff: f64 = im.data().iter().zip(im2.data().iter())
+    let max_diff: f64 = im
+        .data()
+        .iter()
+        .zip(im2.data().iter())
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(max_diff < 0.001, "maplut with identity should be identity");

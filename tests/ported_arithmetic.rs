@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use libviprs::{decode_file, PixelFormat, Raster};
+use libviprs::{PixelFormat, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -36,7 +36,11 @@ fn make_test_mono() -> Raster {
             let dy = (y as f64 - cy) / cy;
             let r = (dx * dx + dy * dy).sqrt();
             // Band-reject at 0.5: outside ring is bright, inside is dark
-            let v = if r > 0.5 { (r * 200.0).min(255.0) as u8 } else { 0 };
+            let v = if r > 0.5 {
+                (r * 200.0).min(255.0) as u8
+            } else {
+                0
+            };
             data[(y * w + x) as usize] = v;
         }
     }
@@ -53,7 +57,7 @@ fn make_test_colour() -> Raster {
     let mut data = vec![0u8; (w * h * 3) as usize];
     for i in 0..(w * h) as usize {
         let v = md[i] as u16;
-        data[i * 3]     = ((v * 1 + 2).min(255)) as u8;
+        data[i * 3] = ((v * 1 + 2).min(255)) as u8;
         data[i * 3 + 1] = ((v * 2 + 3).min(255)) as u8;
         data[i * 3 + 2] = ((v * 3 + 4).min(255)) as u8;
     }
@@ -940,10 +944,7 @@ mod statistics {
     fn test_find_trim() {
         let inner_data = vec![100u8; 50 * 60];
         let inner = Raster::new(50, 60, PixelFormat::Gray8, inner_data).unwrap();
-        let canvas = Raster::new(
-            200, 300, PixelFormat::Gray8,
-            vec![255u8; 200 * 300],
-        ).unwrap();
+        let canvas = Raster::new(200, 300, PixelFormat::Gray8, vec![255u8; 200 * 300]).unwrap();
         let im = canvas.insert(&inner, 10, 20, false);
 
         let (left, top, width, height) = im.find_trim(None);
@@ -1088,7 +1089,10 @@ mod statistics {
         let b = Raster::new(50, 50, PixelFormat::Gray8, b_data).unwrap();
 
         let result = a.minpair(&b);
-        assert!((result.avg() - 50.0).abs() < 1.0, "min(100,50) should be 50");
+        assert!(
+            (result.avg() - 50.0).abs() < 1.0,
+            "min(100,50) should be 50"
+        );
     }
 
     #[test]
@@ -1115,7 +1119,10 @@ mod statistics {
         let b = Raster::new(50, 50, PixelFormat::Gray8, b_data).unwrap();
 
         let result = a.maxpair(&b);
-        assert!((result.avg() - 100.0).abs() < 1.0, "max(100,50) should be 100");
+        assert!(
+            (result.avg() - 100.0).abs() < 1.0,
+            "max(100,50) should be 100"
+        );
     }
 }
 
@@ -1148,7 +1155,8 @@ mod math_functions {
         assert!(
             (px_r[0] - expected).abs() < 0.001,
             "sin({}) should be {expected}, got {}",
-            px_m[0], px_r[0]
+            px_m[0],
+            px_r[0]
         );
     }
 
@@ -1611,7 +1619,13 @@ mod math_functions {
         let result = mono.sign();
         let px_m = mono.getpoint(50, 50);
         let px_r = result.getpoint(50, 50);
-        let expected = if px_m[0] > 0.0 { 1.0 } else if px_m[0] < 0.0 { -1.0 } else { 0.0 };
+        let expected = if px_m[0] > 0.0 {
+            1.0
+        } else if px_m[0] < 0.0 {
+            -1.0
+        } else {
+            0.0
+        };
         assert!((px_r[0] - expected).abs() < 0.001);
     }
 }
@@ -1770,7 +1784,10 @@ mod complex_histogram {
         let count_5 = hist.getpoint(5, 0);
 
         assert!((count_0[0] - 5000.0).abs() < 1.0, "5000 pixels at value 0");
-        assert!((count_10[0] - 5000.0).abs() < 1.0, "5000 pixels at value 10");
+        assert!(
+            (count_10[0] - 5000.0).abs() < 1.0,
+            "5000 pixels at value 10"
+        );
         assert!((count_5[0] - 0.0).abs() < 1.0, "0 pixels at value 5");
     }
 
@@ -1871,15 +1888,25 @@ mod complex_histogram {
         let hough = im.hough_circle(35, 45);
         let (v, x, y) = hough.maxpos();
         let vec = hough.getpoint(x, y);
-        let r = vec.iter()
+        let r = vec
+            .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
             .map(|(i, _)| i as u32 + 35)
             .unwrap();
 
-        assert!((x as f64 - 50.0).abs() < 2.0, "Centre x should be ~50, got {x}");
-        assert!((y as f64 - 50.0).abs() < 2.0, "Centre y should be ~50, got {y}");
-        assert!((r as f64 - 40.0).abs() < 2.0, "Radius should be ~40, got {r}");
+        assert!(
+            (x as f64 - 50.0).abs() < 2.0,
+            "Centre x should be ~50, got {x}"
+        );
+        assert!(
+            (y as f64 - 50.0).abs() < 2.0,
+            "Centre y should be ~50, got {y}"
+        );
+        assert!(
+            (r as f64 - 40.0).abs() < 2.0,
+            "Radius should be ~40, got {r}"
+        );
     }
 
     #[test]

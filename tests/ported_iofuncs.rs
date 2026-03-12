@@ -7,8 +7,8 @@
 
 use std::path::Path;
 
-use libviprs::{decode_file, PixelFormat, Raster};
 use libviprs::source::decode_bytes;
+use libviprs::{PixelFormat, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -141,7 +141,11 @@ fn test_new_from_memory() {
 fn test_get_fields() {
     let im = Raster::black(10, 10);
     let fields = im.get_fields();
-    assert!(fields.len() > 10, "Should have more than 10 fields, got {}", fields.len());
+    assert!(
+        fields.len() > 10,
+        "Should have more than 10 fields, got {}",
+        fields.len()
+    );
     assert_eq!(fields[0], "width");
 }
 

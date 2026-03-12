@@ -1,5 +1,5 @@
 use libviprs::{
-    generate_pyramid, EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster,
+    EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster, generate_pyramid,
 };
 
 /// Mirrors libvips' test_seq.sh: verify the engine doesn't create temp files.
@@ -33,7 +33,9 @@ fn no_temp_files_during_processing() {
 
     // Save and override TMPDIR
     let old_tmpdir = std::env::var("TMPDIR").ok();
-    unsafe { std::env::set_var("TMPDIR", temp_dir.path()); }
+    unsafe {
+        std::env::set_var("TMPDIR", temp_dir.path());
+    }
 
     let result = generate_pyramid(
         &src,
@@ -52,6 +54,10 @@ fn no_temp_files_during_processing() {
     let writable = std::fs::Permissions::from(std::os::unix::fs::PermissionsExt::from_mode(0o755));
     std::fs::set_permissions(temp_dir.path(), writable).unwrap();
 
-    assert!(result.is_ok(), "Engine must not require temp files: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Engine must not require temp files: {:?}",
+        result.err()
+    );
     assert_eq!(sink.tile_count() as u64, plan.total_tile_count());
 }

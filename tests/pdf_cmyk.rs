@@ -7,7 +7,7 @@
 //! TODO: Add a real-world CMYK PDF fixture to tests/fixtures/ for more
 //! comprehensive coverage (e.g., a scanned blueprint from a print shop).
 
-use libviprs::{extract_page_image, pdf_info, PixelFormat};
+use libviprs::{PixelFormat, extract_page_image, pdf_info};
 use std::io::Write;
 
 /// Build a minimal valid PDF containing a single CMYK FlateDecode image.
@@ -97,7 +97,10 @@ fn extract_cmyk_image_from_synthetic_pdf() {
     // Verify PDF is parseable
     let info = pdf_info(&path).expect("failed to parse synthetic CMYK PDF");
     assert_eq!(info.page_count, 1);
-    assert!(info.pages[0].has_images, "Page should have an image XObject");
+    assert!(
+        info.pages[0].has_images,
+        "Page should have an image XObject"
+    );
 
     // Extract the image — this exercises the CMYK → RGB path
     let raster = extract_page_image(&path, 1).expect("failed to extract CMYK image");
