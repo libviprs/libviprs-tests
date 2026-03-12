@@ -128,7 +128,7 @@ fn test_draw_flood() {
 /// 5. Attempt flood fill at (50, -1) — should error.
 ///
 /// Reference: test_draw.py::test_draw_flood_out_of_bounds
-fn test_draw_flood_oob() {
+fn test_draw_flood_out_of_bounds() {
     let mut im = black_image(100, 100);
 
     assert!(im.draw_flood(&[100], 200, 50).is_err(), "x=200 should be out of bounds");

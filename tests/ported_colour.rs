@@ -23,6 +23,7 @@ fn ref_image(name: &str) -> std::path::PathBuf {
 
 #[test]
 #[ignore]
+/// Subset of libvips test_colour.py::test_colourspace.
 /// Colour-space round-trip: convert through a chain of colour spaces and
 /// verify the result comes back to the starting point.
 ///
@@ -108,6 +109,7 @@ fn test_colourspace_roundtrip() {
 
 #[test]
 #[ignore]
+/// Subset of libvips test_colour.py::test_colourspace.
 /// Mono colour-space conversions (greyscale → colour → greyscale).
 ///
 /// ## Required API
@@ -158,6 +160,7 @@ fn test_colourspace_mono() {
 
 #[test]
 #[ignore]
+/// Subset of libvips test_colour.py::test_colourspace.
 /// CMYK round-trip through colour spaces.
 ///
 /// ## Required API
@@ -197,6 +200,7 @@ fn test_colourspace_cmyk() {
 
 #[test]
 #[ignore]
+/// Subset of libvips test_colour.py::test_colourspace (Lindbloom validation). No standalone libvips equivalent.
 /// Lab→XYZ conversion verified against Lindbloom reference.
 ///
 /// ## Required API
@@ -226,6 +230,7 @@ fn test_lab_xyz_reference() {
 
 #[test]
 #[ignore]
+/// 1:1 port of libvips test_colour.py::test_dE00 (Rust name uses lowercase).
 /// Delta E 2000 (CIEDE2000) colour difference.
 ///
 /// ## Required API
@@ -266,6 +271,7 @@ fn test_de00() {
 
 #[test]
 #[ignore]
+/// 1:1 port of libvips test_colour.py::test_dE76 (Rust name uses lowercase).
 /// Delta E 76 (CIE76) colour difference.
 ///
 /// ## Required API
@@ -303,6 +309,7 @@ fn test_de76() {
 
 #[test]
 #[ignore]
+/// 1:1 port of libvips test_colour.py::test_dECMC (Rust name uses lowercase).
 /// Delta E CMC colour difference.
 ///
 /// ## Required API
@@ -373,7 +380,7 @@ fn test_decmc() {
 /// 9. Import with default PCS: interpretation should be Lab.
 ///
 /// Reference: test_colour.py::test_icc
-fn test_icc_transform() {
+fn test_icc() {
     let test = decode_file(&ref_image("sample.jpg")).unwrap();
     let srgb_profile = ref_image("sRGB.icm");
 
@@ -424,7 +431,7 @@ fn test_icc_transform() {
 /// 3. Compare pixel at (150, 210): before and after should be close (threshold 10).
 ///
 /// Reference: test_colour.py::test_cmyk
-fn test_cmyk_to_srgb() {
+fn test_cmyk() {
     let test = decode_file(&ref_image("sample.jpg")).unwrap();
 
     let cmyk = test.colourspace(Interpretation::Cmyk);

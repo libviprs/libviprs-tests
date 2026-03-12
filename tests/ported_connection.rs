@@ -27,8 +27,8 @@ fn ref_image(name: &str) -> std::path::PathBuf {
 
 #[test]
 /// Create a Raster from raw bytes and verify dimensions.
-/// Reference: test_connection.py — new_from_memory
-fn test_new_from_memory() {
+/// Reference: test_connection.py::test_source_new_memory
+fn test_source_new_memory() {
     let w: u32 = 64;
     let h: u32 = 48;
     let bpp = PixelFormat::Rgb8.bytes_per_pixel();
@@ -52,8 +52,8 @@ fn test_new_from_memory() {
 #[test]
 /// Create a Raster with known pixel values, read them back via `.data()`,
 /// and verify the contents match.
-/// Reference: test_connection.py — write_to_memory
-fn test_write_to_memory() {
+/// Reference: test_connection.py::test_target_new_memory
+fn test_target_new_memory() {
     let w: u32 = 32;
     let h: u32 = 32;
     let bpp = PixelFormat::Rgb8.bytes_per_pixel();
@@ -110,7 +110,7 @@ fn test_write_to_memory() {
 /// 4. Assert width and height match decode_file result (290×442).
 ///
 /// Reference: test_connection.py::test_image_new_from_source_file
-fn test_custom_source() {
+fn test_image_new_from_source_file() {
     let file = std::fs::File::open(ref_image("sample.jpg")).unwrap();
     let mut source = Source::new(file);
     let raster = decode_source(&mut source).unwrap();
@@ -153,7 +153,7 @@ fn test_custom_source() {
 /// 5. Assert the two byte sequences are identical.
 ///
 /// Reference: test_connection.py::test_image_write_to_target_file
-fn test_custom_target() {
+fn test_image_write_to_target_file() {
     let im = decode_file(&ref_image("sample.jpg")).unwrap();
 
     let mut buf = Vec::new();
@@ -162,6 +162,78 @@ fn test_custom_target() {
 
     let buf2 = im.encode_to_buffer("jpeg").unwrap();
     assert_eq!(buf, buf2, "Target and buffer encoding should produce identical bytes");
+}
+
+// ===========================================================================
+// 12.4b Target to file
+// ===========================================================================
+
+#[test]
+#[ignore]
+/// Create a Target pointing to a file and verify it has a filename.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Create a Target that writes to a file at the given path.
+/// fn Target::new_to_file(path: &Path) -> Result<Target<File>, io::Error>;
+///
+/// /// The filename associated with this target (None for memory targets).
+/// fn Target::filename(&self) -> Option<&str>;
+/// ```
+///
+/// ## Test logic (from libvips test_connection.py::test_target_new_to_file)
+///
+/// 1. Create a Target to a temp file.
+/// 2. Assert filename is not None.
+/// 3. Clean up temp file.
+///
+/// Reference: test_connection.py::test_target_new_to_file
+fn test_target_new_to_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("out.jpg");
+    let target = Target::new_to_file(&path).unwrap();
+    assert!(target.filename().is_some(), "File-based target should have a filename");
+}
+
+// ===========================================================================
+// 12.4c Write to target in memory
+// ===========================================================================
+
+#[test]
+#[ignore]
+/// Write an image to a memory-based Target, reload, verify dimensions.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Create a Target that writes to an in-memory buffer.
+/// fn Target::new_to_memory() -> Target<Vec<u8>>;
+///
+/// /// Get the blob written to a memory target.
+/// fn Target::get_blob(&self) -> &[u8];
+/// ```
+///
+/// ## Test logic (from libvips test_connection.py::test_image_write_to_target_memory)
+///
+/// 1. Create a memory Target.
+/// 2. Write sample.jpg to it as JPEG.
+/// 3. Get the blob, decode it.
+/// 4. Assert dimensions match the original within ±2.
+/// 5. Assert average matches within 3.
+///
+/// Reference: test_connection.py::test_image_write_to_target_memory
+fn test_image_write_to_target_memory() {
+    let im = decode_file(&ref_image("sample.jpg")).unwrap();
+
+    let mut target = Target::new_to_memory();
+    encode_to_target(&im, &mut target, "jpeg").unwrap();
+
+    let blob = target.get_blob();
+    let im2 = decode_bytes(blob).unwrap();
+    assert!((im2.width() as i32 - im.width() as i32).unsigned_abs() < 2);
+    assert!((im2.height() as i32 - im.height() as i32).unsigned_abs() < 2);
+    assert!((im2.avg() - im.avg()).abs() < 3.0);
 }
 
 // ===========================================================================
@@ -186,7 +258,7 @@ fn test_custom_target() {
 /// 3. Decode image, assert dimensions = 290×442.
 ///
 /// Reference: test_connection.py::test_source_new_from_file
-fn test_source_from_file() {
+fn test_source_new_from_file() {
     let path = ref_image("sample.jpg");
     let mut source = Source::from_file(&path).unwrap();
     assert_eq!(source.filename(), Some(path.to_str().unwrap()));
@@ -216,7 +288,7 @@ fn test_source_from_file() {
 /// 4. Assert dimensions match (lossy compression means pixels won't be identical).
 ///
 /// Reference: test_connection.py::test_image_new_from_source_memory
-fn test_memory_roundtrip() {
+fn test_image_new_from_source_memory() {
     let im = decode_file(&ref_image("sample.jpg")).unwrap();
     let buf = im.encode_to_buffer("jpeg").unwrap();
     let im2 = decode_bytes(&buf).unwrap();
@@ -227,84 +299,11 @@ fn test_memory_roundtrip() {
 }
 
 // ===========================================================================
-// 12.7 Metadata / fields
+// 12.7 Format-specific connections
 // ===========================================================================
-
-#[test]
-#[ignore]
-/// Read image metadata fields (e.g. EXIF, ICC, XMP).
-///
-/// ## Required API
-///
-/// ```rust,ignore
-/// /// Get a metadata field by name. Returns None if the field doesn't exist.
-/// fn Raster::get_field(&self, name: &str) -> Option<MetadataValue>;
-///
-/// /// List all available metadata field names.
-/// fn Raster::get_fields(&self) -> Vec<String>;
-///
-/// pub enum MetadataValue {
-///     Int(i64),
-///     Double(f64),
-///     String(String),
-///     Blob(Vec<u8>),
-/// }
-/// ```
-///
-/// ## Test logic (from libvips test_connection.py — get_fields)
-///
-/// 1. Load sample.jpg.
-/// 2. Get field names — should contain standard fields like "width", "height", "bands".
-/// 3. Get "icc-profile-data" — should be Some(Blob) for a JPEG with an embedded profile.
-///
-/// Reference: test_connection.py (metadata access patterns)
-fn test_get_fields() {
-    let im = decode_file(&ref_image("sample.jpg")).unwrap();
-
-    let fields = im.get_fields();
-    assert!(fields.contains(&"width".to_string()));
-    assert!(fields.contains(&"height".to_string()));
-
-    // JPEG may have an embedded ICC profile
-    if let Some(MetadataValue::Blob(profile)) = im.get_field("icc-profile-data") {
-        assert!(!profile.is_empty(), "ICC profile should not be empty");
-    }
-}
-
+// NOTE: test_get_fields and test_revalidate moved to ported_iofuncs.rs
+// to match libvips test_iofuncs.py structure.
 // ===========================================================================
-// 12.8 Revalidate / caching
-// ===========================================================================
-
-#[test]
-#[ignore]
-/// Invalidate and revalidate a cached image region.
-///
-/// ## Required API
-///
-/// ```rust,ignore
-/// /// Invalidate any cached data, forcing re-read on next access.
-/// fn Raster::invalidate(&mut self);
-/// ```
-///
-/// ## Test logic
-///
-/// This tests an internal caching mechanism. Since libviprs doesn't currently
-/// cache decoded data, this is a placeholder for when caching is added.
-///
-/// Reference: test_connection.py — revalidate
-fn test_revalidate() {
-    let im = decode_file(&ref_image("sample.jpg")).unwrap();
-    let avg_before = im.avg();
-
-    // After invalidation and re-read, avg should be identical
-    let mut im2 = im.clone();
-    im2.invalidate();
-    let avg_after = im2.avg();
-    assert!((avg_before - avg_after).abs() < 0.001);
-}
-
-// ===========================================================================
-// 12.9 Format-specific connections
 // ===========================================================================
 
 #[test]
@@ -425,6 +424,32 @@ fn test_connection_ppm() {
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(max_diff < 0.001);
+}
+
+#[test]
+#[ignore]
+/// DeepZoom connection (save mono image to DZ format via target-to-memory).
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Save a raster as a DeepZoom image set into an in-memory zip blob.
+/// fn Raster::dzsave_buffer(&self) -> Vec<u8>;
+/// ```
+///
+/// ## Test logic (from libvips test_connection.py::test_connection_dz)
+///
+/// 1. Extract mono band from sample.jpg.
+/// 2. Save as DeepZoom to memory buffer via `dzsave_buffer`.
+/// 3. Assert the resulting blob is non-trivial: `len(blob) > 1000`.
+///
+/// Reference: test_connection.py::test_connection_dz
+fn test_connection_dz() {
+    let colour = decode_file(&ref_image("sample.jpg")).unwrap();
+    let mono = colour.extract_band(1);
+
+    let blob = mono.dzsave_buffer();
+    assert!(blob.len() > 1000, "DeepZoom blob should be non-trivial, got {} bytes", blob.len());
 }
 
 #[test]

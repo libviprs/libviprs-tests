@@ -27,6 +27,7 @@ mod resize {
     use super::*;
 
     #[test]
+    /// Subset of libvips test_resample.py::test_resize.
     fn test_resize_quarter() {
         let src = libviprs::source::generate_test_raster(256, 256).unwrap();
         let half = libviprs::resize::downscale_half(&src).unwrap();
@@ -39,6 +40,7 @@ mod resize {
 
     #[test]
     #[ignore]
+    /// Subset of libvips test_resample.py::test_resize.
     /// Verify downscale behaviour with odd-dimension inputs.
     ///
     /// ## Required API
@@ -111,6 +113,7 @@ mod resize {
 
     #[test]
     #[ignore]
+    /// Additional coverage related to libvips test_resample.py::test_shrink. No standalone libvips equivalent.
     /// Shrink using box-average filter and compare quality.
     ///
     /// ## Required API
@@ -162,7 +165,7 @@ mod affine {
     ///   2. After 4 rotations, the image should match the original exactly (max diff = 0).
     ///
     /// Reference: test_resample.py::test_affine
-    fn test_affine_rotation_roundtrip() {
+    fn test_affine() {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
 
         for interp in &["nearest", "bicubic", "bilinear", "nohalo", "lbb"] {
@@ -199,7 +202,7 @@ mod affine {
     /// 3. Max difference < 50 (rounding in angle-to-matrix conversion).
     ///
     /// Reference: test_resample.py::test_similarity
-    fn test_similarity_rotate() {
+    fn test_similarity() {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
 
         let im2 = im.similarity(90.0, 1.0);
@@ -256,7 +259,7 @@ mod affine {
     /// 2. Max difference < 50.
     ///
     /// Reference: test_resample.py::test_rotate
-    fn test_rotate_arbitrary() {
+    fn test_rotate() {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
 
         let im2 = im.rotate(90.0);
@@ -297,7 +300,7 @@ mod advanced_resampling {
     ///    reduce(2, 2) with each kernel should preserve the constant exactly.
     ///
     /// Reference: test_resample.py::test_reduce
-    fn test_reduce_kernels() {
+    fn test_reduce() {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
 
         let kernels = ["nearest", "linear", "cubic", "lanczos2", "lanczos3"];
@@ -380,6 +383,34 @@ mod advanced_resampling {
         let buf = std::fs::read(&path).unwrap();
         let im2 = Raster::thumbnail_buffer(&buf, 100);
         assert!((im1.avg() - im2.avg()).abs() < 1.0);
+    }
+
+    #[test]
+    #[ignore]
+    /// Thumbnail a UHDR file at 128px with linear processing.
+    ///
+    /// ## Required API
+    ///
+    /// ```rust,ignore
+    /// /// Generate a thumbnail with linear light processing.
+    /// /// `linear`: when true, import to linear, process, then re-encode.
+    /// fn Raster::thumbnail_with_options(
+    ///     path: &Path, width: u32, linear: bool,
+    /// ) -> Raster;
+    /// ```
+    ///
+    /// ## Test logic (from libvips test_resample.py::test_thumbnail_uhdr_linear)
+    ///
+    /// 1. Thumbnail ultra-hdr.jpg at width=128 with linear=true.
+    /// 2. Assert width == 128.
+    /// 3. Assert bands == 3.
+    ///
+    /// Reference: test_resample.py::test_thumbnail_uhdr_linear
+    fn test_thumbnail_uhdr_linear() {
+        let path = ref_image("ultra-hdr.jpg");
+        let im = Raster::thumbnail_with_options(&path, 128, true);
+        assert_eq!(im.width(), 128);
+        assert_eq!(im.format().channels(), 3);
     }
 
     #[test]

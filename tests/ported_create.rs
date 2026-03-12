@@ -157,7 +157,7 @@ fn test_eye() {
 /// 2. Call fwfft(). Should not panic or error.
 ///
 /// Reference: test_create.py::test_fwfft_small_image
-fn test_fwfft_small() {
+fn test_fwfft_small_image() {
     let im = Raster::black(2, 1);
     let _fft = im.fwfft(); // Should not panic
 }
@@ -446,52 +446,107 @@ fn test_logmat() {
 
 #[test]
 #[ignore]
-/// Butterworth frequency-domain masks (band, ring, and basic).
+/// Butterworth highpass frequency-domain mask.
 ///
 /// ## Required API
 ///
 /// ```rust,ignore
-/// /// Create a Butterworth bandpass mask.
+/// /// Create a Butterworth highpass mask.
 /// fn Raster::mask_butterworth(w: u32, h: u32, order: f64, frequency_cutoff: f64,
 ///     amplitude_cutoff: f64, nodc: bool, optical: bool, uchar: bool) -> Raster;
-///
-/// /// Butterworth band-reject/band-pass mask.
-/// fn Raster::mask_butterworth_band(w: u32, h: u32, order: f64, freq_cutoff_x: f64,
-///     freq_cutoff_y: f64, radius: f64, ampl_cutoff: f64, uchar: bool, optical: bool, nodc: bool) -> Raster;
-///
-/// /// Butterworth ring mask.
-/// fn Raster::mask_butterworth_ring(w: u32, h: u32, order: f64, freq_cutoff: f64,
-///     ampl_cutoff: f64, ringwidth: f64, nodc: bool) -> Raster;
 /// ```
 ///
-/// ## Test logic (from libvips test_create.py::test_mask_butterworth*)
+/// ## Test logic (from libvips test_create.py::test_mask_butterworth)
 ///
-/// For each mask variant:
-/// - Assert dimensions, bands=1, float format.
-/// - Verify specific pixel values match expected.
+/// 1. Create 128x128 highpass mask with nodc, float format.
+/// 2. Assert: min~0, p(0,0)==0, maxpos at (64,64).
+/// 3. Uchar+optical variant: p(64,64)==255.
 ///
-/// Reference: test_create.py::test_mask_butterworth, test_mask_butterworth_band, test_mask_butterworth_ring
-fn test_butterworth() {
-    // Basic Butterworth
+/// Reference: test_create.py::test_mask_butterworth
+fn test_mask_butterworth() {
     let im = Raster::mask_butterworth(128, 128, 2.0, 0.7, 0.1, true, false, false);
     assert_eq!(im.width(), 128);
     assert_eq!(im.height(), 128);
+    assert_eq!(im.format().channels(), 1);
     let p = im.getpoint(0, 0);
     assert!((p[0] - 0.0).abs() < 0.001, "DC should be 0 with nodc");
     let (_, mx, my) = im.maxpos();
     assert_eq!(mx, 64);
     assert_eq!(my, 64);
 
-    // Butterworth band
+    // uchar + optical variant
+    let im = Raster::mask_butterworth(128, 128, 2.0, 0.7, 0.1, true, true, true);
+    let p = im.getpoint(64, 64);
+    assert_eq!(p[0], 255.0);
+}
+
+#[test]
+#[ignore]
+/// Butterworth bandpass frequency-domain mask.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Butterworth band-reject/band-pass mask.
+/// fn Raster::mask_butterworth_band(w: u32, h: u32, order: f64, freq_cutoff_x: f64,
+///     freq_cutoff_y: f64, radius: f64, ampl_cutoff: f64, uchar: bool, optical: bool, nodc: bool) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_create.py::test_mask_butterworth_band)
+///
+/// 1. Create 128x128 bandpass mask; float max~1, p(32,32)==1.
+/// 2. Uchar+optical: max==255, p(32,32)==255.
+/// 3. Nodc variant: p(64,64)!=255.
+///
+/// Reference: test_create.py::test_mask_butterworth_band
+fn test_mask_butterworth_band() {
     let im = Raster::mask_butterworth_band(128, 128, 2.0, 0.5, 0.5, 0.7, 0.1, false, false, false);
     assert_eq!(im.width(), 128);
+    assert_eq!(im.format().channels(), 1);
     assert!((im.max_value() - 1.0).abs() < 0.01);
+    let p = im.getpoint(32, 32);
+    assert!((p[0] - 1.0).abs() < 0.01);
 
-    // Butterworth ring
+    // uchar + optical variant
+    let im = Raster::mask_butterworth_band(128, 128, 2.0, 0.5, 0.5, 0.7, 0.1, true, true, false);
+    assert_eq!(im.max_value(), 255.0);
+    let p = im.getpoint(32, 32);
+    assert_eq!(p[0], 255.0);
+
+    // nodc variant
+    let im = Raster::mask_butterworth_band(128, 128, 2.0, 0.5, 0.5, 0.7, 0.1, true, true, true);
+    let p = im.getpoint(64, 64);
+    assert_ne!(p[0], 255.0);
+}
+
+#[test]
+#[ignore]
+/// Butterworth ring-pass frequency-domain mask.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Butterworth ring mask.
+/// fn Raster::mask_butterworth_ring(w: u32, h: u32, order: f64, freq_cutoff: f64,
+///     ampl_cutoff: f64, ringwidth: f64, nodc: bool) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_create.py::test_mask_butterworth_ring)
+///
+/// 1. Create 128x128 ring-pass mask with nodc; float format.
+/// 2. Assert: p(45,0)~1.0, minpos at (64,64).
+///
+/// Reference: test_create.py::test_mask_butterworth_ring
+fn test_mask_butterworth_ring() {
     let im = Raster::mask_butterworth_ring(128, 128, 2.0, 0.7, 0.1, 0.5, true);
     assert_eq!(im.width(), 128);
+    assert_eq!(im.height(), 128);
+    assert_eq!(im.format().channels(), 1);
     let p = im.getpoint(45, 0);
     assert!((p[0] - 1.0).abs() < 0.001);
+    let (_, mx, my) = im.minpos();
+    assert_eq!(mx, 64);
+    assert_eq!(my, 64);
 }
 
 #[test]
@@ -514,55 +569,149 @@ fn test_mask_fractal() {
 
 #[test]
 #[ignore]
-/// Gaussian frequency-domain masks (band, ring, and basic).
+/// Gaussian highpass frequency-domain mask.
 ///
 /// ## Required API
 ///
 /// ```rust,ignore
 /// fn Raster::mask_gaussian(w: u32, h: u32, freq_cutoff: f64, ampl_cutoff: f64, nodc: bool) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_create.py::test_mask_gaussian)
+///
+/// 1. Create 128x128 highpass mask with nodc; float format.
+/// 2. Assert: min~0, p(0,0)==0.
+///
+/// Reference: test_create.py::test_mask_gaussian
+fn test_mask_gaussian() {
+    let im = Raster::mask_gaussian(128, 128, 0.7, 0.1, true);
+    assert_eq!(im.width(), 128);
+    assert_eq!(im.height(), 128);
+    assert_eq!(im.format().channels(), 1);
+    assert!(im.min_value().abs() < 0.01);
+    let p = im.getpoint(0, 0);
+    assert!((p[0] - 0.0).abs() < 0.01);
+}
+
+#[test]
+#[ignore]
+/// Gaussian bandpass frequency-domain mask.
+///
+/// ## Required API
+///
+/// ```rust,ignore
 /// fn Raster::mask_gaussian_band(w: u32, h: u32, freq_x: f64, freq_y: f64, radius: f64, ampl: f64) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_create.py::test_mask_gaussian_band)
+///
+/// 1. Create 128x128 bandpass mask; float max~1, p(32,32)==1.
+///
+/// Reference: test_create.py::test_mask_gaussian_band
+fn test_mask_gaussian_band() {
+    let im = Raster::mask_gaussian_band(128, 128, 0.5, 0.5, 0.7, 0.1);
+    assert_eq!(im.width(), 128);
+    assert_eq!(im.format().channels(), 1);
+    assert!((im.max_value() - 1.0).abs() < 0.01);
+    let p = im.getpoint(32, 32);
+    assert!((p[0] - 1.0).abs() < 0.01);
+}
+
+#[test]
+#[ignore]
+/// Gaussian ring-pass frequency-domain mask.
+///
+/// ## Required API
+///
+/// ```rust,ignore
 /// fn Raster::mask_gaussian_ring(w: u32, h: u32, freq: f64, ampl: f64, ringwidth: f64, nodc: bool) -> Raster;
 /// ```
 ///
-/// Reference: test_create.py::test_mask_gaussian*
-fn test_gaussian_masks() {
-    let im = Raster::mask_gaussian(128, 128, 0.7, 0.1, true);
-    assert_eq!(im.width(), 128);
-    let p = im.getpoint(0, 0);
-    assert!((p[0] - 0.0).abs() < 0.01);
-
-    let im = Raster::mask_gaussian_band(128, 128, 0.5, 0.5, 0.7, 0.1);
-    assert!((im.max_value() - 1.0).abs() < 0.01);
-
+/// ## Test logic (from libvips test_create.py::test_mask_gaussian_ring)
+///
+/// 1. Create 128x128 ring-pass mask with nodc; float format.
+/// 2. Assert: p(45,0)~1.0.
+///
+/// Reference: test_create.py::test_mask_gaussian_ring
+fn test_mask_gaussian_ring() {
     let im = Raster::mask_gaussian_ring(128, 128, 0.7, 0.1, 0.5, true);
+    assert_eq!(im.width(), 128);
+    assert_eq!(im.format().channels(), 1);
     let p = im.getpoint(45, 0);
     assert!((p[0] - 1.0).abs() < 0.01);
 }
 
 #[test]
 #[ignore]
-/// Ideal frequency-domain masks (band, ring, and basic).
+/// Gaussian ring mask (second variant — actually uses mask_ideal_ring).
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// fn Raster::mask_ideal_ring(w: u32, h: u32, freq: f64, ringwidth: f64, nodc: bool) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_create.py::test_mask_gaussian_ring_2)
+///
+/// 1. Create 128x128 ideal ring-pass mask with nodc; float format.
+/// 2. Assert: p(45,0)~1.0.
+///
+/// Reference: test_create.py::test_mask_gaussian_ring_2 (misleading name; actually mask_ideal_ring)
+fn test_mask_gaussian_ring_2() {
+    let im = Raster::mask_ideal_ring(128, 128, 0.7, 0.5, true);
+    assert_eq!(im.width(), 128);
+    assert_eq!(im.format().channels(), 1);
+    let p = im.getpoint(45, 0);
+    assert!((p[0] - 1.0).abs() < 0.01);
+}
+
+#[test]
+#[ignore]
+/// Ideal highpass frequency-domain mask.
 ///
 /// ## Required API
 ///
 /// ```rust,ignore
 /// fn Raster::mask_ideal(w: u32, h: u32, freq_cutoff: f64, nodc: bool) -> Raster;
-/// fn Raster::mask_ideal_band(w: u32, h: u32, freq_x: f64, freq_y: f64, radius: f64) -> Raster;
-/// fn Raster::mask_ideal_ring(w: u32, h: u32, freq: f64, ringwidth: f64, nodc: bool) -> Raster;
 /// ```
 ///
-/// Reference: test_create.py::test_mask_ideal*
-fn test_ideal_masks() {
+/// ## Test logic (from libvips test_create.py::test_mask_ideal)
+///
+/// 1. Create 128x128 highpass mask with nodc; float format.
+/// 2. Assert: min~0, p(0,0)==0.
+///
+/// Reference: test_create.py::test_mask_ideal
+fn test_mask_ideal() {
     let im = Raster::mask_ideal(128, 128, 0.7, true);
     assert_eq!(im.width(), 128);
+    assert_eq!(im.height(), 128);
+    assert_eq!(im.format().channels(), 1);
+    assert!(im.min_value().abs() < 0.01);
     let p = im.getpoint(0, 0);
     assert!((p[0] - 0.0).abs() < 0.01);
+}
 
+#[test]
+#[ignore]
+/// Ideal bandpass frequency-domain mask.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// fn Raster::mask_ideal_band(w: u32, h: u32, freq_x: f64, freq_y: f64, radius: f64) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_create.py::test_mask_ideal_band)
+///
+/// 1. Create 128x128 bandpass mask; float max~1, p(32,32)==1.
+///
+/// Reference: test_create.py::test_mask_ideal_band
+fn test_mask_ideal_band() {
     let im = Raster::mask_ideal_band(128, 128, 0.5, 0.5, 0.7);
+    assert_eq!(im.width(), 128);
+    assert_eq!(im.format().channels(), 1);
     assert!((im.max_value() - 1.0).abs() < 0.01);
-
-    let im = Raster::mask_ideal_ring(128, 128, 0.7, 0.5, true);
-    let p = im.getpoint(45, 0);
+    let p = im.getpoint(32, 32);
     assert!((p[0] - 1.0).abs() < 0.01);
 }
 
@@ -715,25 +864,44 @@ fn test_zone() {
 
 #[test]
 #[ignore]
-/// Worley and Perlin procedural noise.
+/// Worley (cellular) procedural noise.
 ///
 /// ## Required API
 ///
 /// ```rust,ignore
 /// /// Generate Worley (cellular) noise.
 /// fn Raster::worley(width: u32, height: u32) -> Raster;
-///
-/// /// Generate Perlin (gradient) noise.
-/// fn Raster::perlin(width: u32, height: u32) -> Raster;
 /// ```
 ///
-/// Reference: test_create.py::test_worley, test_perlin
-fn test_worley_perlin() {
+/// ## Test logic (from libvips test_create.py::test_worley)
+///
+/// 1. Create 512x512 Worley noise; bands=1, float format.
+///
+/// Reference: test_create.py::test_worley
+fn test_worley() {
     let im = Raster::worley(512, 512);
     assert_eq!(im.width(), 512);
     assert_eq!(im.height(), 512);
     assert_eq!(im.format().channels(), 1);
+}
 
+#[test]
+#[ignore]
+/// Perlin (gradient) procedural noise.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Generate Perlin (gradient) noise.
+/// fn Raster::perlin(width: u32, height: u32) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_create.py::test_perlin)
+///
+/// 1. Create 512x512 Perlin noise; bands=1, float format.
+///
+/// Reference: test_create.py::test_perlin
+fn test_perlin() {
     let im = Raster::perlin(512, 512);
     assert_eq!(im.width(), 512);
     assert_eq!(im.height(), 512);

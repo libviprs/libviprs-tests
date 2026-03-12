@@ -149,7 +149,7 @@ mod metadata {
     /// Reference: test_keep.sh
     fn test_keep_custom_profile() {
         let mut im = decode_file(&ref_image("sample.jpg")).unwrap();
-        let srgb_icc = std::fs::read(ref_image("sRGB.icc")).unwrap();
+        let srgb_icc = std::fs::read(ref_image("sRGB.icm")).unwrap();
         im.set_icc_profile(&srgb_icc);
 
         let dir = tempfile::tempdir().unwrap();
@@ -164,6 +164,9 @@ mod metadata {
         }
     }
 }
+
+// NOTE: test_new_from_image moved to ported_iofuncs.rs to match libvips
+// test_iofuncs.py structure.
 
 // ─── 13.2 Threading & Concurrency ───────────────────────────────────────────
 

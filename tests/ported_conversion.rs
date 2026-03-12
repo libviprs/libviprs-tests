@@ -97,47 +97,77 @@ fn test_cast() {
 
 #[test]
 #[ignore]
-/// Band AND/OR/XOR reduction across bands.
+/// Bitwise AND reduction across bands.
 ///
 /// ## Required API
 ///
 /// ```rust,ignore
 /// /// Bitwise AND across all bands, producing a single-band image.
 /// fn Raster::bandand(&self) -> Raster;
-///
-/// /// Bitwise OR across all bands.
-/// fn Raster::bandor(&self) -> Raster;
-///
-/// /// Bitwise XOR across all bands.
-/// fn Raster::bandeor(&self) -> Raster;
 /// ```
 ///
-/// ## Test logic (from libvips test_conversion.py::test_band_and/or/eor)
+/// ## Test logic (from libvips test_conversion.py::test_band_and)
 ///
-/// 1. Apply bandand to colour image, verify pixel at (50,50):
-///    result = band0 & band1 & band2.
-/// 2. bandor: result = band0 | band1 | band2.
-/// 3. bandeor: result = band0 ^ band1 ^ band2.
+/// 1. Apply bandand to colour image.
+/// 2. Verify pixel at (50,50): result = band0 & band1 & band2.
 ///
-/// Reference: test_conversion.py::test_band_and, test_band_or, test_band_eor
-fn test_band_boolean() {
+/// Reference: test_conversion.py::test_band_and
+fn test_band_and() {
     let colour = make_test_colour();
-
-    // bandand
     let result = colour.bandand();
     let px = colour.getpoint(50, 50);
     let expected = px[0] as u8 & px[1] as u8 & px[2] as u8;
     let rpx = result.getpoint(50, 50);
     assert!((rpx[0] - expected as f64).abs() < 1.0);
+}
 
-    // bandor
+#[test]
+#[ignore]
+/// Bitwise OR reduction across bands.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Bitwise OR across all bands, producing a single-band image.
+/// fn Raster::bandor(&self) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_conversion.py::test_band_or)
+///
+/// 1. Apply bandor to colour image.
+/// 2. Verify pixel at (50,50): result = band0 | band1 | band2.
+///
+/// Reference: test_conversion.py::test_band_or
+fn test_band_or() {
+    let colour = make_test_colour();
     let result = colour.bandor();
+    let px = colour.getpoint(50, 50);
     let expected = px[0] as u8 | px[1] as u8 | px[2] as u8;
     let rpx = result.getpoint(50, 50);
     assert!((rpx[0] - expected as f64).abs() < 1.0);
+}
 
-    // bandeor
+#[test]
+#[ignore]
+/// Bitwise XOR reduction across bands.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Bitwise XOR across all bands, producing a single-band image.
+/// fn Raster::bandeor(&self) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_conversion.py::test_band_eor)
+///
+/// 1. Apply bandeor to colour image.
+/// 2. Verify pixel at (50,50): result = band0 ^ band1 ^ band2.
+///
+/// Reference: test_conversion.py::test_band_eor
+fn test_band_eor() {
+    let colour = make_test_colour();
     let result = colour.bandeor();
+    let px = colour.getpoint(50, 50);
     let expected = px[0] as u8 ^ px[1] as u8 ^ px[2] as u8;
     let rpx = result.getpoint(50, 50);
     assert!((rpx[0] - expected as f64).abs() < 1.0);
@@ -182,6 +212,44 @@ fn test_bandjoin() {
     assert!((band3.avg() - 1.0).abs() < 0.001);
 
     // bandjoin_vec
+    let joined = colour.bandjoin_vec(&[1.0, 2.0]);
+    assert_eq!(joined.format().channels(), 5);
+    let band3 = joined.extract_band(3);
+    assert!((band3.avg() - 1.0).abs() < 0.001);
+    let band4 = joined.extract_band(4);
+    assert!((band4.avg() - 2.0).abs() < 0.001);
+}
+
+#[test]
+#[ignore]
+/// Band join with constant values.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Join a constant value as an extra band.
+/// fn Raster::bandjoin_const(&self, c: f64) -> Raster;
+///
+/// /// Join a vector of constants as extra bands.
+/// fn Raster::bandjoin_vec(&self, v: &[f64]) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_conversion.py::test_bandjoin_const)
+///
+/// 1. bandjoin_const(1): 3-band image becomes 4 bands, band 3 avg = 1.
+/// 2. bandjoin_vec([1, 2]): 3-band image becomes 5 bands, band 3 avg = 1, band 4 avg = 2.
+///
+/// Reference: test_conversion.py::test_bandjoin_const
+fn test_bandjoin_const() {
+    let colour = make_test_colour();
+
+    // bandjoin_const(1)
+    let joined = colour.bandjoin_const(1.0);
+    assert_eq!(joined.format().channels(), 4);
+    let band3 = joined.extract_band(3);
+    assert!((band3.avg() - 1.0).abs() < 0.001);
+
+    // bandjoin_vec([1, 2])
     let joined = colour.bandjoin_vec(&[1.0, 2.0]);
     assert_eq!(joined.format().channels(), 5);
     let band3 = joined.extract_band(3);
@@ -491,6 +559,62 @@ fn test_extract() {
 
 #[test]
 #[ignore]
+/// Band indexing and slicing via extract_band.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Extract a single band by index (supports negative indexing).
+/// fn Raster::extract_band(&self, band: i32) -> Raster;
+///
+/// /// Extract a range of bands (slice).
+/// fn Raster::extract_bands(&self, start: i32, n: u32) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_conversion.py::test_slice)
+///
+/// 1. test[0]: extract band 0, verify 1 band, avg matches original band 0.
+/// 2. test[-1]: extract last band, verify 1 band, avg matches original band 2.
+/// 3. test[1:3]: extract bands 1..3, verify 2 bands.
+/// 4. test[1:-1]: extract bands 1..(n-1), verify 1 band.
+/// 5. test[:2]: extract bands 0..2, verify 2 bands.
+/// 6. test[1:]: extract bands 1..end, verify 2 bands.
+/// 7. test[-1]: extract last band, verify single band.
+///
+/// Reference: test_conversion.py::test_slice
+fn test_slice() {
+    let test = make_test_colour();
+    let n_bands = test.format().channels() as i32;
+
+    // test[0]
+    let b0 = test.extract_band(0);
+    assert_eq!(b0.format().channels(), 1);
+
+    // test[-1] — last band
+    let blast = test.extract_band(-1);
+    assert_eq!(blast.format().channels(), 1);
+    let orig_last = test.extract_band((n_bands - 1) as u32);
+    assert!((blast.avg() - orig_last.avg()).abs() < 0.001);
+
+    // test[1:3] — bands 1 and 2
+    let s = test.extract_bands(1, 2);
+    assert_eq!(s.format().channels(), 2);
+
+    // test[1:-1] — band 1 only (for 3 bands)
+    let s = test.extract_bands(1, (n_bands - 2) as u32);
+    assert_eq!(s.format().channels(), 1);
+
+    // test[:2] — bands 0 and 1
+    let s = test.extract_bands(0, 2);
+    assert_eq!(s.format().channels(), 2);
+
+    // test[1:] — bands 1 to end
+    let s = test.extract_bands(1, (n_bands - 1) as u32);
+    assert_eq!(s.format().channels(), 2);
+}
+
+#[test]
+#[ignore]
 /// Crop (alias for extract_area).
 ///
 /// ## Required API
@@ -536,6 +660,90 @@ fn test_smartcrop() {
     let result = im.smartcrop(100, 100, SmartcropInteresting::Entropy);
     assert_eq!(result.width(), 100);
     assert_eq!(result.height(), 100);
+}
+
+#[test]
+#[ignore]
+/// Smart crop with attention strategy, returning attention coordinates.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Crop to (width x height) using the attention strategy.
+/// /// Returns the cropped image and attention coordinates.
+/// fn Raster::smartcrop_with_coords(&self, width: u32, height: u32, interesting: SmartcropInteresting) -> (Raster, i32, i32);
+/// ```
+///
+/// ## Test logic (from libvips test_conversion.py::test_smartcrop)
+///
+/// 1. Load sample.jpg, smartcrop to 100x100 with Interesting::ATTENTION.
+/// 2. Verify attention_x = 199, attention_y = 234.
+///
+/// Reference: test_conversion.py::test_smartcrop
+fn test_smartcrop_attention() {
+    let im = decode_file(&ref_image("sample.jpg")).unwrap();
+    let (result, attention_x, attention_y) =
+        im.smartcrop_with_coords(100, 100, SmartcropInteresting::Attention);
+    assert_eq!(result.width(), 100);
+    assert_eq!(result.height(), 100);
+    assert_eq!(attention_x, 199);
+    assert_eq!(attention_y, 234);
+}
+
+#[test]
+#[ignore]
+/// Smart crop on an RGBA image.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// fn Raster::smartcrop_with_coords(&self, width: u32, height: u32, interesting: SmartcropInteresting) -> (Raster, i32, i32);
+/// ```
+///
+/// ## Test logic (from libvips test_conversion.py::test_smartcrop)
+///
+/// 1. Load rgba.png.
+/// 2. Smartcrop to 80x60 with Interesting::ATTENTION.
+/// 3. Verify attention_x = 20, attention_y = 124.
+///
+/// Reference: test_conversion.py::test_smartcrop
+fn test_smartcrop_rgba() {
+    let im = decode_file(&ref_image("rgba.png")).unwrap();
+    let (result, attention_x, attention_y) =
+        im.smartcrop_with_coords(80, 60, SmartcropInteresting::Attention);
+    assert_eq!(result.width(), 80);
+    assert_eq!(result.height(), 60);
+    assert_eq!(attention_x, 20);
+    assert_eq!(attention_y, 124);
+}
+
+#[test]
+#[ignore]
+/// Smart crop on a premultiplied RGBA image.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// fn Raster::premultiply(&self) -> Raster;
+/// fn Raster::smartcrop_with_coords_premultiplied(&self, width: u32, height: u32, interesting: SmartcropInteresting, premultiplied: bool) -> (Raster, i32, i32);
+/// ```
+///
+/// ## Test logic (from libvips test_conversion.py::test_smartcrop)
+///
+/// 1. Load rgba.png, premultiply.
+/// 2. Smartcrop to 80x60 with Interesting::ATTENTION and premultiplied=true.
+/// 3. Verify attention_x = 20, attention_y = 124.
+///
+/// Reference: test_conversion.py::test_smartcrop
+fn test_smartcrop_rgba_premultiplied() {
+    let im = decode_file(&ref_image("rgba.png")).unwrap();
+    let im = im.premultiply();
+    let (result, attention_x, attention_y) =
+        im.smartcrop_with_coords_premultiplied(80, 60, SmartcropInteresting::Attention, true);
+    assert_eq!(result.width(), 80);
+    assert_eq!(result.height(), 60);
+    assert_eq!(attention_x, 20);
+    assert_eq!(attention_y, 124);
 }
 
 #[test]
@@ -651,6 +859,46 @@ fn test_premultiply() {
 
 #[test]
 #[ignore]
+/// Unpremultiply alpha: undo premultiplication across formats.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Undo premultiplication of RGB channels by the alpha channel.
+/// fn Raster::unpremultiply(&self) -> Raster;
+/// ```
+///
+/// ## Test logic (from libvips test_conversion.py::test_unpremultiply)
+///
+/// 1. For each unsigned integer format, create an RGBA image by bandjoin-ing an alpha band.
+/// 2. Premultiply, then unpremultiply.
+/// 3. Verify that the result pixel values match the original within tolerance.
+///
+/// Reference: test_conversion.py::test_unpremultiply
+fn test_unpremultiply() {
+    let colour = make_test_colour();
+    let alpha = 127.0;
+    let rgba = colour.bandjoin_const(alpha);
+
+    let pre = rgba.premultiply();
+    let unpre = pre.unpremultiply();
+
+    assert_eq!(unpre.format().channels(), 4);
+    let px_src = rgba.getpoint(30, 30);
+    let px_unpre = unpre.getpoint(30, 30);
+    for i in 0..3 {
+        assert!(
+            (px_unpre[i] - px_src[i]).abs() < 2.0,
+            "unpremultiply channel {i}: expected {}, got {}",
+            px_src[i],
+            px_unpre[i]
+        );
+    }
+    assert!((px_unpre[3] - alpha).abs() < 1.0);
+}
+
+#[test]
+#[ignore]
 /// Porter-Duff composite.
 ///
 /// ## Required API
@@ -679,6 +927,45 @@ fn test_composite() {
     assert!((px[0] - 51.8).abs() < 1.0);
     assert!((px[1] - 52.8).abs() < 1.0);
     assert!((px[2] - 53.8).abs() < 1.0);
+}
+
+#[test]
+#[ignore]
+/// Composite with non-separable blend modes (hue, saturation, colour, luminosity).
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Composite overlay over self using the given blend mode.
+/// fn Raster::composite(&self, overlay: &Raster, mode: CompositeMode) -> Raster;
+///
+/// pub enum CompositeMode { Over, Atop, Dest, In, Out, Xor, Add, Saturate,
+///                          Hue, Saturation, Colour, Luminosity }
+/// ```
+///
+/// ## Test logic (from libvips test_conversion.py::test_composite)
+///
+/// 1. Create base and overlay as float RGBA images.
+/// 2. Composite with each non-separable blend mode: Hue, Saturation, Colour, Luminosity.
+/// 3. Verify output dimensions and band count match input.
+///
+/// Reference: test_conversion.py::test_composite
+fn test_composite_non_separable() {
+    let colour = make_test_colour();
+    let base = colour.add_const(100.0).bandjoin_const(255.0).cast(PixelFormat::RgbaF32);
+    let overlay = colour.bandjoin_const(128.0).cast(PixelFormat::RgbaF32);
+
+    for mode in &[
+        CompositeMode::Hue,
+        CompositeMode::Saturation,
+        CompositeMode::Colour,
+        CompositeMode::Luminosity,
+    ] {
+        let comp = base.composite(&overlay, *mode);
+        assert_eq!(comp.width(), base.width());
+        assert_eq!(comp.height(), base.height());
+        assert_eq!(comp.format().channels(), 4);
+    }
 }
 
 #[test]
@@ -1032,6 +1319,60 @@ fn test_rot() {
         .map(|(&a, &b)| (a as f64 - b as f64).abs())
         .fold(0.0_f64, f64::max);
     assert!(max_diff < 1.0);
+}
+
+#[test]
+#[ignore]
+/// 45-degree rotation and roundtrip identity.
+///
+/// ## Required API
+///
+/// ```rust,ignore
+/// /// Rotate by a multiple of 45 degrees.
+/// fn Raster::rot45(&self, angle: Angle45) -> Raster;
+///
+/// pub enum Angle45 { D0, D45, D90, D135, D180, D225, D270, D315 }
+/// ```
+///
+/// ## Test logic (from libvips test_conversion.py::test_rot45)
+///
+/// 1. Crop colour to 51x51.
+/// 2. rot45(D45): verify pixel at (25,50) matches original at (50,50).
+/// 3. For each angle in Angle45, verify rot45(angle).rot45(inverse) is identity.
+///
+/// Reference: test_conversion.py::test_rot45
+fn test_rot45() {
+    let colour = make_test_colour();
+    let test = colour.crop(0, 0, 51, 51);
+
+    // rot45(D45): pixel position changes
+    let im2 = test.rot45(Angle45::D45);
+    let before = test.getpoint(50, 50);
+    let after = im2.getpoint(25, 50);
+    for (b, a) in before.iter().zip(after.iter()) {
+        assert!((a - b).abs() < 1.0);
+    }
+
+    // Roundtrip for all d45 angles
+    let angles = [
+        (Angle45::D0, Angle45::D0),
+        (Angle45::D45, Angle45::D315),
+        (Angle45::D90, Angle45::D270),
+        (Angle45::D135, Angle45::D225),
+        (Angle45::D180, Angle45::D180),
+        (Angle45::D225, Angle45::D135),
+        (Angle45::D270, Angle45::D90),
+        (Angle45::D315, Angle45::D45),
+    ];
+    for (fwd, rev) in &angles {
+        let round = test.rot45(*fwd).rot45(*rev);
+        assert_eq!(round.width(), test.width());
+        assert_eq!(round.height(), test.height());
+        let max_diff: f64 = test.data().iter().zip(round.data().iter())
+            .map(|(&a, &b)| (a as f64 - b as f64).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(max_diff < 1.0, "rot45 roundtrip failed for {fwd:?}/{rev:?}");
+    }
 }
 
 #[test]
