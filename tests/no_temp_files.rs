@@ -28,7 +28,7 @@ fn no_temp_files_during_processing() {
 
     // Set TMPDIR to a read-only directory
     let temp_dir = tempfile::tempdir().unwrap();
-    let readonly = std::fs::Permissions::from(std::os::unix::fs::PermissionsExt::from_mode(0o444));
+    let readonly = std::os::unix::fs::PermissionsExt::from_mode(0o444);
     std::fs::set_permissions(temp_dir.path(), readonly).unwrap();
 
     // Save and override TMPDIR
@@ -51,7 +51,7 @@ fn no_temp_files_during_processing() {
     }
 
     // Restore permissions so temp dir can be cleaned up
-    let writable = std::fs::Permissions::from(std::os::unix::fs::PermissionsExt::from_mode(0o755));
+    let writable = std::os::unix::fs::PermissionsExt::from_mode(0o755);
     std::fs::set_permissions(temp_dir.path(), writable).unwrap();
 
     assert!(
