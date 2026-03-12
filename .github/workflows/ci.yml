@@ -16,10 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/libviprs
-          path: ../libviprs
+      - name: Clone libviprs
+        run: git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
@@ -29,10 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/libviprs
-          path: ../libviprs
+      - name: Clone libviprs
+        run: git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install PDFium
@@ -50,10 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/libviprs
-          path: ../libviprs
+      - name: Clone libviprs
+        run: git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
