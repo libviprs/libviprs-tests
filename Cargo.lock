@@ -611,6 +611,7 @@ name = "libviprs-tests"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "image",
  "libviprs",
  "pdfium-render",
  "tempfile",

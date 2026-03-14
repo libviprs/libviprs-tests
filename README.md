@@ -122,6 +122,7 @@ Located in `tests/fixtures/`:
 | File | Description |
 |---|---|
 | `blueprint.pdf` | Real scanned blueprint PDF used by PDF extraction and end-to-end tests. |
+| `password.pdf` | AES-256 encrypted single-page PDF. Password: **`secret`** (both user and owner). Used by `ported_foreign::test_pdf_password`. |
 
 ## Project Structure
 
@@ -135,7 +136,8 @@ libviprs-tests/
 │       └── ci.yml
 ├── tests/
 │   ├── fixtures/
-│   │   └── blueprint.pdf
+│   │   ├── blueprint.pdf
+│   │   └── password.pdf
 │   ├── no_temp_files.rs
 │   ├── observability.rs
 │   ├── pdf_cmyk.rs
