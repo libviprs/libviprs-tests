@@ -1,6 +1,6 @@
 use libviprs::{
-    generate_pyramid_observed, CollectingObserver, EngineConfig, EngineEvent, Layout,
-    MemorySink, PixelFormat, PyramidPlanner, Raster,
+    CollectingObserver, EngineConfig, EngineEvent, Layout, MemorySink, PixelFormat, PyramidPlanner,
+    Raster, generate_pyramid_observed,
 };
 
 fn gradient_raster(w: u32, h: u32) -> Raster {
@@ -69,14 +69,7 @@ fn level_started_before_tile_completed() {
     let sink = MemorySink::new();
     let obs = CollectingObserver::new();
 
-    generate_pyramid_observed(
-        &src,
-        &plan,
-        &sink,
-        &EngineConfig::default(),
-        &obs,
-    )
-    .unwrap();
+    generate_pyramid_observed(&src, &plan, &sink, &EngineConfig::default(), &obs).unwrap();
 
     let events = obs.events();
 

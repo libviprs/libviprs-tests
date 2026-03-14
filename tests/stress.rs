@@ -1,5 +1,5 @@
 use libviprs::{
-    generate_pyramid, EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster,
+    EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster, generate_pyramid,
 };
 
 fn synthetic_raster(w: u32, h: u32) -> Raster {

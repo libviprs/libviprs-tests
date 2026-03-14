@@ -6,14 +6,11 @@
 use std::path::Path;
 
 use libviprs::{
-    extract_page_image, generate_pyramid, EngineConfig, FsSink, GeoCoord, GeoTransform,
-    Layout, MemorySink, PixelFormat, PyramidPlanner, TileFormat,
+    EngineConfig, FsSink, GeoCoord, GeoTransform, Layout, MemorySink, PixelFormat, PyramidPlanner,
+    TileFormat, extract_page_image, generate_pyramid,
 };
 
-const FIXTURE_PDF: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/blueprint.pdf"
-);
+const FIXTURE_PDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blueprint.pdf");
 
 /// Full pipeline: PDF → raster → geo-reference → pyramid (in-memory sink).
 #[test]
@@ -30,7 +27,7 @@ fn pdf_to_georeferenced_pyramid_memory() {
     // Origin at top-left, 0.01 degrees per pixel, Y inverted
     let geo = GeoTransform::from_origin_and_scale(
         GeoCoord::new(-122.4194, 37.7749), // San Francisco
-        0.0001,                              // ~11m per pixel at this latitude
+        0.0001,                            // ~11m per pixel at this latitude
         -0.0001,
     );
 
@@ -38,10 +35,10 @@ fn pdf_to_georeferenced_pyramid_memory() {
     let bounds = geo.image_bounds(w, h);
     assert!(bounds.width() > 0.0);
     assert!(bounds.height() > 0.0);
-    assert!(bounds.contains(geo.pixel_to_geo(libviprs::PixelCoord::new(
-        w as f64 / 2.0,
-        h as f64 / 2.0,
-    ))));
+    assert!(
+        bounds
+            .contains(geo.pixel_to_geo(libviprs::PixelCoord::new(w as f64 / 2.0, h as f64 / 2.0,)))
+    );
 
     // Step 3: Generate tile pyramid
     let tile_size = 256;
@@ -52,8 +49,8 @@ fn pdf_to_georeferenced_pyramid_memory() {
     let sink = MemorySink::new();
     let config = EngineConfig::default().with_concurrency(4);
 
-    let result = generate_pyramid(&raster, &plan, &sink, &config)
-        .expect("pyramid generation failed");
+    let result =
+        generate_pyramid(&raster, &plan, &sink, &config).expect("pyramid generation failed");
 
     // Verify all tiles produced
     assert_eq!(result.tiles_produced, plan.total_tile_count());
@@ -99,8 +96,8 @@ fn pdf_to_pyramid_filesystem_png() {
     let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
     let config = EngineConfig::default().with_concurrency(4);
 
-    let result = generate_pyramid(&raster, &plan, &sink, &config)
-        .expect("pyramid generation failed");
+    let result =
+        generate_pyramid(&raster, &plan, &sink, &config).expect("pyramid generation failed");
 
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 

@@ -1,6 +1,5 @@
 use libviprs::{
-    generate_pyramid, EngineConfig, FsSink, Layout, PixelFormat, PyramidPlanner, Raster,
-    TileFormat,
+    EngineConfig, FsSink, Layout, PixelFormat, PyramidPlanner, Raster, TileFormat, generate_pyramid,
 };
 use std::path::Path;
 

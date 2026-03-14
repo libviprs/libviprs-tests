@@ -1,5 +1,5 @@
 use libviprs::{
-    generate_pyramid, EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster,
+    EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster, generate_pyramid,
 };
 
 fn gradient_raster(w: u32, h: u32) -> Raster {
@@ -25,13 +25,7 @@ fn deterministic_across_concurrency_levels() {
 
     // Reference: single-threaded
     let ref_sink = MemorySink::new();
-    generate_pyramid(
-        &src,
-        &plan,
-        &ref_sink,
-        &EngineConfig::default(),
-    )
-    .unwrap();
+    generate_pyramid(&src, &plan, &ref_sink, &EngineConfig::default()).unwrap();
     let mut ref_tiles = ref_sink.tiles();
     ref_tiles.sort_by_key(|t| (t.coord.level, t.coord.row, t.coord.col));
 
@@ -90,7 +84,11 @@ fn deterministic_across_tile_sizes() {
         assert_eq!(tiles_st.len(), tiles_mt.len(), "tile_size={tile_size}");
         for (a, b) in tiles_st.iter().zip(tiles_mt.iter()) {
             assert_eq!(a.coord, b.coord);
-            assert_eq!(a.data, b.data, "Diverged at {:?} tile_size={tile_size}", a.coord);
+            assert_eq!(
+                a.data, b.data,
+                "Diverged at {:?} tile_size={tile_size}",
+                a.coord
+            );
         }
     }
 }
