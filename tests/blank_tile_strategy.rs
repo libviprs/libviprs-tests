@@ -8,13 +8,15 @@
 //!   cargo test --test gen_blank_tile_fixtures -- --ignored generate_fixtures
 
 use libviprs::{
-    BlankTileStrategy, EngineConfig, FsSink, Layout, PixelFormat, PyramidPlanner, Raster,
-    TileFormat, BLANK_TILE_MARKER, generate_pyramid, is_blank_tile,
+    BLANK_TILE_MARKER, BlankTileStrategy, EngineConfig, FsSink, Layout, PixelFormat,
+    PyramidPlanner, Raster, TileFormat, generate_pyramid, is_blank_tile,
 };
 use std::path::{Path, PathBuf};
 
-const FIXTURE_BASE: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blank_tile_strategy");
+const FIXTURE_BASE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/blank_tile_strategy"
+);
 const IMG_SIZE: u32 = 128;
 const TILE_SIZE: u32 = 64;
 
@@ -48,12 +50,7 @@ fn collect_files(dir: &Path, ext: &str) -> Vec<(String, Vec<u8>)> {
     files
 }
 
-fn collect_files_recursive(
-    root: &Path,
-    dir: &Path,
-    ext: &str,
-    out: &mut Vec<(String, Vec<u8>)>,
-) {
+fn collect_files_recursive(root: &Path, dir: &Path, ext: &str, out: &mut Vec<(String, Vec<u8>)>) {
     if !dir.is_dir() {
         return;
     }
@@ -63,7 +60,11 @@ fn collect_files_recursive(
         if path.is_dir() {
             collect_files_recursive(root, &path, ext, out);
         } else if path.extension().and_then(|e| e.to_str()) == Some(ext) {
-            let rel = path.strip_prefix(root).unwrap().to_string_lossy().to_string();
+            let rel = path
+                .strip_prefix(root)
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
             let bytes = std::fs::read(&path).unwrap();
             out.push((rel, bytes));
         }
@@ -105,7 +106,8 @@ fn run_and_compare(input_fixture: &str, strategy: BlankTileStrategy, expected_na
             "File path mismatch: expected {exp_path}, got {act_path}"
         );
         assert_eq!(
-            exp_bytes, act_bytes,
+            exp_bytes,
+            act_bytes,
             "Content mismatch at {act_path} in {expected_name}: \
              expected {} bytes, got {} bytes",
             exp_bytes.len(),
@@ -318,7 +320,10 @@ fn placeholder_half_white_has_mix_of_markers_and_full_tiles() {
     let markers = expected_files.iter().filter(|(_, b)| b.len() == 1).count();
     let full = expected_files.iter().filter(|(_, b)| b.len() > 1).count();
 
-    assert!(markers > 0, "Expected some placeholder markers in half-white output");
+    assert!(
+        markers > 0,
+        "Expected some placeholder markers in half-white output"
+    );
     assert!(full > 0, "Expected some full tiles in half-white output");
 }
 
@@ -432,8 +437,7 @@ fn placeholder_solid_white_tiles_skipped_equals_total() {
     let planner = PyramidPlanner::new(IMG_SIZE, IMG_SIZE, TILE_SIZE, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let sink = libviprs::MemorySink::new();
-    let config = EngineConfig::default()
-        .with_blank_tile_strategy(BlankTileStrategy::Placeholder);
+    let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Placeholder);
 
     let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
 
@@ -455,8 +459,7 @@ fn placeholder_gradient_tiles_skipped_is_zero() {
     let planner = PyramidPlanner::new(IMG_SIZE, IMG_SIZE, TILE_SIZE, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let sink = libviprs::MemorySink::new();
-    let config = EngineConfig::default()
-        .with_blank_tile_strategy(BlankTileStrategy::Placeholder);
+    let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Placeholder);
 
     let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
 
@@ -479,8 +482,7 @@ fn placeholder_half_white_tiles_skipped_is_partial() {
     let planner = PyramidPlanner::new(IMG_SIZE, IMG_SIZE, TILE_SIZE, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let sink = libviprs::MemorySink::new();
-    let config = EngineConfig::default()
-        .with_blank_tile_strategy(BlankTileStrategy::Placeholder);
+    let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Placeholder);
 
     let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
 

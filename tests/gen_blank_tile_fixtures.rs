@@ -13,8 +13,10 @@ use libviprs::{
 };
 use std::path::Path;
 
-const FIXTURE_BASE: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blank_tile_strategy");
+const FIXTURE_BASE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/blank_tile_strategy"
+);
 
 // -- Image dimensions and tile size shared with the test file --
 const IMG_SIZE: u32 = 128;
@@ -68,11 +70,7 @@ fn save_input_png(raster: &Raster, name: &str) {
     eprintln!("  wrote input: {}", path.display());
 }
 
-fn generate_pyramid_fixture(
-    raster: &Raster,
-    strategy: BlankTileStrategy,
-    output_name: &str,
-) {
+fn generate_pyramid_fixture(raster: &Raster, strategy: BlankTileStrategy, output_name: &str) {
     let planner = PyramidPlanner::new(IMG_SIZE, IMG_SIZE, TILE_SIZE, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -112,10 +110,22 @@ fn generate_fixtures() {
 
     // Generate expected output pyramids
     generate_pyramid_fixture(&white, BlankTileStrategy::Emit, "emit_solid_white");
-    generate_pyramid_fixture(&white, BlankTileStrategy::Placeholder, "placeholder_solid_white");
+    generate_pyramid_fixture(
+        &white,
+        BlankTileStrategy::Placeholder,
+        "placeholder_solid_white",
+    );
     generate_pyramid_fixture(&gradient, BlankTileStrategy::Emit, "emit_gradient");
-    generate_pyramid_fixture(&gradient, BlankTileStrategy::Placeholder, "placeholder_gradient");
-    generate_pyramid_fixture(&half_white, BlankTileStrategy::Placeholder, "placeholder_half_white");
+    generate_pyramid_fixture(
+        &gradient,
+        BlankTileStrategy::Placeholder,
+        "placeholder_gradient",
+    );
+    generate_pyramid_fixture(
+        &half_white,
+        BlankTileStrategy::Placeholder,
+        "placeholder_half_white",
+    );
 
     eprintln!("\n=== Done. Commit tests/fixtures/blank_tile_strategy/ ===\n");
 }
