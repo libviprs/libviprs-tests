@@ -2,14 +2,16 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# run-tests.sh — Build and run libviprs-tests in Docker with PDFium.
+# run-tests.sh — Build and run libviprs + libviprs-tests in Docker with PDFium.
 #
-# Usage:  ./run-tests.sh          # defaults to arm64 on Apple Silicon, amd64 otherwise
-#         ./run-tests.sh arm      # builds for arm64
-#         ./run-tests.sh amd64    # builds for amd64
+# Can be invoked from either the libviprs-tests/ or libviprs/ directory.
 #
-# Runs all integration tests including pdfium-gated tests that require
-# the libpdfium shared library. Exit code reflects test results.
+# Usage:  ./run-tests.sh          # auto-detect arch (arm64 on Apple Silicon)
+#         ./run-tests.sh arm      # build for arm64
+#         ./run-tests.sh amd64    # build for amd64
+#
+# Runs libviprs unit tests and libviprs-tests integration tests, both with
+# the pdfium feature enabled. Exit code reflects test results.
 # ---------------------------------------------------------------------------
 
 # Auto-detect architecture if not specified
@@ -55,16 +57,42 @@ if ! docker info >/dev/null 2>&1; then
     echo "Docker is running."
 fi
 
-# Resolve the workspace root (parent of libviprs-tests/)
+# ---------------------------------------------------------------------------
+# Resolve workspace layout
+# ---------------------------------------------------------------------------
+# Supports invocation from either libviprs-tests/ or libviprs/.
+# Expected sibling layout:
+#   workspace/
+#     libviprs/          (core library)
+#     libviprs-tests/    (integration tests + Dockerfile)
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-if [ ! -d "$WORKSPACE_ROOT/libviprs" ]; then
-    echo "Error: libviprs/ not found at $WORKSPACE_ROOT/libviprs"
-    echo "Expected workspace layout:"
+# The Dockerfile and .dockerignore live in libviprs-tests/
+TESTS_DIR="$WORKSPACE_ROOT/libviprs-tests"
+LIBVIPRS_DIR="$WORKSPACE_ROOT/libviprs"
+
+if [ ! -d "$LIBVIPRS_DIR" ]; then
+    echo "Error: libviprs/ not found at $LIBVIPRS_DIR"
+    echo "Expected sibling layout:"
     echo "  workspace/"
     echo "    libviprs/"
     echo "    libviprs-tests/"
+    exit 1
+fi
+
+if [ ! -d "$TESTS_DIR" ]; then
+    echo "Error: libviprs-tests/ not found at $TESTS_DIR"
+    echo "Expected sibling layout:"
+    echo "  workspace/"
+    echo "    libviprs/"
+    echo "    libviprs-tests/"
+    exit 1
+fi
+
+if [ ! -f "$TESTS_DIR/Dockerfile" ]; then
+    echo "Error: Dockerfile not found at $TESTS_DIR/Dockerfile"
     exit 1
 fi
 
@@ -81,9 +109,11 @@ fi
 # ---------------------------------------------------------------------------
 
 echo "Building test image '${IMAGE_NAME}' (${ARCH_LABEL})..."
+echo "  libviprs:       $LIBVIPRS_DIR"
+echo "  libviprs-tests: $TESTS_DIR"
 DOCKER_BUILDKIT=1 docker build \
     --platform "$PLATFORM" \
-    -f "$SCRIPT_DIR/Dockerfile" \
+    -f "$TESTS_DIR/Dockerfile" \
     -t "$IMAGE_NAME" \
     "$WORKSPACE_ROOT"
 
