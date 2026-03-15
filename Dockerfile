@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# Dockerfile — run libviprs-tests with PDFium (amd64 + arm64)
+# Dockerfile — run libviprs + libviprs-tests with PDFium (amd64 + arm64)
 # ---------------------------------------------------------------------------
 
 # Stage 1: Download PDFium shared library for the target architecture
@@ -30,16 +30,25 @@ RUN ldconfig
 
 WORKDIR /src
 
-# Copy libviprs first (dependency)
+# Copy both crates
 COPY libviprs/ libviprs/
-
-# Copy test crate
 COPY libviprs-tests/ libviprs-tests/
 
-WORKDIR /src/libviprs-tests
-
-# Build dependencies first for layer caching
+# Fetch dependencies for both crates
+WORKDIR /src/libviprs
 RUN cargo fetch
 
-# Default: run all tests including pdfium
-CMD ["cargo", "test", "--features", "pdfium"]
+WORKDIR /src/libviprs-tests
+RUN cargo fetch
+
+# Default: run libviprs tests first, then libviprs-tests with pdfium
+CMD sh -c '\
+    echo "================================================================" && \
+    echo "Running libviprs unit tests (with pdfium)..." && \
+    echo "================================================================" && \
+    cd /src/libviprs && cargo test --features pdfium && \
+    echo "" && \
+    echo "================================================================" && \
+    echo "Running libviprs-tests integration tests (with pdfium)..." && \
+    echo "================================================================" && \
+    cd /src/libviprs-tests && cargo test --features pdfium'
