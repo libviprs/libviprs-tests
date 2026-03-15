@@ -1,4 +1,14 @@
-# libviprs-tests
+<p align="center">
+  <img src="https://raw.githubusercontent.com/libviprs/libviprs/main/images/libviprs-logo-claws.svg" alt="libviprs" width="200">
+</p>
+
+<h1 align="center">libviprs-tests</h1>
+
+<p align="center">
+  <a href="https://github.com/libviprs/libviprs-tests/actions/workflows/ci.yml"><img src="https://github.com/libviprs/libviprs-tests/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust" alt="Rust 1.85+">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
+</p>
 
 Integration and system tests for [libviprs](../libviprs), a pure-Rust image pyramiding engine.
 
