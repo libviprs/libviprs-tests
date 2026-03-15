@@ -1,0 +1,7 @@
+**/target/
+**/.git/
+**/.DS_Store
+**/tmp/
+*.log
+*.bak
+*.tmp

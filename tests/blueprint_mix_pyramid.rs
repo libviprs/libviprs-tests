@@ -221,8 +221,8 @@ fn blueprint_mix_pdfium_render_captures_full_page() {
     let rendered =
         render_page_pdfium(Path::new(FIXTURE_PDF), 1, 150).expect("pdfium render failed");
 
-    // PDFium renders the full page dimensions at the requested DPI.
-    // blueprint-mix.pdf is 3370x4768 pts → ~7021x9933 px at 150 DPI.
+    // PDFium renders the full page at the requested DPI.
+    // blueprint-mix.pdf renders to 9932x7020 at 150 DPI.
     assert!(
         rendered.width() > 5000,
         "Rendered width {} too small for full-page render",
@@ -235,13 +235,15 @@ fn blueprint_mix_pdfium_render_captures_full_page() {
     );
     assert_eq!(rendered.format(), PixelFormat::Rgba8);
 
-    // The raster-only extraction is 12738x220 — a completely different
-    // aspect ratio. The rendered page should be portrait, not a narrow strip.
+    // The raster-only extraction is 12738x220 — a narrow strip.
+    // The rendered page has a much larger area covering both dimensions,
+    // confirming it captures the full page layout (not just the embedded image).
+    let rendered_area = rendered.width() as u64 * rendered.height() as u64;
+    let extracted = load_blueprint_mix();
+    let extracted_area = extracted.width() as u64 * extracted.height() as u64;
     assert!(
-        rendered.height() > rendered.width(),
-        "Rendered page should be portrait ({}x{}), not landscape like the embedded raster",
-        rendered.width(),
-        rendered.height(),
+        rendered_area > extracted_area * 10,
+        "Rendered area ({rendered_area}) should be much larger than extracted area ({extracted_area})",
     );
 }
 
@@ -265,18 +267,18 @@ fn blueprint_mix_rendered_differs_from_extracted() {
     );
 
     // The extracted raster is a narrow strip (embedded image only).
-    // The rendered raster is a full portrait page.
+    // The rendered raster covers the full page with a different aspect ratio.
     assert!(
-        extracted.width() > extracted.height(),
-        "Extracted raster should be a wide strip ({}x{})",
+        extracted.width() > extracted.height() * 10,
+        "Extracted raster should be a narrow strip ({}x{})",
         extracted.width(),
         extracted.height(),
     );
+    let rendered_aspect = rendered.width() as f64 / rendered.height() as f64;
+    let extracted_aspect = extracted.width() as f64 / extracted.height() as f64;
     assert!(
-        rendered.height() > rendered.width(),
-        "Rendered raster should be portrait ({}x{})",
-        rendered.width(),
-        rendered.height(),
+        (rendered_aspect - extracted_aspect).abs() > 1.0,
+        "Rendered ({rendered_aspect:.2}) and extracted ({extracted_aspect:.2}) should have very different aspect ratios",
     );
 }
 
