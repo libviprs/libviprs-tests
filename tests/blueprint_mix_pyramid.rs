@@ -13,8 +13,8 @@
 use std::path::{Path, PathBuf};
 
 use libviprs::{
-    EngineConfig, FsSink, Layout, MemorySink, PixelFormat, PyramidPlanner, TileFormat,
-    extract_page_image, generate_pyramid,
+    extract_page_image, generate_pyramid, EngineConfig, FsSink, Layout, MemorySink, PixelFormat,
+    PyramidPlanner, TileFormat,
 };
 
 const FIXTURE_PDF: &str = concat!(
@@ -84,9 +84,8 @@ fn blueprint_mix_extraction_metadata() {
 fn blueprint_mix_pyramid_matches_expected() {
     let raster = load_blueprint_mix();
 
-    let planner =
-        PyramidPlanner::new(raster.width(), raster.height(), 256, 0, Layout::DeepZoom)
-            .expect("failed to create pyramid planner");
+    let planner = PyramidPlanner::new(raster.width(), raster.height(), 256, 0, Layout::DeepZoom)
+        .expect("failed to create pyramid planner");
     let plan = planner.plan();
 
     let dir = tempfile::tempdir().unwrap();
@@ -94,8 +93,8 @@ fn blueprint_mix_pyramid_matches_expected() {
     let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
     let config = EngineConfig::default();
 
-    let result = generate_pyramid(&raster, &plan, &sink, &config)
-        .expect("pyramid generation failed");
+    let result =
+        generate_pyramid(&raster, &plan, &sink, &config).expect("pyramid generation failed");
 
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 
@@ -119,7 +118,8 @@ fn blueprint_mix_pyramid_matches_expected() {
             "File path mismatch: expected {exp_path}, got {act_path}"
         );
         assert_eq!(
-            exp_bytes, act_bytes,
+            exp_bytes,
+            act_bytes,
             "Content mismatch at {act_path}: expected {} bytes, got {} bytes",
             exp_bytes.len(),
             act_bytes.len(),
@@ -127,14 +127,10 @@ fn blueprint_mix_pyramid_matches_expected() {
     }
 
     // Compare DZI manifest
-    let expected_dzi = std::fs::read_to_string(
-        PathBuf::from(EXPECTED_DIR).with_extension("dzi"),
-    )
-    .expect("expected DZI manifest not found");
-    let actual_dzi = std::fs::read_to_string(
-        dir.path().join("blueprint_mix.dzi"),
-    )
-    .expect("generated DZI manifest not found");
+    let expected_dzi = std::fs::read_to_string(PathBuf::from(EXPECTED_DIR).with_extension("dzi"))
+        .expect("expected DZI manifest not found");
+    let actual_dzi = std::fs::read_to_string(dir.path().join("blueprint_mix.dzi"))
+        .expect("generated DZI manifest not found");
 
     assert_eq!(expected_dzi, actual_dzi, "DZI manifest mismatch");
 }
@@ -144,9 +140,8 @@ fn blueprint_mix_pyramid_matches_expected() {
 fn blueprint_mix_pyramid_deterministic() {
     let raster = load_blueprint_mix();
 
-    let planner =
-        PyramidPlanner::new(raster.width(), raster.height(), 256, 0, Layout::DeepZoom)
-            .expect("failed to create pyramid planner");
+    let planner = PyramidPlanner::new(raster.width(), raster.height(), 256, 0, Layout::DeepZoom)
+        .expect("failed to create pyramid planner");
     let plan = planner.plan();
 
     let sink1 = MemorySink::new();
@@ -173,9 +168,8 @@ fn blueprint_mix_pyramid_deterministic() {
 fn blueprint_mix_pyramid_concurrent_matches_expected() {
     let raster = load_blueprint_mix();
 
-    let planner =
-        PyramidPlanner::new(raster.width(), raster.height(), 256, 0, Layout::DeepZoom)
-            .expect("failed to create pyramid planner");
+    let planner = PyramidPlanner::new(raster.width(), raster.height(), 256, 0, Layout::DeepZoom)
+        .expect("failed to create pyramid planner");
     let plan = planner.plan();
 
     let dir = tempfile::tempdir().unwrap();
@@ -183,8 +177,8 @@ fn blueprint_mix_pyramid_concurrent_matches_expected() {
     let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
     let config = EngineConfig::default().with_concurrency(4);
 
-    let result = generate_pyramid(&raster, &plan, &sink, &config)
-        .expect("pyramid generation failed");
+    let result =
+        generate_pyramid(&raster, &plan, &sink, &config).expect("pyramid generation failed");
 
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 
