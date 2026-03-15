@@ -6,23 +6,65 @@ set -euo pipefail
 #
 # Can be invoked from either the libviprs-tests/ or libviprs/ directory.
 #
-# Usage:  ./run-tests.sh          # auto-detect arch (arm64 on Apple Silicon)
-#         ./run-tests.sh arm      # build for arm64
-#         ./run-tests.sh amd64    # build for amd64
+# Usage:  ./run-tests.sh                  # default: ci mode, auto-detect arch
+#         ./run-tests.sh [arch] [mode]
 #
-# Runs libviprs unit tests and libviprs-tests integration tests, both with
-# the pdfium feature enabled. Exit code reflects test results.
+# Architecture (first arg, optional):
+#   arm, arm64       — build for arm64
+#   amd64, x86_64    — build for amd64
+#   (auto-detected if omitted or if first arg is a mode)
+#
+# Mode (second arg, or first arg if not an arch):
+#   ci     (default) — fmt check, clippy, unit tests, integration tests
+#   test             — unit tests + integration tests only
+#   miri             — cargo +nightly miri test on libviprs
+#   loom             — loom concurrency tests on libviprs
+#   full             — ci + miri + loom (the full merge-gate pipeline)
+#
+# Examples:
+#   ./run-tests.sh              # ci mode, auto-detect arch
+#   ./run-tests.sh arm          # ci mode, arm64
+#   ./run-tests.sh full         # full mode, auto-detect arch
+#   ./run-tests.sh arm full     # full mode, arm64
+#   ./run-tests.sh amd64 miri   # miri mode, amd64
 # ---------------------------------------------------------------------------
 
-# Auto-detect architecture if not specified
-if [ $# -eq 0 ]; then
-    HOST_ARCH="$(uname -m)"
-    case "$HOST_ARCH" in
-        arm64|aarch64) ARCH="arm64" ;;
-        *)             ARCH="amd64" ;;
+VALID_MODES="ci test miri loom full"
+
+is_mode() {
+    for m in $VALID_MODES; do
+        [ "$1" = "$m" ] && return 0
+    done
+    return 1
+}
+
+auto_detect_arch() {
+    case "$(uname -m)" in
+        arm64|aarch64) echo "arm64" ;;
+        *)             echo "amd64" ;;
     esac
-else
-    ARCH="$1"
+}
+
+# Parse arguments
+ARCH=""
+MODE="ci"
+
+for arg in "$@"; do
+    if is_mode "$arg"; then
+        MODE="$arg"
+    elif [ -z "$ARCH" ]; then
+        ARCH="$arg"
+    else
+        echo "Error: unexpected argument '${arg}'"
+        echo "Usage: ./run-tests.sh [arch] [mode]"
+        echo "  arch: arm|arm64|amd64|x86_64 (auto-detected if omitted)"
+        echo "  mode: $VALID_MODES"
+        exit 1
+    fi
+done
+
+if [ -z "$ARCH" ]; then
+    ARCH="$(auto_detect_arch)"
 fi
 
 case "$ARCH" in
@@ -60,17 +102,10 @@ fi
 # ---------------------------------------------------------------------------
 # Resolve workspace layout
 # ---------------------------------------------------------------------------
-# Supports invocation from either libviprs-tests/ or libviprs/.
-# Expected sibling layout:
-#   workspace/
-#     libviprs/          (core library)
-#     libviprs-tests/    (integration tests + Dockerfile)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-# The Dockerfile and .dockerignore live in libviprs-tests/
-TESTS_DIR="$WORKSPACE_ROOT/libviprs-tests"
+TESTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+WORKSPACE_ROOT="$(cd "$TESTS_DIR/.." && pwd)"
 LIBVIPRS_DIR="$WORKSPACE_ROOT/libviprs"
 
 if [ ! -d "$LIBVIPRS_DIR" ]; then
@@ -91,8 +126,8 @@ if [ ! -d "$TESTS_DIR" ]; then
     exit 1
 fi
 
-if [ ! -f "$TESTS_DIR/Dockerfile" ]; then
-    echo "Error: Dockerfile not found at $TESTS_DIR/Dockerfile"
+if [ ! -f "$TESTS_DIR/tools/Dockerfile" ]; then
+    echo "Error: Dockerfile not found at $TESTS_DIR/tools/Dockerfile"
     exit 1
 fi
 
@@ -113,22 +148,23 @@ echo "  libviprs:       $LIBVIPRS_DIR"
 echo "  libviprs-tests: $TESTS_DIR"
 DOCKER_BUILDKIT=1 docker build \
     --platform "$PLATFORM" \
-    -f "$TESTS_DIR/Dockerfile" \
+    -f "$TESTS_DIR/tools/Dockerfile" \
     -t "$IMAGE_NAME" \
     "$WORKSPACE_ROOT"
 
 # ---------------------------------------------------------------------------
-# Run tests
+# Run
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "Running tests (${ARCH_LABEL})..."
+echo "Running mode '${MODE}' (${ARCH_LABEL})..."
 echo "================================================================"
 
 docker run \
     --platform "$PLATFORM" \
     --name "$CONTAINER_NAME" \
     --memory=4g \
+    -e "RUN_MODE=${MODE}" \
     "$IMAGE_NAME"
 
 EXIT_CODE=$?
@@ -142,11 +178,11 @@ docker rm "$CONTAINER_NAME" >/dev/null 2>&1 || true
 if [ $EXIT_CODE -eq 0 ]; then
     echo ""
     echo "================================================================"
-    echo "All tests passed (${ARCH_LABEL})."
+    echo "All checks passed (mode: ${MODE}, arch: ${ARCH_LABEL})."
 else
     echo ""
     echo "================================================================"
-    echo "Tests FAILED (exit code ${EXIT_CODE})."
+    echo "FAILED (mode: ${MODE}, exit code ${EXIT_CODE})."
 fi
 
 exit $EXIT_CODE

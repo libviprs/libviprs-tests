@@ -1,5 +1,12 @@
 # ---------------------------------------------------------------------------
 # Dockerfile — run libviprs + libviprs-tests with PDFium (amd64 + arm64)
+#
+# Supports multiple run modes via RUN_MODE env var:
+#   ci    (default) — fmt, clippy, tests (libviprs + libviprs-tests with pdfium)
+#   test            — tests only (libviprs + libviprs-tests with pdfium)
+#   miri            — cargo +nightly miri test on libviprs
+#   loom            — loom concurrency tests on libviprs
+#   full            — ci + miri + loom
 # ---------------------------------------------------------------------------
 
 # Stage 1: Download PDFium shared library for the target architecture
@@ -19,14 +26,18 @@ RUN case "${TARGETARCH}" in \
     tar xzf /tmp/pdfium.tgz -C /opt/pdfium && \
     rm /tmp/pdfium.tgz
 
-# Stage 2: Build and test
-FROM rust:latest AS builder
+# Stage 2: Build and test environment
+FROM rust:latest
 
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Install PDFium shared library
 COPY --from=pdfium /opt/pdfium/lib/libpdfium.so /usr/local/lib/libpdfium.so
 RUN ldconfig
+
+# Install nightly toolchain + miri (used by miri/full modes)
+RUN rustup toolchain install nightly \
+    && rustup component add --toolchain nightly miri rustfmt clippy
 
 WORKDIR /src
 
@@ -37,18 +48,15 @@ COPY libviprs-tests/ libviprs-tests/
 # Fetch dependencies for both crates
 WORKDIR /src/libviprs
 RUN cargo fetch
+RUN cargo +nightly fetch
 
 WORKDIR /src/libviprs-tests
 RUN cargo fetch
 
-# Default: run libviprs tests first, then libviprs-tests with pdfium
-CMD sh -c '\
-    echo "================================================================" && \
-    echo "Running libviprs unit tests (with pdfium)..." && \
-    echo "================================================================" && \
-    cd /src/libviprs && cargo test --features pdfium && \
-    echo "" && \
-    echo "================================================================" && \
-    echo "Running libviprs-tests integration tests (with pdfium)..." && \
-    echo "================================================================" && \
-    cd /src/libviprs-tests && cargo test --features pdfium'
+# Copy entrypoint
+COPY libviprs-tests/tools/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENV RUN_MODE=ci
+
+ENTRYPOINT ["/entrypoint.sh"]
