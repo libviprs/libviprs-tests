@@ -109,7 +109,10 @@ fn blueprint_portrait_cli_fixtures_valid() {
     let manifest = std::fs::read_to_string(&dzi_path).expect("DZI manifest not found");
     assert!(manifest.contains("Width=\"3300\""), "DZI missing width");
     assert!(manifest.contains("Height=\"5024\""), "DZI missing height");
-    assert!(manifest.contains("TileSize=\"256\""), "DZI missing tile size");
+    assert!(
+        manifest.contains("TileSize=\"256\""),
+        "DZI missing tile size"
+    );
     assert!(manifest.contains("Format=\"png\""), "DZI missing format");
 }
 
