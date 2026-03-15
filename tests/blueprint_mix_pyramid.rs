@@ -13,8 +13,8 @@
 use std::path::{Path, PathBuf};
 
 use libviprs::{
-    extract_page_image, generate_pyramid, EngineConfig, FsSink, Layout, MemorySink, PixelFormat,
-    PyramidPlanner, TileFormat,
+    EngineConfig, FsSink, Layout, MemorySink, PixelFormat, PyramidPlanner, TileFormat,
+    extract_page_image, generate_pyramid,
 };
 
 const FIXTURE_PDF: &str = concat!(
