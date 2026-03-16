@@ -41,12 +41,19 @@ RUN cargo fetch
 WORKDIR /src/libviprs-tests
 RUN cargo fetch
 
+# Disable debug info to keep test binaries small enough for the container.
+# Each integration test is a separate binary; full debuginfo exhausts disk space.
+ENV CARGO_PROFILE_DEV_DEBUG=0
+
 # Default: run libviprs tests first, then libviprs-tests with pdfium
 CMD sh -c '\
     echo "================================================================" && \
     echo "Running libviprs unit tests (with pdfium)..." && \
     echo "================================================================" && \
     cd /src/libviprs && cargo test --features pdfium && \
+    echo "" && \
+    echo "Cleaning libviprs build artifacts to free disk space..." && \
+    cargo clean && \
     echo "" && \
     echo "================================================================" && \
     echo "Running libviprs-tests integration tests (with pdfium)..." && \
