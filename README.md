@@ -81,6 +81,25 @@ docker run --rm libviprs-tests cargo test -- --ignored stress
 docker run --rm libviprs-tests cargo test --features pdfium -- --ignored pdfium_system
 ```
 
+## Git Hooks
+
+`install-hooks.sh` installs pre-commit and pre-push hooks into all three
+repos (libviprs, libviprs-cli, libviprs-tests):
+
+```bash
+# From libviprs-tests/
+./tools/install-hooks.sh
+```
+
+**Pre-commit** (runs on every `git commit`):
+- `cargo fmt -- --check` — rejects unformatted code
+- `cargo clippy --all-targets -- -D warnings` — rejects lint warnings
+
+**Pre-push** (runs on every `git push`):
+- Runs the full Docker test suite via `run-tests.sh`
+
+To bypass in emergencies: `git commit --no-verify` or `git push --no-verify`.
+
 ## Test Suites
 
 ### Core Pipeline
@@ -172,6 +191,7 @@ libviprs-tests/
 ├── Dockerfile
 ├── README.md
 ├── tools/
+│   ├── install-hooks.sh
 │   └── run-tests.sh
 ├── .github/
 │   └── workflows/
