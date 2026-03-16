@@ -6,23 +6,41 @@ set -euo pipefail
 #
 # Can be invoked from either the libviprs-tests/ or libviprs/ directory.
 #
-# Usage:  ./run-tests.sh          # auto-detect arch (arm64 on Apple Silicon)
-#         ./run-tests.sh arm      # build for arm64
-#         ./run-tests.sh amd64    # build for amd64
+# Usage:  ./run-tests.sh                  # auto-detect arch (arm64 on Apple Silicon)
+#         ./run-tests.sh arm              # build for arm64
+#         ./run-tests.sh amd64            # build for amd64
+#         ./run-tests.sh --miri           # also run Miri after Docker tests
+#         ./run-tests.sh --loom           # also run Loom after Docker tests
+#         ./run-tests.sh --miri --loom    # run both
+#         ./run-tests.sh arm --miri       # combine arch + flags
 #
 # Runs libviprs unit tests and libviprs-tests integration tests, both with
 # the pdfium feature enabled. Exit code reflects test results.
+#
+# --miri  Run Miri (requires nightly toolchain with miri component) on
+#         libviprs after the Docker tests pass.
+# --loom  Run Loom concurrency tests on libviprs after the Docker tests pass.
 # ---------------------------------------------------------------------------
 
+RUN_MIRI=false
+RUN_LOOM=false
+ARCH=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --miri) RUN_MIRI=true ;;
+        --loom) RUN_LOOM=true ;;
+        *)      ARCH="$arg" ;;
+    esac
+done
+
 # Auto-detect architecture if not specified
-if [ $# -eq 0 ]; then
+if [ -z "$ARCH" ]; then
     HOST_ARCH="$(uname -m)"
     case "$HOST_ARCH" in
         arm64|aarch64) ARCH="arm64" ;;
         *)             ARCH="amd64" ;;
     esac
-else
-    ARCH="$1"
 fi
 
 case "$ARCH" in
@@ -67,7 +85,7 @@ fi
 #     libviprs-tests/    (integration tests + Dockerfile)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # The Dockerfile and .dockerignore live in libviprs-tests/
 TESTS_DIR="$WORKSPACE_ROOT/libviprs-tests"
@@ -147,6 +165,37 @@ else
     echo ""
     echo "================================================================"
     echo "Tests FAILED (exit code ${EXIT_CODE})."
+    exit $EXIT_CODE
 fi
 
-exit $EXIT_CODE
+# ---------------------------------------------------------------------------
+# Miri (optional, runs on host — requires nightly + miri component)
+# ---------------------------------------------------------------------------
+
+if [ "$RUN_MIRI" = true ]; then
+    echo ""
+    echo "================================================================"
+    echo "Running Miri on libviprs..."
+    echo "================================================================"
+    cd "$LIBVIPRS_DIR"
+    cargo +nightly miri test
+    echo ""
+    echo "================================================================"
+    echo "Miri passed."
+fi
+
+# ---------------------------------------------------------------------------
+# Loom (optional, runs on host)
+# ---------------------------------------------------------------------------
+
+if [ "$RUN_LOOM" = true ]; then
+    echo ""
+    echo "================================================================"
+    echo "Running Loom concurrency tests on libviprs..."
+    echo "================================================================"
+    cd "$LIBVIPRS_DIR"
+    RUSTFLAGS="--cfg loom" cargo test --lib loom_tests
+    echo ""
+    echo "================================================================"
+    echo "Loom passed."
+fi
