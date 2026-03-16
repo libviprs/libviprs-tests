@@ -30,9 +30,39 @@ cargo test -- --ignored stress
 cargo test --features pdfium -- --ignored pdfium_system
 ```
 
-### Docker
+### Docker (via run-tests.sh)
 
-Run the full test suite (including PDFium) without installing anything locally:
+`run-tests.sh` builds a Docker image with PDFium and runs the full test suite
+without requiring any local dependencies. It can be invoked from either repo:
+
+```bash
+# From libviprs/
+./run-tests.sh              # auto-detect arch
+./run-tests.sh arm          # force arm64
+./run-tests.sh amd64        # force amd64
+
+# From libviprs-tests/
+./tools/run-tests.sh
+```
+
+#### Miri and Loom
+
+After the Docker tests pass, you can optionally run Miri and/or Loom on the
+host (not in Docker):
+
+```bash
+./run-tests.sh --miri           # + Miri (requires nightly + miri component)
+./run-tests.sh --loom           # + Loom concurrency tests
+./run-tests.sh --miri --loom    # both
+./run-tests.sh arm --miri       # combine arch + flags
+```
+
+Miri runs `cargo +nightly miri test` on libviprs. Loom runs
+`RUSTFLAGS="--cfg loom" cargo test --lib loom_tests` on libviprs.
+
+#### Docker directly
+
+You can also use Docker without the script:
 
 ```bash
 # From the workspace root (parent of libviprs/ and libviprs-tests/)
@@ -141,6 +171,8 @@ libviprs-tests/
 ├── Cargo.toml
 ├── Dockerfile
 ├── README.md
+├── tools/
+│   └── run-tests.sh
 ├── .github/
 │   └── workflows/
 │       └── ci.yml
