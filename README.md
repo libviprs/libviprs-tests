@@ -1,4 +1,14 @@
-# libviprs-tests
+<p align="center">
+  <img src="https://raw.githubusercontent.com/libviprs/libviprs/main/images/libviprs-logo-claws.svg" alt="libviprs" width="200">
+</p>
+
+<h1 align="center">libviprs-tests</h1>
+
+<p align="center">
+  <a href="https://github.com/libviprs/libviprs-tests/actions/workflows/ci.yml"><img src="https://github.com/libviprs/libviprs-tests/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust" alt="Rust 1.85+">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
+</p>
 
 Integration and system tests for [libviprs](../libviprs), a pure-Rust image pyramiding engine.
 
@@ -20,9 +30,39 @@ cargo test -- --ignored stress
 cargo test --features pdfium -- --ignored pdfium_system
 ```
 
-### Docker
+### Docker (via run-tests.sh)
 
-Run the full test suite (including PDFium) without installing anything locally:
+`run-tests.sh` builds a Docker image with PDFium and runs the full test suite
+without requiring any local dependencies. It can be invoked from either repo:
+
+```bash
+# From libviprs/
+./run-tests.sh              # auto-detect arch
+./run-tests.sh arm          # force arm64
+./run-tests.sh amd64        # force amd64
+
+# From libviprs-tests/
+./tools/run-tests.sh
+```
+
+#### Miri and Loom
+
+After the Docker tests pass, you can optionally run Miri and/or Loom on the
+host (not in Docker):
+
+```bash
+./run-tests.sh --miri           # + Miri (requires nightly + miri component)
+./run-tests.sh --loom           # + Loom concurrency tests
+./run-tests.sh --miri --loom    # both
+./run-tests.sh arm --miri       # combine arch + flags
+```
+
+Miri runs `cargo +nightly miri test` on libviprs. Loom runs
+`RUSTFLAGS="--cfg loom" cargo test --lib loom_tests` on libviprs.
+
+#### Docker directly
+
+You can also use Docker without the script:
 
 ```bash
 # From the workspace root (parent of libviprs/ and libviprs-tests/)
@@ -40,6 +80,25 @@ docker run --rm libviprs-tests cargo test -- --ignored stress
 # PDFium system check
 docker run --rm libviprs-tests cargo test --features pdfium -- --ignored pdfium_system
 ```
+
+## Git Hooks
+
+`install-hooks.sh` installs pre-commit and pre-push hooks into all three
+repos (libviprs, libviprs-cli, libviprs-tests):
+
+```bash
+# From libviprs-tests/
+./tools/install-hooks.sh
+```
+
+**Pre-commit** (runs on every `git commit`):
+- `cargo fmt -- --check` — rejects unformatted code
+- `cargo clippy --all-targets -- -D warnings` — rejects lint warnings
+
+**Pre-push** (runs on every `git push`):
+- Runs the full Docker test suite via `run-tests.sh`
+
+To bypass in emergencies: `git commit --no-verify` or `git push --no-verify`.
 
 ## Test Suites
 
@@ -122,6 +181,7 @@ Located in `tests/fixtures/`:
 | File | Description |
 |---|---|
 | `blueprint.pdf` | Real scanned blueprint PDF used by PDF extraction and end-to-end tests. |
+| `password.pdf` | AES-256 encrypted single-page PDF. Password: **`secret`** (both user and owner). Used by `ported_foreign::test_pdf_password`. |
 
 ## Project Structure
 
@@ -130,12 +190,16 @@ libviprs-tests/
 ├── Cargo.toml
 ├── Dockerfile
 ├── README.md
+├── tools/
+│   ├── install-hooks.sh
+│   └── run-tests.sh
 ├── .github/
 │   └── workflows/
 │       └── ci.yml
 ├── tests/
 │   ├── fixtures/
-│   │   └── blueprint.pdf
+│   │   ├── blueprint.pdf
+│   │   └── password.pdf
 │   ├── no_temp_files.rs
 │   ├── observability.rs
 │   ├── pdf_cmyk.rs

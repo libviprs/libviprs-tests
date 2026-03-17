@@ -2,10 +2,7 @@ use std::path::Path;
 
 use libviprs::{extract_page_image, pdf_info};
 
-const FIXTURE_PDF: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/blueprint.pdf"
-);
+const FIXTURE_PDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blueprint.pdf");
 
 #[test]
 fn pdf_info_reads_page_count() {
@@ -33,7 +30,12 @@ fn pdf_info_detects_images() {
 #[test]
 fn extract_page_image_from_blueprint() {
     let raster = extract_page_image(Path::new(FIXTURE_PDF), 1).unwrap();
-    assert!(raster.width() > 100, "Extracted image too small: {}x{}", raster.width(), raster.height());
+    assert!(
+        raster.width() > 100,
+        "Extracted image too small: {}x{}",
+        raster.width(),
+        raster.height()
+    );
     assert!(raster.height() > 100);
 }
 
