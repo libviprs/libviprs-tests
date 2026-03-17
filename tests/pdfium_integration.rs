@@ -4,10 +4,7 @@ use libviprs::pdf::render_page_pdfium;
 use pdfium_render::prelude::*;
 use std::path::Path;
 
-const FIXTURE_PDF: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/blueprint.pdf"
-);
+const FIXTURE_PDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blueprint.pdf");
 
 /// Verify that the PDFium shared library can be found on this system.
 #[test]
@@ -61,11 +58,7 @@ fn pdfium_renders_page_to_bitmap() {
         .set_maximum_height(height);
 
     let bitmap = page.render_with_config(&config);
-    assert!(
-        bitmap.is_ok(),
-        "PDFium render failed: {:?}",
-        bitmap.err()
-    );
+    assert!(bitmap.is_ok(), "PDFium render failed: {:?}", bitmap.err());
 
     let bmp = bitmap.unwrap();
     let img = bmp.as_image();
@@ -78,11 +71,19 @@ fn pdfium_renders_page_to_bitmap() {
 /// Verify that libviprs::render_page_pdfium produces a valid Raster.
 #[test]
 fn libviprs_render_page_pdfium() {
-    let raster = render_page_pdfium(Path::new(FIXTURE_PDF), 1, 150)
-        .expect("render_page_pdfium failed");
+    let raster =
+        render_page_pdfium(Path::new(FIXTURE_PDF), 1, 150).expect("render_page_pdfium failed");
 
-    assert!(raster.width() > 100, "Rendered raster too narrow: {}", raster.width());
-    assert!(raster.height() > 100, "Rendered raster too short: {}", raster.height());
+    assert!(
+        raster.width() > 100,
+        "Rendered raster too narrow: {}",
+        raster.width()
+    );
+    assert!(
+        raster.height() > 100,
+        "Rendered raster too short: {}",
+        raster.height()
+    );
     assert_eq!(raster.format(), libviprs::PixelFormat::Rgba8);
 }
 

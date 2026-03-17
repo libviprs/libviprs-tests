@@ -11,10 +11,7 @@
 use pdfium_render::prelude::*;
 use std::path::Path;
 
-const FIXTURE_PDF: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/blueprint.pdf"
-);
+const FIXTURE_PDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blueprint.pdf");
 
 /// The minimum pdfium-render crate version we depend on.
 const PDFIUM_RENDER_VERSION: &str = "0.8";
@@ -124,9 +121,7 @@ fn pdfium_system_check() {
             );
         }
         Err(e) => {
-            panic!(
-                "FAILED: libviprs::render_page_pdfium returned error: {e}"
-            );
+            panic!("FAILED: libviprs::render_page_pdfium returned error: {e}");
         }
     }
 
@@ -145,17 +140,9 @@ fn pdfium_library_search_paths() {
     );
 
     let search_paths: &[&str] = if cfg!(target_os = "macos") {
-        &[
-            "/usr/local/lib",
-            "/opt/homebrew/lib",
-            "/usr/lib",
-        ]
+        &["/usr/local/lib", "/opt/homebrew/lib", "/usr/lib"]
     } else if cfg!(target_os = "linux") {
-        &[
-            "/usr/local/lib",
-            "/usr/lib",
-            "/usr/lib/x86_64-linux-gnu",
-        ]
+        &["/usr/local/lib", "/usr/lib", "/usr/lib/x86_64-linux-gnu"]
     } else {
         &[]
     };

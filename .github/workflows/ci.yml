@@ -16,10 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/libviprs
-          path: libviprs
+      - name: Clone libviprs
+        run: git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
@@ -29,32 +27,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/libviprs
-          path: libviprs
+      - name: Clone libviprs
+        run: git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install PDFium
         run: |
-          curl -L -o pdfium.tgz https://github.com/niclasvaneyk/pdfium-apple-silicon/releases/download/5962/pdfium-linux-x64.tgz || true
-          # Fallback: skip pdfium tests if library not available
-          if [ -f pdfium.tgz ]; then
-            mkdir -p /usr/local/lib
-            tar xzf pdfium.tgz -C /usr/local/lib
-            echo "LD_LIBRARY_PATH=/usr/local/lib" >> $GITHUB_ENV
-          fi
-      - run: cargo test --features pdfium || echo "pdfium tests skipped (library not available)"
+          curl -L -o pdfium.tgz https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7725/pdfium-linux-x64.tgz
+          mkdir -p pdfium
+          tar xzf pdfium.tgz -C pdfium
+          sudo cp pdfium/lib/libpdfium.so /usr/local/lib/
+          sudo cp -r pdfium/include/* /usr/local/include/
+          sudo ldconfig
+      - run: cargo test --features pdfium
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/libviprs
-          path: libviprs
+      - name: Clone libviprs
+        run: git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt

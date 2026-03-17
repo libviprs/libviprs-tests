@@ -2,15 +2,18 @@
 name = "libviprs-tests"
 version = "0.1.0"
 edition = "2024"
+authors = ["Roman Goldmann <roman@devshell.org>"]
 rust-version = "1.85"
 publish = false
 
 [features]
 default = []
 pdfium = ["libviprs/pdfium", "dep:pdfium-render"]
+ported_tests = []
 
 [dependencies]
 libviprs = { path = "../libviprs" }
 pdfium-render = { version = "0.8", optional = true }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
 flate2 = "1"
 tempfile = "3"

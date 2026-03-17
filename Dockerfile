@@ -1,24 +1,61 @@
-FROM rust:1.85-bookworm
+# ---------------------------------------------------------------------------
+# Dockerfile — run libviprs + libviprs-tests with PDFium (amd64 + arm64)
+# ---------------------------------------------------------------------------
+
+# Stage 1: Download PDFium shared library for the target architecture
+FROM debian:bookworm-slim AS pdfium
+
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+        amd64) PDFIUM_ARCH="linux-x64" ;; \
+        arm64) PDFIUM_ARCH="linux-arm64" ;; \
+        *)     echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
+    esac && \
+    curl -L -o /tmp/pdfium.tgz \
+        "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-${PDFIUM_ARCH}.tgz" && \
+    mkdir -p /opt/pdfium && \
+    tar xzf /tmp/pdfium.tgz -C /opt/pdfium && \
+    rm /tmp/pdfium.tgz
+
+# Stage 2: Build and test
+FROM rust:latest AS builder
+
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Install PDFium shared library
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/* \
-    && curl -L -o /tmp/pdfium.tgz https://github.com/niclasvaneyk/pdfium-linux-x64/releases/latest/download/pdfium-linux-x64.tgz \
-    && tar xzf /tmp/pdfium.tgz -C /usr/local \
-    && ldconfig \
-    && rm /tmp/pdfium.tgz
+COPY --from=pdfium /opt/pdfium/lib/libpdfium.so /usr/local/lib/libpdfium.so
+RUN ldconfig
 
 WORKDIR /src
 
-# Copy libviprs first (dependency)
+# Copy both crates
 COPY libviprs/ libviprs/
-
-# Copy test crate
 COPY libviprs-tests/ libviprs-tests/
 
-WORKDIR /src/libviprs-tests
-
-# Build dependencies first for layer caching
+# Fetch dependencies for both crates
+WORKDIR /src/libviprs
 RUN cargo fetch
 
-# Default: run all tests including pdfium
-CMD ["cargo", "test", "--features", "pdfium"]
+WORKDIR /src/libviprs-tests
+RUN cargo fetch
+
+# Disable debug info to keep test binaries small enough for the container.
+# Each integration test is a separate binary; full debuginfo exhausts disk space.
+ENV CARGO_PROFILE_DEV_DEBUG=0
+
+# Default: run libviprs tests first, then libviprs-tests with pdfium
+CMD sh -c '\
+    echo "================================================================" && \
+    echo "Running libviprs unit tests (with pdfium)..." && \
+    echo "================================================================" && \
+    cd /src/libviprs && cargo test --features pdfium && \
+    echo "" && \
+    echo "Cleaning libviprs build artifacts to free disk space..." && \
+    cargo clean && \
+    echo "" && \
+    echo "================================================================" && \
+    echo "Running libviprs-tests integration tests (with pdfium)..." && \
+    echo "================================================================" && \
+    cd /src/libviprs-tests && cargo test --features pdfium'
