@@ -143,27 +143,41 @@ All PDFium tests require `--features pdfium` and a PDFium shared library install
 
 The `pdfium` feature requires the PDFium shared library at runtime. pdfium-render 0.8.x dynamically loads it from system library paths.
 
+### Linux
+
+Pre-compiled binaries built from source are available from [libviprs-dep](https://github.com/libviprs/libviprs-dep/releases):
+
+```bash
+# x86_64
+curl -L -o pdfium.tgz \
+  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-7725/pdfium-linux-x64.tgz
+
+# arm64
+curl -L -o pdfium.tgz \
+  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-7725/pdfium-linux-arm64.tgz
+
+# Extract and install
+tar xzf pdfium.tgz
+sudo cp pdfium-linux-*/lib/libpdfium.so /usr/local/lib/
+sudo ldconfig
+```
+
+See the [libviprs-dep pdfium README](https://github.com/libviprs/libviprs-dep/tree/main/pdfium) for building PDFium from source or finding other versions.
+
 ### macOS
+
+Third-party prebuilt binaries:
 
 ```bash
 # Apple Silicon
-curl -L -o pdfium.tgz https://github.com/niclasvaneyk/pdfium-apple-silicon/releases/latest/download/pdfium-mac-arm64.tgz
+curl -L -o pdfium.tgz https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz
 tar xzf pdfium.tgz
 sudo cp lib/libpdfium.dylib /usr/local/lib/
 
 # Intel
-curl -L -o pdfium.tgz https://github.com/niclasvaneyk/pdfium-macos-x64/releases/latest/download/pdfium-mac-x64.tgz
+curl -L -o pdfium.tgz https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-x64.tgz
 tar xzf pdfium.tgz
 sudo cp lib/libpdfium.dylib /usr/local/lib/
-```
-
-### Linux
-
-```bash
-curl -L -o pdfium.tgz https://github.com/niclasvaneyk/pdfium-linux-x64/releases/latest/download/pdfium-linux-x64.tgz
-tar xzf pdfium.tgz
-sudo cp lib/libpdfium.so /usr/local/lib/
-sudo ldconfig
 ```
 
 ### Verify Installation
