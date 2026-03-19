@@ -1,17 +1,17 @@
 <?xml version="1.0"?>
-<image xmlns="http://www.vips.ecs.soton.ac.uk//dzsave" date="2026-03-19T05:32:00.974322Z" version="8.14.1">
+<image xmlns="http://www.vips.ecs.soton.ac.uk//dzsave" date="2026-03-19T06:46:27.095564Z" version="8.14.1">
   <properties>
     <property>
       <name>width</name>
-      <value type="gint">2048</value>
+      <value type="gint">8192</value>
     </property>
     <property>
       <name>height</name>
-      <value type="gint">2048</value>
+      <value type="gint">8192</value>
     </property>
     <property>
       <name>bands</name>
-      <value type="gint">4</value>
+      <value type="gint">1</value>
     </property>
     <property>
       <name>xoffset</name>
@@ -23,27 +23,15 @@
     </property>
     <property>
       <name>xres</name>
-      <value type="gdouble">2.8346456692913389</value>
+      <value type="gdouble">2.8340000000000001</value>
     </property>
     <property>
       <name>yres</name>
-      <value type="gdouble">2.8346456692913389</value>
+      <value type="gdouble">2.8340000000000001</value>
     </property>
     <property>
       <name>vips-loader</name>
-      <value type="VipsRefString">pdfload</value>
-    </property>
-    <property>
-      <name>pdf-n_pages</name>
-      <value type="gint">1</value>
-    </property>
-    <property>
-      <name>n-pages</name>
-      <value type="gint">1</value>
-    </property>
-    <property>
-      <name>pdf-producer</name>
-      <value type="VipsRefString">macOS Version 26.2 (Build 25C56) Quartz PDFContext</value>
+      <value type="VipsRefString">pngload</value>
     </property>
     <property>
       <name>vips-sequential</name>
