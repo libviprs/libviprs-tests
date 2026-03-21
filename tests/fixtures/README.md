@@ -33,6 +33,8 @@ These are the common inputs for both libviprs tests and `vips dzsave` fixture ge
 |---|---|---|---|
 | `extracted_blueprint_portrait.png` | `blueprint-portrait.pdf` page 1 | 3300x5024 | Gray8 |
 | `extracted_blueprint_mix.png` | `blueprint-mix.pdf` page 1 | 12738x220 | RGB8 |
+| `rendered_blueprint_mix.png` | `blueprint-mix.pdf` page 1, PDFium 72 DPI | 4768x3370 | RGBA8 |
+| `rendered_blueprint_portrait.png` | `blueprint-portrait.pdf` page 1, PDFium 72 DPI | 792x1224 | RGBA8 |
 
 ## DeepZoom fixtures
 
@@ -98,6 +100,46 @@ docker run --rm -v "$(pwd)":/data -w /data debian:bookworm-slim sh -c '
 ```
 
 Equivalent libviprs settings: `Layout::Google`, `tile_size=256`, `overlap=0`, `centre=true`, `TileFormat::Png`.
+
+## PDFium-rendered DeepZoom fixtures
+
+Source rasters are rendered from PDFs via PDFium at 72 DPI, saved as PNGs, then fed to
+`vips dzsave`. Tests load the same PNG fixture, generate a pyramid via libviprs, and compare
+decoded pixels against the vips tiles at tolerance=0.
+
+### `rendered_blueprint_mix.png`
+
+Source raster: 4768x3370 RGBA8, rendered from `blueprint-mix.pdf` page 1 at 72 DPI via PDFium.
+
+### `rendered_blueprint_portrait.png`
+
+Source raster: 792x1224 RGBA8, rendered from `blueprint-portrait.pdf` page 1 at 72 DPI via PDFium.
+
+### `blueprint_mix_rendered_expected/` + `blueprint_mix_rendered_expected.dzi`
+
+373 PNG tiles, DeepZoom layout.
+
+```bash
+docker run --rm -v "$(pwd)":/data -w /data debian:bookworm-slim sh -c '
+  apt-get update -qq && apt-get install -y -qq libvips-tools=8.14.1-3+deb12u2 > /dev/null 2>&1 &&
+  vips dzsave rendered_blueprint_mix.png blueprint_mix_rendered_expected \
+    --layout dz --tile-size 256 --overlap 0 --suffix .png --strip &&
+  mv blueprint_mix_rendered_expected_files blueprint_mix_rendered_expected
+'
+```
+
+### `blueprint_portrait_rendered_expected/` + `blueprint_portrait_rendered_expected.dzi`
+
+37 PNG tiles, DeepZoom layout.
+
+```bash
+docker run --rm -v "$(pwd)":/data -w /data debian:bookworm-slim sh -c '
+  apt-get update -qq && apt-get install -y -qq libvips-tools=8.14.1-3+deb12u2 > /dev/null 2>&1 &&
+  vips dzsave rendered_blueprint_portrait.png blueprint_portrait_rendered_expected \
+    --layout dz --tile-size 256 --overlap 0 --suffix .png --strip &&
+  mv blueprint_portrait_rendered_expected_files blueprint_portrait_rendered_expected
+'
+```
 
 ## Blank tile strategy fixtures
 

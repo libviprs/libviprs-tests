@@ -1,10 +1,16 @@
-//! Extracts embedded rasters from fixture PDFs and saves them as lossless PNGs.
+//! Extracts/renders rasters from fixture PDFs and saves them as lossless PNGs.
 //!
 //! These PNG files serve as the common input for both libviprs tests and
 //! `vips dzsave` fixture generation, ensuring both tools start from
 //! identical pixel data.
 //!
-//! Run with: `cargo test --test gen_source_rasters -- --ignored`
+//! Two kinds of source rasters are generated:
+//! - `extracted_*.png` — embedded raster images pulled from scanned PDFs
+//! - `rendered_*.png` — full-page PDFium renders (vector + raster content)
+//!
+//! Run with:
+//!   cargo test --test gen_source_rasters -- --ignored                    # extraction only
+//!   cargo test --test gen_source_rasters --features pdfium -- --ignored  # extraction + rendering
 
 use libviprs::{PixelFormat, extract_page_image};
 use std::path::Path;
@@ -62,5 +68,43 @@ fn extract_source_rasters() {
         &Path::new(FIXTURE_DIR).join("extracted_blueprint_mix.png"),
     );
 
-    eprintln!("\n=== Done. Now run: cd tests/fixtures && bash gen_fixtures.sh ===\n");
+    eprintln!("\n=== Done. Now run: bash tools/gen_fixtures.sh ===\n");
+}
+
+/// Render fixture PDFs at 72 DPI via PDFium and save as lossless PNGs.
+/// These rendered rasters are used as source input for vips dzsave to
+/// generate fixtures for the pdfium pyramid comparison tests.
+#[test]
+#[ignore]
+#[cfg(feature = "pdfium")]
+fn render_source_rasters() {
+    use libviprs::pdf::render_page_pdfium;
+
+    eprintln!("\n=== Rendering source rasters from fixture PDFs via PDFium at 72 DPI ===\n");
+
+    let mix = render_page_pdfium(
+        Path::new(FIXTURE_DIR).join("blueprint-mix.pdf").as_path(),
+        1,
+        72,
+    )
+    .expect("failed to render blueprint-mix.pdf");
+    save_raster_as_png(
+        &mix,
+        &Path::new(FIXTURE_DIR).join("rendered_blueprint_mix.png"),
+    );
+
+    let portrait = render_page_pdfium(
+        Path::new(FIXTURE_DIR)
+            .join("blueprint-portrait.pdf")
+            .as_path(),
+        1,
+        72,
+    )
+    .expect("failed to render blueprint-portrait.pdf");
+    save_raster_as_png(
+        &portrait,
+        &Path::new(FIXTURE_DIR).join("rendered_blueprint_portrait.png"),
+    );
+
+    eprintln!("\n=== Done. Now run: bash tools/gen_fixtures.sh ===\n");
 }
