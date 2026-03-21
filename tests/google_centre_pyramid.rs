@@ -23,12 +23,22 @@ const FIXTURE_PDF_PORTRAIT: &str = concat!(
     "/tests/fixtures/blueprint-portrait.pdf"
 );
 
+const FIXTURE_PDF_MIX: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/blueprint-mix.pdf"
+);
+
 const FIXTURE_PDF_BLUEPRINT: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blueprint.pdf");
 
 const EXPECTED_PORTRAIT_GOOGLE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/blueprint_portrait_google_centre"
+);
+
+const EXPECTED_MIX_GOOGLE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/blueprint_mix_google_centre"
 );
 
 // ---------------------------------------------------------------------------
@@ -80,6 +90,11 @@ fn load_portrait_raster() -> libviprs::Raster {
 fn load_blueprint_raster() -> libviprs::Raster {
     extract_page_image(Path::new(FIXTURE_PDF_BLUEPRINT), 1)
         .expect("failed to extract image from blueprint.pdf")
+}
+
+fn load_mix_raster() -> libviprs::Raster {
+    extract_page_image(Path::new(FIXTURE_PDF_MIX), 1)
+        .expect("failed to extract image from blueprint-mix.pdf")
 }
 
 // ---------------------------------------------------------------------------
@@ -403,6 +418,77 @@ fn google_centre_portrait_matches_vips_fixtures() {
 
     eprintln!(
         "portrait google: {} tiles matched vips, {} blank tiles verified",
+        matched, blank_count
+    );
+}
+
+/// Compare libviprs Google+centre mix output against vips fixtures.
+#[test]
+fn google_centre_mix_matches_vips_fixtures() {
+    let raster = load_mix_raster();
+    let planner = PyramidPlanner::new(raster.width(), raster.height(), 256, 0, Layout::Google)
+        .unwrap()
+        .with_centre(true);
+    let plan = planner.plan();
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("mix_google");
+    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
+
+    let vips_files = collect_files(Path::new(EXPECTED_MIX_GOOGLE), "png");
+    let vips_tiles: Vec<_> = vips_files
+        .iter()
+        .filter(|(p, _)| p != "blank.png")
+        .collect();
+    let vips_paths: HashSet<&str> = vips_tiles.iter().map(|(p, _)| p.as_str()).collect();
+
+    let actual_files = collect_files(&base, "png");
+
+    let tolerance: u8 = 0;
+    let mut matched = 0;
+    let mut max_diff: u8 = 0;
+    for (act_path, act_bytes) in &actual_files {
+        if let Some((_, vips_bytes)) = vips_tiles.iter().find(|(p, _)| p == act_path) {
+            let (vw, vh, vpx) = decode_png(vips_bytes);
+            let (aw, ah, apx) = decode_png(act_bytes);
+            assert_eq!(
+                (vw, vh),
+                (aw, ah),
+                "Dimension mismatch at {act_path}: vips {vw}x{vh}, libviprs {aw}x{ah}"
+            );
+            for (i, (&vp, &ap)) in vpx.iter().zip(apx.iter()).enumerate() {
+                let diff = (vp as i16 - ap as i16).unsigned_abs() as u8;
+                if diff > max_diff {
+                    max_diff = diff;
+                }
+                assert!(
+                    diff <= tolerance,
+                    "Pixel mismatch at {act_path} byte {i}: vips={vp} libviprs={ap} diff={diff}"
+                );
+            }
+            matched += 1;
+        }
+    }
+    eprintln!("mix google centre: max_diff={max_diff}, tolerance={tolerance}");
+
+    assert_eq!(matched, vips_tiles.len());
+
+    let mut blank_count = 0;
+    for (act_path, act_bytes) in &actual_files {
+        if !vips_paths.contains(act_path.as_str()) {
+            let (_, _, pixels) = decode_png(act_bytes);
+            let max_deviation = pixels.iter().map(|&b| 255u8.abs_diff(b)).max().unwrap_or(0);
+            assert!(
+                max_deviation <= tolerance,
+                "Tile {act_path} omitted by vips but has pixels {max_deviation} from background"
+            );
+            blank_count += 1;
+        }
+    }
+
+    eprintln!(
+        "mix google: {} tiles matched vips, {} blank tiles verified",
         matched, blank_count
     );
 }

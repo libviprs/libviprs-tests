@@ -332,3 +332,81 @@ fn blueprint_portrait_pyramid_deterministic() {
         assert_eq!(t1.data, t2.data, "Tile {:?} differs between runs", t1.coord);
     }
 }
+
+// ---------------------------------------------------------------------------
+// PDFium-rendered portrait pyramid vs vips fixture comparison
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "pdfium")]
+const RENDERED_PORTRAIT_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/rendered_blueprint_portrait.png"
+);
+#[cfg(feature = "pdfium")]
+const RENDERED_PORTRAIT_EXPECTED: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/blueprint_portrait_rendered_expected"
+);
+
+#[cfg(feature = "pdfium")]
+fn load_rendered_portrait() -> libviprs::Raster {
+    libviprs::decode_file(Path::new(RENDERED_PORTRAIT_FIXTURE))
+        .expect("failed to load rendered_blueprint_portrait.png")
+}
+
+/// Generate a pyramid from the pdfium-rendered portrait PNG and compare
+/// every tile against the vips-generated fixtures.
+#[test]
+#[cfg(feature = "pdfium")]
+fn blueprint_portrait_rendered_pyramid_matches_vips() {
+    let raster = load_rendered_portrait();
+
+    let planner = PyramidPlanner::new(raster.width(), raster.height(), 256, 0, Layout::DeepZoom)
+        .expect("failed to create pyramid planner");
+    let plan = planner.plan();
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("portrait_rendered");
+    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+
+    let result = generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
+    assert_eq!(result.tiles_produced, plan.total_tile_count());
+
+    let expected_files = collect_files(Path::new(RENDERED_PORTRAIT_EXPECTED), "png");
+    let actual_files = collect_files(&base, "png");
+    // Tolerance of 5 for RGBA: minor rounding in alpha-channel averaging
+    assert_tiles_pixel_equal_tol(
+        &expected_files,
+        &actual_files,
+        "rendered portrait vs vips",
+        5,
+    );
+}
+
+/// Concurrent rendered portrait pyramid matches vips fixtures.
+#[test]
+#[cfg(feature = "pdfium")]
+fn blueprint_portrait_rendered_pyramid_concurrent_matches_vips() {
+    let raster = load_rendered_portrait();
+
+    let planner = PyramidPlanner::new(raster.width(), raster.height(), 256, 0, Layout::DeepZoom)
+        .expect("failed to create pyramid planner");
+    let plan = planner.plan();
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("portrait_rendered");
+    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let config = EngineConfig::default().with_concurrency(4);
+
+    let result = generate_pyramid(&raster, &plan, &sink, &config).unwrap();
+    assert_eq!(result.tiles_produced, plan.total_tile_count());
+
+    let expected_files = collect_files(Path::new(RENDERED_PORTRAIT_EXPECTED), "png");
+    let actual_files = collect_files(&base, "png");
+    assert_tiles_pixel_equal_tol(
+        &expected_files,
+        &actual_files,
+        "rendered portrait concurrent vs vips",
+        5,
+    );
+}
