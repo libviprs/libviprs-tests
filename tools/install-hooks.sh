@@ -60,8 +60,11 @@ if ! cargo fmt -- --check 2>/dev/null; then
 fi
 
 # Clippy (uses cached build artifacts, usually fast on incremental changes)
+# -D warnings: treat all warnings as errors
+# -W clippy::incompatible_msrv: flag APIs newer than the declared rust-version
+# -W deprecated: flag usage of deprecated APIs
 echo "  cargo clippy..."
-if ! cargo clippy --all-targets -- -D warnings 2>/dev/null; then
+if ! cargo clippy --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated 2>/dev/null; then
     echo ""
     echo "Clippy check failed. Fix warnings and re-stage."
     exit 1
