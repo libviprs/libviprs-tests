@@ -511,6 +511,89 @@ fn estimate_streaming_memory_reasonable() {
 }
 
 // ---------------------------------------------------------------------------
+// 8b. Memory comparison: streaming vs monolithic across image sizes
+// ---------------------------------------------------------------------------
+
+/// Demonstrates that the streaming engine uses substantially less memory than
+/// the monolithic engine, and that the gap widens with image size. This test
+/// generates pyramids at several resolutions with both engines and asserts that
+/// streaming peak memory is always a fraction of monolithic peak memory.
+#[test]
+fn streaming_memory_savings_scale_with_image_size() {
+    let cases: &[(u32, u32)] = &[(1024, 1024), (2048, 2048), (4096, 4096)];
+
+    let mut results: Vec<(u32, u32, u64, u64)> = Vec::new();
+
+    for &(w, h) in cases {
+        let src = gradient_raster(w, h);
+        let planner = PyramidPlanner::new(w, h, 256, 0, Layout::DeepZoom).unwrap();
+        let plan = planner.plan();
+
+        // Monolithic
+        let mono_sink = MemorySink::new();
+        let mono_result =
+            generate_pyramid(&src, &plan, &mono_sink, &EngineConfig::default()).unwrap();
+
+        // Streaming with 1 MB budget
+        let stream_sink = MemorySink::new();
+        let config = StreamingConfig {
+            memory_budget_bytes: 1_000_000,
+            engine: EngineConfig::default(),
+        };
+        let strip_src = RasterStripSource::new(&src);
+        let stream_result = generate_pyramid_streaming(
+            &strip_src,
+            &plan,
+            &stream_sink,
+            &config,
+            &libviprs::observe::NoopObserver,
+        )
+        .unwrap();
+
+        // Same tile count
+        assert_eq!(
+            mono_result.tiles_produced, stream_result.tiles_produced,
+            "{w}x{h}: tile count mismatch"
+        );
+
+        // Streaming must use less memory
+        assert!(
+            stream_result.peak_memory_bytes < mono_result.peak_memory_bytes,
+            "{w}x{h}: streaming peak ({}) should be < monolithic peak ({})",
+            stream_result.peak_memory_bytes,
+            mono_result.peak_memory_bytes,
+        );
+
+        results.push((
+            w,
+            h,
+            mono_result.peak_memory_bytes,
+            stream_result.peak_memory_bytes,
+        ));
+    }
+
+    // The memory savings ratio should improve with image size.
+    // For the largest image, streaming should use less than half the monolithic memory.
+    let (w, h, mono_peak, stream_peak) = results.last().unwrap();
+    let ratio = *stream_peak as f64 / *mono_peak as f64;
+    assert!(
+        ratio < 0.50,
+        "{w}x{h}: streaming/monolithic ratio {ratio:.2} should be < 0.50 \
+         (streaming={stream_peak}, monolithic={mono_peak})"
+    );
+
+    // Verify that savings grow with image size: the ratio for the largest
+    // image should be less than the ratio for the smallest.
+    let (_, _, first_mono, first_stream) = results.first().unwrap();
+    let first_ratio = *first_stream as f64 / *first_mono as f64;
+    assert!(
+        ratio < first_ratio,
+        "Streaming savings should grow with image size: \
+         first ratio {first_ratio:.2}, last ratio {ratio:.2}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 9. strip_height computation
 // ---------------------------------------------------------------------------
 
