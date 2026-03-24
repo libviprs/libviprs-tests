@@ -92,6 +92,7 @@ fn level_started_before_tile_completed() {
                 assert_eq!(current_level, Some(*level));
             }
             EngineEvent::Finished { .. } => {}
+            _ => {} // Pipeline-level and streaming events not relevant here
         }
     }
 }
