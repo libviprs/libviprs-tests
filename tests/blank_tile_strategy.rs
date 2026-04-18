@@ -7,9 +7,11 @@
 //! To regenerate fixtures after intentional output changes, run:
 //!   cargo test --test gen_blank_tile_fixtures -- --ignored generate_fixtures
 
+use libviprs::engine::is_blank_tile;
+use libviprs::sink::BLANK_TILE_MARKER;
 use libviprs::{
-    BLANK_TILE_MARKER, BlankTileStrategy, EngineConfig, FsSink, Layout, PixelFormat,
-    PyramidPlanner, Raster, TileFormat, generate_pyramid, is_blank_tile,
+    BlankTileStrategy, EngineConfig, FsSink, Layout, PixelFormat, PyramidPlanner, Raster,
+    TileFormat, generate_pyramid,
 };
 use std::path::{Path, PathBuf};
 
