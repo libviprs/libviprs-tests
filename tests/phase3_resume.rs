@@ -185,6 +185,10 @@ impl TileSink for RecordingSink {
     fn finish(&self) -> Result<(), SinkError> {
         self.inner.finish()
     }
+
+    fn checkpoint_root(&self) -> Option<&Path> {
+        self.inner.checkpoint_root()
+    }
 }
 
 /// Panics on the Nth `write_tile` call. Used to simulate an abrupt process
@@ -220,6 +224,10 @@ impl TileSink for PanickingSink {
 
     fn finish(&self) -> Result<(), SinkError> {
         self.inner.finish()
+    }
+
+    fn checkpoint_root(&self) -> Option<&Path> {
+        self.inner.checkpoint_root()
     }
 }
 
