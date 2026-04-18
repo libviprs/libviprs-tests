@@ -122,6 +122,10 @@ impl<S: TileSink> TileSink for PanickingSink<S> {
     fn finish(&self) -> Result<(), SinkError> {
         self.inner.finish()
     }
+
+    fn checkpoint_root(&self) -> Option<&Path> {
+        self.inner.checkpoint_root()
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -202,6 +206,10 @@ impl<S: TileSink> TileSink for FlakySink<S> {
     fn finish(&self) -> Result<(), SinkError> {
         self.inner.finish()
     }
+
+    fn checkpoint_root(&self) -> Option<&Path> {
+        self.inner.checkpoint_root()
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -257,6 +265,10 @@ impl<S: TileSink> TileSink for RecordingSink<S> {
 
     fn finish(&self) -> Result<(), SinkError> {
         self.inner.finish()
+    }
+
+    fn checkpoint_root(&self) -> Option<&Path> {
+        self.inner.checkpoint_root()
     }
 }
 
