@@ -185,6 +185,10 @@ impl TileSink for RecordingSink {
     fn finish(&self) -> Result<(), SinkError> {
         self.inner.finish()
     }
+
+    fn checkpoint_root(&self) -> Option<&Path> {
+        self.inner.checkpoint_root()
+    }
 }
 
 /// Panics on the Nth `write_tile` call. Used to simulate an abrupt process
@@ -220,6 +224,10 @@ impl TileSink for PanickingSink {
 
     fn finish(&self) -> Result<(), SinkError> {
         self.inner.finish()
+    }
+
+    fn checkpoint_root(&self) -> Option<&Path> {
+        self.inner.checkpoint_root()
     }
 }
 
@@ -327,14 +335,9 @@ fn resume_mode_continues_after_partial_run() {
 
     // Hand-crafted partial checkpoint. Keep the same plan_hash so the engine
     // accepts it.
-    let partial = JobMetadata {
-        schema_version: "1",
-        plan_hash: meta_full.plan_hash.clone(),
-        completed_tiles: done.clone(),
-        levels_completed: Vec::new(),
-        started_at: "1970-01-01T00:00:00Z".into(),
-        last_checkpoint_at: "1970-01-01T00:00:00Z".into(),
-    };
+    let mut partial = JobMetadata::new(meta_full.plan_hash.clone(), "1970-01-01T00:00:00Z".into());
+    partial.completed_tiles = done.clone();
+    partial.last_checkpoint_at = "1970-01-01T00:00:00Z".into();
     std::fs::write(base.join(JOB_FILE), serde_json::to_vec(&partial).unwrap()).unwrap();
 
     // Delete the tile files that our fake checkpoint claims are "missing"
@@ -396,14 +399,10 @@ fn resume_mode_refuses_if_plan_hash_differs() {
     let plan = small_plan(128, 128, 64);
 
     // Pre-existing checkpoint with an obviously wrong hash.
-    let stale = JobMetadata {
-        schema_version: "1",
-        plan_hash: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".into(),
-        completed_tiles: Vec::new(),
-        levels_completed: Vec::new(),
-        started_at: "1970-01-01T00:00:00Z".into(),
-        last_checkpoint_at: "1970-01-01T00:00:00Z".into(),
-    };
+    let stale = JobMetadata::new(
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".into(),
+        "1970-01-01T00:00:00Z".into(),
+    );
     std::fs::write(base.join(JOB_FILE), serde_json::to_vec(&stale).unwrap()).unwrap();
 
     let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);

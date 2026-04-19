@@ -31,6 +31,7 @@
 
 use std::path::Path;
 
+use libviprs::streaming::{compute_strip_height, estimate_streaming_memory};
 use libviprs::{
     BlankTileStrategy, CollectingObserver, EngineConfig, EngineEvent, Layout, MemorySink,
     PixelFormat, PyramidPlanner, Raster, RasterStripSource, StreamingConfig, generate_pyramid,
@@ -605,7 +606,7 @@ fn compute_strip_height_respects_budget() {
     // Budget must be large enough for at least one strip unit
     // (2×tile_size rows across all pyramid levels).
     let budget: u64 = 50_000_000;
-    let sh = libviprs::compute_strip_height(&plan, PixelFormat::Rgb8, budget);
+    let sh = compute_strip_height(&plan, PixelFormat::Rgb8, budget);
     assert!(
         sh.is_some(),
         "budget {budget} should allow at least one strip unit"
@@ -622,7 +623,7 @@ fn compute_strip_height_respects_budget() {
     );
 
     // Actual memory at this strip height should be within budget
-    let est = libviprs::estimate_streaming_memory(&plan, PixelFormat::Rgb8, sh);
+    let est = estimate_streaming_memory(&plan, PixelFormat::Rgb8, sh);
     assert!(
         est <= budget,
         "Estimated memory {est} exceeds budget {budget} for strip_height={sh}",
@@ -634,6 +635,6 @@ fn compute_strip_height_returns_none_for_impossible_budget() {
     let planner = PyramidPlanner::new(4096, 4096, 256, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
-    let sh = libviprs::compute_strip_height(&plan, PixelFormat::Rgb8, 1);
+    let sh = compute_strip_height(&plan, PixelFormat::Rgb8, 1);
     assert!(sh.is_none());
 }

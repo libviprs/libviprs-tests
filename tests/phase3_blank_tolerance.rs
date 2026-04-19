@@ -21,9 +21,10 @@
 //! All tests are expected to FAIL TO COMPILE (or fail at runtime) until the
 //! planned API is implemented on the libviprs `feat/phase3-hardening` branch.
 
+use libviprs::engine::{is_blank_tile, is_blank_tile_with_tolerance};
 use libviprs::{
     BlankTileStrategy, EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster,
-    generate_pyramid, is_blank_tile, is_blank_tile_with_tolerance,
+    generate_pyramid,
 };
 
 // ---------------------------------------------------------------------------

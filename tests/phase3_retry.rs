@@ -261,13 +261,10 @@ fn retries_on_transient_errors() {
     let flaky = FlakySink::new(target, N);
 
     // Use short backoffs so the test runs fast.
-    let policy = RetryPolicy {
-        max_retries: 5,
-        initial_backoff: Duration::from_millis(5),
-        multiplier: 2.0,
-        max_backoff: Duration::from_millis(50),
-        jitter: false,
-    };
+    let policy = RetryPolicy::new(5, Duration::from_millis(5))
+        .with_multiplier(2.0)
+        .with_max_backoff(Duration::from_millis(50))
+        .with_jitter(false);
     let sink = RetryingSink::new(flaky, policy.clone());
     let config = EngineConfig::default().with_failure_policy(FailurePolicy::RetryThenFail(policy));
 
@@ -304,13 +301,10 @@ fn retry_exhaustion_under_fail_fast_errors() {
 #[test]
 fn retry_exhaustion_under_retry_then_skip_continues() {
     let (src, plan) = small_plan();
-    let policy = RetryPolicy {
-        max_retries: 2,
-        initial_backoff: Duration::from_millis(1),
-        multiplier: 2.0,
-        max_backoff: Duration::from_millis(10),
-        jitter: false,
-    };
+    let policy = RetryPolicy::new(2, Duration::from_millis(1))
+        .with_multiplier(2.0)
+        .with_max_backoff(Duration::from_millis(10))
+        .with_jitter(false);
     let sink = RetryingSink::new(AlwaysFailSink::new(), policy.clone());
     let config = EngineConfig::default().with_failure_policy(FailurePolicy::RetryThenSkip(policy));
 
@@ -349,13 +343,10 @@ fn backoff_grows_exponentially() {
     let fail_times: u32 = 3;
     let rec = RecordingRetrySink::new(target, fail_times);
 
-    let policy = RetryPolicy {
-        max_retries: fail_times + 1,
-        initial_backoff: Duration::from_millis(20),
-        multiplier: 2.0,
-        max_backoff: Duration::from_secs(10),
-        jitter: false,
-    };
+    let policy = RetryPolicy::new(fail_times + 1, Duration::from_millis(20))
+        .with_multiplier(2.0)
+        .with_max_backoff(Duration::from_secs(10))
+        .with_jitter(false);
     let sink = RetryingSink::new(rec, policy.clone());
     let config = EngineConfig::default()
         .with_failure_policy(FailurePolicy::RetryThenFail(policy))
@@ -410,13 +401,11 @@ fn jitter_randomizes_backoff() {
     let fail_times: u32 = 55;
     let rec = RecordingRetrySink::new(target, fail_times);
 
-    let policy = RetryPolicy {
-        max_retries: fail_times + 1,
-        initial_backoff: Duration::from_millis(2),
-        multiplier: 1.0, // constant base so jitter is the *only* source of variance
-        max_backoff: Duration::from_millis(10),
-        jitter: true,
-    };
+    let policy = RetryPolicy::new(fail_times + 1, Duration::from_millis(2))
+        // constant base so jitter is the *only* source of variance
+        .with_multiplier(1.0)
+        .with_max_backoff(Duration::from_millis(10))
+        .with_jitter(true);
     let sink = RetryingSink::new(rec, policy.clone());
     let config = EngineConfig::default()
         .with_failure_policy(FailurePolicy::RetryThenFail(policy))
@@ -459,13 +448,10 @@ fn max_backoff_is_capped() {
     let fail_times: u32 = 4;
     let rec = RecordingRetrySink::new(target, fail_times);
 
-    let policy = RetryPolicy {
-        max_retries: fail_times + 1,
-        initial_backoff: Duration::from_secs(1),
-        multiplier: 10.0,
-        max_backoff: Duration::from_secs(3),
-        jitter: false,
-    };
+    let policy = RetryPolicy::new(fail_times + 1, Duration::from_secs(1))
+        .with_multiplier(10.0)
+        .with_max_backoff(Duration::from_secs(3))
+        .with_jitter(false);
     let sink = RetryingSink::new(rec, policy.clone());
     let config = EngineConfig::default()
         .with_failure_policy(FailurePolicy::RetryThenFail(policy))
@@ -573,13 +559,10 @@ fn retry_policy_propagates_to_result() {
     const N: u32 = 2;
     let flaky = FlakySink::new(target, N);
 
-    let policy = RetryPolicy {
-        max_retries: 4,
-        initial_backoff: Duration::from_millis(2),
-        multiplier: 2.0,
-        max_backoff: Duration::from_millis(20),
-        jitter: false,
-    };
+    let policy = RetryPolicy::new(4, Duration::from_millis(2))
+        .with_multiplier(2.0)
+        .with_max_backoff(Duration::from_millis(20))
+        .with_jitter(false);
     let sink = RetryingSink::new(flaky, policy.clone());
     let config = EngineConfig::default().with_failure_policy(FailurePolicy::RetryThenFail(policy));
 
@@ -630,13 +613,10 @@ fn partial_sink_failure_leaves_valid_partial_output() {
         fs: FsSink::new(base.clone(), plan.clone(), TileFormat::Png),
         bad,
     };
-    let policy = RetryPolicy {
-        max_retries: 2,
-        initial_backoff: Duration::from_millis(1),
-        multiplier: 2.0,
-        max_backoff: Duration::from_millis(10),
-        jitter: false,
-    };
+    let policy = RetryPolicy::new(2, Duration::from_millis(1))
+        .with_multiplier(2.0)
+        .with_max_backoff(Duration::from_millis(10))
+        .with_jitter(false);
     let sink = RetryingSink::new(inner, policy.clone());
     let config = EngineConfig::default().with_failure_policy(FailurePolicy::RetryThenSkip(policy));
 

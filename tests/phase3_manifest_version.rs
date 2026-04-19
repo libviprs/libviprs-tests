@@ -10,8 +10,8 @@
 //! forward-compatible evolution.
 
 use libviprs::manifest::{
-    ChecksumAlgo, Checksums, GenerationSettings, LevelMetadata, ManifestBuilder, ManifestV1,
-    SourceMetadata, SparsePolicy,
+    ChecksumAlgo, Checksums, GenerationSettings, LevelMetadata, Manifest, ManifestBuilder,
+    ManifestV1, SourceMetadata, SparsePolicy,
 };
 use libviprs::source::generate_test_raster;
 use libviprs::{
@@ -135,8 +135,12 @@ fn manifest_has_schema_version_field() {
 
     // Round-trip through the typed struct.
     let bytes = std::fs::read(manifest_path(&base)).unwrap();
-    let parsed: ManifestV1 = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(parsed.schema_version, "1");
+    let parsed: Manifest = serde_json::from_slice(&bytes).unwrap();
+    assert!(
+        matches!(parsed, Manifest::V1(_)),
+        "expected schema_version == \"1\""
+    );
+    let _v1: ManifestV1 = parsed.into_v1();
 }
 
 // ---------------------------------------------------------------------------
@@ -453,9 +457,13 @@ fn manifest_parses_with_unknown_future_fields() {
     let bumped = serde_json::to_vec(&value).unwrap();
 
     // Must still deserialize without error.
-    let parsed: ManifestV1 = serde_json::from_slice(&bumped)
-        .expect("ManifestV1 should ignore unknown fields for forward-compat");
-    assert_eq!(parsed.schema_version, "1");
+    let parsed: Manifest = serde_json::from_slice(&bumped)
+        .expect("Manifest should ignore unknown fields for forward-compat");
+    assert!(
+        matches!(parsed, Manifest::V1(_)),
+        "expected schema_version == \"1\""
+    );
+    let _v1: ManifestV1 = parsed.into_v1();
 }
 
 // ---------------------------------------------------------------------------

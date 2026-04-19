@@ -43,11 +43,12 @@
 
 use libviprs::checksum::{ChecksumAlgo, ChecksumMode, verify_output};
 use libviprs::manifest::ManifestBuilder;
+use libviprs::sink::BLANK_TILE_MARKER;
 use libviprs::sink::{SinkError, Tile, TileSink};
 use libviprs::source::generate_test_raster;
 use libviprs::{
-    BLANK_TILE_MARKER, BlankTileStrategy, EngineConfig, EngineError, FsSink, Layout,
-    PyramidPlanner, TileFormat, generate_pyramid,
+    BlankTileStrategy, EngineConfig, EngineError, FsSink, Layout, PyramidPlanner, TileFormat,
+    generate_pyramid,
 };
 
 use std::io::{Read, Write};

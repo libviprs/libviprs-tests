@@ -36,11 +36,12 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use libviprs::checksum::verify_output;
 use libviprs::manifest::{ChecksumAlgo, ManifestBuilder, ManifestV1};
 use libviprs::{
     BlankTileStrategy, ChecksumMode, DedupeStrategy, EngineConfig, FailurePolicy, FsSink, Layout,
     PixelFormat, PyramidPlan, PyramidPlanner, Raster, ResumeMode, RetryPolicy, SinkError, Tile,
-    TileCoord, TileFormat, TileSink, generate_pyramid, generate_pyramid_resumable, verify_output,
+    TileCoord, TileFormat, TileSink, generate_pyramid, generate_pyramid_resumable,
 };
 
 // =============================================================================
@@ -120,6 +121,10 @@ impl<S: TileSink> TileSink for PanickingSink<S> {
 
     fn finish(&self) -> Result<(), SinkError> {
         self.inner.finish()
+    }
+
+    fn checkpoint_root(&self) -> Option<&Path> {
+        self.inner.checkpoint_root()
     }
 }
 
@@ -201,6 +206,10 @@ impl<S: TileSink> TileSink for FlakySink<S> {
     fn finish(&self) -> Result<(), SinkError> {
         self.inner.finish()
     }
+
+    fn checkpoint_root(&self) -> Option<&Path> {
+        self.inner.checkpoint_root()
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -256,6 +265,10 @@ impl<S: TileSink> TileSink for RecordingSink<S> {
 
     fn finish(&self) -> Result<(), SinkError> {
         self.inner.finish()
+    }
+
+    fn checkpoint_root(&self) -> Option<&Path> {
+        self.inner.checkpoint_root()
     }
 }
 
@@ -575,13 +588,12 @@ fn partial_sink_failure_retry_then_skip_produces_valid_partial() {
 
     let config = EngineConfig::default()
         .with_concurrency(4)
-        .with_failure_policy(FailurePolicy::RetryThenSkip(RetryPolicy {
-            max_retries: 3,
-            initial_backoff: Duration::from_millis(1),
-            multiplier: 2.0,
-            max_backoff: Duration::from_secs(5),
-            jitter: false,
-        }));
+        .with_failure_policy(FailurePolicy::RetryThenSkip(
+            RetryPolicy::new(3, Duration::from_millis(1))
+                .with_multiplier(2.0)
+                .with_max_backoff(Duration::from_secs(5))
+                .with_jitter(false),
+        ));
 
     generate_pyramid(&src, &plan, &flaky, &config).expect("RetryThenSkip must not surface errors");
 
@@ -808,19 +820,19 @@ fn full_phase3_pipeline_integration() {
         .with_blank_tile_strategy(BlankTileStrategy::PlaceholderWithTolerance {
             max_channel_delta: 3,
         })
-        .with_failure_policy(FailurePolicy::RetryThenFail(RetryPolicy {
-            max_retries: 2,
-            initial_backoff: Duration::from_millis(1),
-            multiplier: 2.0,
-            max_backoff: Duration::from_secs(5),
-            jitter: false,
-        }));
+        .with_failure_policy(FailurePolicy::RetryThenFail(
+            RetryPolicy::new(2, Duration::from_millis(1))
+                .with_multiplier(2.0)
+                .with_max_backoff(Duration::from_secs(5))
+                .with_jitter(false),
+        ));
 
     generate_pyramid_resumable(&src, &plan, &sink, &cfg, ResumeMode::Resume).unwrap();
 
     // Belt-and-braces: the manifest must exist and parse.
     let m_bytes = std::fs::read(root.path().join("pyramid.manifest.json")).unwrap();
-    let _: ManifestV1 = serde_json::from_slice(&m_bytes).unwrap();
+    let parsed: libviprs::manifest::Manifest = serde_json::from_slice(&m_bytes).unwrap();
+    let _: ManifestV1 = parsed.into_v1();
 }
 
 // =============================================================================
@@ -847,13 +859,12 @@ fn verify_mode_on_output_of_full_pipeline() {
         .with_blank_tile_strategy(BlankTileStrategy::PlaceholderWithTolerance {
             max_channel_delta: 3,
         })
-        .with_failure_policy(FailurePolicy::RetryThenFail(RetryPolicy {
-            max_retries: 2,
-            initial_backoff: Duration::from_millis(1),
-            multiplier: 2.0,
-            max_backoff: Duration::from_secs(5),
-            jitter: false,
-        }));
+        .with_failure_policy(FailurePolicy::RetryThenFail(
+            RetryPolicy::new(2, Duration::from_millis(1))
+                .with_multiplier(2.0)
+                .with_max_backoff(Duration::from_secs(5))
+                .with_jitter(false),
+        ));
 
     generate_pyramid_resumable(&src, &plan, &sink, &cfg, ResumeMode::Resume).unwrap();
 
