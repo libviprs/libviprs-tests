@@ -50,7 +50,7 @@ CMD sh -c '\
     echo "================================================================" && \
     echo "Running libviprs unit tests (with pdfium)..." && \
     echo "================================================================" && \
-    cd /src/libviprs && cargo test --features pdfium && \
+    cd /src/libviprs && cargo test --features pdfium -- --test-threads=1 && \
     echo "" && \
     echo "Cleaning libviprs build artifacts to free disk space..." && \
     cargo clean && \
@@ -58,4 +58,4 @@ CMD sh -c '\
     echo "================================================================" && \
     echo "Running libviprs-tests integration tests (with pdfium)..." && \
     echo "================================================================" && \
-    cd /src/libviprs-tests && cargo test --features pdfium'
+    cd /src/libviprs-tests && cargo test --features pdfium -- --test-threads=1'
