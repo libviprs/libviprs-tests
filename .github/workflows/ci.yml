@@ -45,7 +45,10 @@ jobs:
           sudo cp pdfium/lib/libpdfium.so /usr/local/lib/
           sudo cp -r pdfium/include/* /usr/local/include/
           sudo ldconfig
-      - run: cargo test --features pdfium
+      # Pdfium FFI calls are not safe to invoke concurrently against the
+      # shared process-wide Pdfium instance — parallel cargo-test workers
+      # race FPDF state. Force serial execution within each test binary.
+      - run: cargo test --features pdfium -- --test-threads=1
 
   lint:
     name: Lint
