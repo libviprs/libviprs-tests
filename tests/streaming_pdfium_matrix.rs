@@ -524,10 +524,8 @@ fn end_to_end_streaming_generous(fixture: &str, headroom: u64) {
 
 fn run_streaming(fixture: &str, source: &PdfiumStripSource, plan: &PyramidPlan, budget: u64) {
     let sink = MemorySink::new();
-    let engine = EngineConfig {
-        background_rgb: BACKGROUND_RGB,
-        ..Default::default()
-    };
+    let mut engine = EngineConfig::default();
+    engine.background_rgb = BACKGROUND_RGB;
     let config = StreamingConfig {
         memory_budget_bytes: budget,
         engine,
@@ -697,10 +695,8 @@ fn budget_auto_adjust_drives_end_to_end_streaming() {
     let canvas_w = plan.canvas_width;
     let engine_budget = canvas_w as u64 * MIN_STRIP_HEIGHT as u64 * 4;
     let sink = MemorySink::new();
-    let engine = EngineConfig {
-        background_rgb: BACKGROUND_RGB,
-        ..Default::default()
-    };
+    let mut engine = EngineConfig::default();
+    engine.background_rgb = BACKGROUND_RGB;
     let config = StreamingConfig {
         memory_budget_bytes: engine_budget,
         engine,
