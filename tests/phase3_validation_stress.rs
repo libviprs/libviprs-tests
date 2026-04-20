@@ -109,10 +109,10 @@ impl<S: TileSink> TileSink for PanickingSink<S> {
                 self.fired.store(true, Ordering::SeqCst);
                 panic!("PanickingSink: deliberate panic at write #{n}");
             }
-            PanicTrigger::Coord(c) if *c == tile.coord => {
-                if !self.fired.swap(true, Ordering::SeqCst) {
-                    panic!("PanickingSink: deliberate panic at coord {:?}", c);
-                }
+            PanicTrigger::Coord(c)
+                if *c == tile.coord && !self.fired.swap(true, Ordering::SeqCst) =>
+            {
+                panic!("PanickingSink: deliberate panic at coord {:?}", c);
             }
             _ => {}
         }
