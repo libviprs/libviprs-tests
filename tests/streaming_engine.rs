@@ -31,7 +31,7 @@
 
 use std::path::Path;
 
-use libviprs::streaming::{compute_strip_height, estimate_streaming_memory};
+use libviprs::streaming::{BudgetPolicy, compute_strip_height, estimate_streaming_memory};
 use libviprs::{
     BlankTileStrategy, CollectingObserver, EngineConfig, EngineEvent, Layout, MemorySink,
     PixelFormat, PyramidPlanner, Raster, RasterStripSource, StreamingConfig, generate_pyramid,
@@ -161,6 +161,7 @@ fn streaming_parity_deepzoom_512x384() {
     let streaming_config = StreamingConfig {
         memory_budget_bytes: 500_000, // Force streaming
         engine: EngineConfig::default(),
+        budget_policy: BudgetPolicy::Error,
     };
     let test_tiles = streaming_tiles(&src, &plan, &streaming_config);
     assert_tiles_match(&ref_tiles, &test_tiles, "DeepZoom 512x384 streaming");
@@ -174,8 +175,10 @@ fn streaming_parity_deepzoom_300x200() {
 
     let ref_tiles = monolithic_tiles(&src, &plan, &EngineConfig::default());
     let streaming_config = StreamingConfig {
-        memory_budget_bytes: 200_000,
+        // Pre-flight minimum: 300 * (2*128) * 4 = 307_200 bytes
+        memory_budget_bytes: 400_000,
         engine: EngineConfig::default(),
+        budget_policy: BudgetPolicy::Error,
     };
     let test_tiles = streaming_tiles(&src, &plan, &streaming_config);
     assert_tiles_match(&ref_tiles, &test_tiles, "DeepZoom 300x200 streaming");
@@ -191,8 +194,11 @@ fn streaming_parity_deepzoom_odd_dimensions() {
 
         let ref_tiles = monolithic_tiles(&src, &plan, &EngineConfig::default());
         let streaming_config = StreamingConfig {
-            memory_budget_bytes: 500_000,
+            // Pre-flight minimum at worst case (1023x769, tile=256):
+            // 1023 * (2*256) * 4 = 2_095_104 bytes
+            memory_budget_bytes: 2_500_000,
             engine: EngineConfig::default(),
+            budget_policy: BudgetPolicy::Error,
         };
         let test_tiles = streaming_tiles(&src, &plan, &streaming_config);
         assert_tiles_match(
@@ -217,6 +223,7 @@ fn auto_selects_monolithic_for_large_budget() {
     let config = StreamingConfig {
         memory_budget_bytes: u64::MAX, // Huge budget → monolithic
         engine: EngineConfig::default(),
+        budget_policy: BudgetPolicy::Error,
     };
     let test_tiles = auto_tiles(&src, &plan, &config);
     assert_tiles_match(&ref_tiles, &test_tiles, "auto large budget");
@@ -230,8 +237,11 @@ fn auto_selects_streaming_for_tiny_budget() {
 
     let sink = MemorySink::new();
     let config = StreamingConfig {
-        memory_budget_bytes: 1_000, // Tiny → streaming
+        // Pre-flight minimum: 512 * (2*256) * 4 = 1_048_576 bytes.
+        // Stays well below monolithic peak so auto-router still picks streaming.
+        memory_budget_bytes: 1_200_000,
         engine: EngineConfig::default(),
+        budget_policy: BudgetPolicy::Error,
     };
     let result = generate_pyramid_auto(
         &src,
@@ -258,8 +268,11 @@ fn streaming_deterministic_across_tile_sizes() {
 
         let ref_tiles = monolithic_tiles(&src, &plan, &EngineConfig::default());
         let streaming_config = StreamingConfig {
-            memory_budget_bytes: 200_000,
+            // Pre-flight minimum at worst case (tile=256):
+            // 300 * (2*256) * 4 = 614_400 bytes
+            memory_budget_bytes: 700_000,
             engine: EngineConfig::default(),
+            budget_policy: BudgetPolicy::Error,
         };
         let test_tiles = streaming_tiles(&src, &plan, &streaming_config);
         assert_tiles_match(&ref_tiles, &test_tiles, &format!("tile_size={tile_size}"));
@@ -280,8 +293,11 @@ fn streaming_parity_google_centre_small() {
 
     let ref_tiles = monolithic_tiles(&src, &plan, &EngineConfig::default());
     let streaming_config = StreamingConfig {
-        memory_budget_bytes: 500_000,
+        // Pre-flight minimum: Google centre pads canvas; observed worst case
+        // 786_432 bytes for this fixture (per BudgetExceeded report).
+        memory_budget_bytes: 1_000_000,
         engine: EngineConfig::default(),
+        budget_policy: BudgetPolicy::Error,
     };
     let test_tiles = streaming_tiles(&src, &plan, &streaming_config);
     assert_tiles_match(&ref_tiles, &test_tiles, "Google centre 400x300");
@@ -295,8 +311,11 @@ fn streaming_parity_google_no_centre() {
 
     let ref_tiles = monolithic_tiles(&src, &plan, &EngineConfig::default());
     let streaming_config = StreamingConfig {
-        memory_budget_bytes: 500_000,
+        // Pre-flight minimum: Google layout pads canvas; observed worst case
+        // 786_432 bytes for this fixture (per BudgetExceeded report).
+        memory_budget_bytes: 1_000_000,
         engine: EngineConfig::default(),
+        budget_policy: BudgetPolicy::Error,
     };
     let test_tiles = streaming_tiles(&src, &plan, &streaming_config);
     assert_tiles_match(&ref_tiles, &test_tiles, "Google no-centre 500x300");
@@ -317,6 +336,7 @@ fn streaming_observer_events() {
     let config = StreamingConfig {
         memory_budget_bytes: 500_000,
         engine: EngineConfig::default(),
+        budget_policy: BudgetPolicy::Error,
     };
     let strip_src = RasterStripSource::new(&src);
     let result = generate_pyramid_streaming(&strip_src, &plan, &sink, &config, &obs).unwrap();
@@ -363,6 +383,7 @@ fn streaming_blank_tile_placeholder_solid_white() {
     let config = StreamingConfig {
         memory_budget_bytes: 50_000,
         engine: EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Placeholder),
+        budget_policy: BudgetPolicy::Error,
     };
     let strip_src = RasterStripSource::new(&src);
     let result = generate_pyramid_streaming(
@@ -387,6 +408,7 @@ fn streaming_blank_tile_placeholder_gradient() {
     let config = StreamingConfig {
         memory_budget_bytes: 50_000,
         engine: EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Placeholder),
+        budget_policy: BudgetPolicy::Error,
     };
     let strip_src = RasterStripSource::new(&src);
     let sink = MemorySink::new();
@@ -425,6 +447,7 @@ fn streaming_parity_blueprint_portrait() {
     let streaming_config = StreamingConfig {
         memory_budget_bytes: 2_000_000, // 2 MB — forces streaming for 3300x5024
         engine: EngineConfig::default(),
+        budget_policy: BudgetPolicy::Error,
     };
     let test_tiles = streaming_tiles(&src, &plan, &streaming_config);
     assert_tiles_match(&ref_tiles, &test_tiles, "blueprint portrait DeepZoom");
@@ -444,6 +467,7 @@ fn streaming_parity_blueprint_portrait_google_centre() {
     let streaming_config = StreamingConfig {
         memory_budget_bytes: 5_000_000, // 5 MB
         engine: EngineConfig::default(),
+        budget_policy: BudgetPolicy::Error,
     };
     let test_tiles = streaming_tiles(&src, &plan, &streaming_config);
     assert_tiles_match(&ref_tiles, &test_tiles, "blueprint portrait Google+centre");
@@ -463,11 +487,14 @@ fn streaming_peak_memory_lower_than_monolithic() {
     let mono_sink = MemorySink::new();
     let mono_result = generate_pyramid(&src, &plan, &mono_sink, &EngineConfig::default()).unwrap();
 
-    // Streaming with constrained budget
+    // Streaming with constrained budget. Pre-flight minimum:
+    // 2048 * (2*256) * 4 = 4_194_304 bytes. Bump to 5 MB — still much less
+    // than monolithic peak for a 2048x2048 pyramid.
     let streaming_sink = MemorySink::new();
     let config = StreamingConfig {
-        memory_budget_bytes: 1_000_000, // 1 MB
+        memory_budget_bytes: 5_000_000,
         engine: EngineConfig::default(),
+        budget_policy: BudgetPolicy::Error,
     };
     let strip_src = RasterStripSource::new(&src);
     let stream_result = generate_pyramid_streaming(
@@ -535,11 +562,15 @@ fn streaming_memory_savings_scale_with_image_size() {
         let mono_result =
             generate_pyramid(&src, &plan, &mono_sink, &EngineConfig::default()).unwrap();
 
-        // Streaming with 1 MB budget
+        // Per-image adaptive budget = 1.25 × pre-flight minimum
+        // (canvas_w * 2*tile_size * 4 bytes), keeping a tight bottleneck so
+        // streaming's memory savings remain visible at every image size.
         let stream_sink = MemorySink::new();
+        let min_budget = u64::from(plan.canvas_width) * u64::from(2 * plan.tile_size) * 4;
         let config = StreamingConfig {
-            memory_budget_bytes: 1_000_000,
+            memory_budget_bytes: min_budget * 5 / 4,
             engine: EngineConfig::default(),
+            budget_policy: BudgetPolicy::Error,
         };
         let strip_src = RasterStripSource::new(&src);
         let stream_result = generate_pyramid_streaming(
