@@ -21,7 +21,7 @@
 //!     pub last_checkpoint_at: String,
 //! }
 //!
-//! pub fn generate_pyramid_resumable(
+//! pub fn run_resumable(
 //!     source: &Raster,
 //!     plan: &PyramidPlan,
 //!     sink: &dyn TileSink,
@@ -48,14 +48,37 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use libviprs::resume::{JobMetadata, ResumeMode};
 use libviprs::{
-    EngineConfig, EngineError, FsSink, Layout, PixelFormat, PyramidPlan, PyramidPlanner, Raster,
-    SinkError, Tile, TileCoord, TileFormat, TileSink,
+    EngineBuilder, EngineConfig, EngineError, EngineResult, FsSink, Layout, PixelFormat,
+    PyramidPlan, PyramidPlanner, Raster, ResumePolicy, SinkError, Tile, TileCoord, TileFormat,
+    TileSink,
 };
 
-// The module under test. This import is expected to fail until the
-// `libviprs::resume` module is implemented.
-use libviprs::resume::{JobMetadata, ResumeMode, generate_pyramid_resumable};
+/// Test shim: route the old `generate_pyramid_resumable(raster, plan, sink,
+/// &cfg, mode)` call shape through the new `EngineBuilder::with_resume`
+/// pathway. Keeps the bodies of existing tests mechanically small.
+fn run_resumable<S: TileSink>(
+    raster: &Raster,
+    plan: &PyramidPlan,
+    sink: S,
+    cfg: &EngineConfig,
+    mode: ResumeMode,
+) -> Result<EngineResult, EngineError> {
+    let policy = match mode {
+        ResumeMode::Overwrite => ResumePolicy::overwrite(),
+        ResumeMode::Resume => ResumePolicy::resume(),
+        ResumeMode::Verify => ResumePolicy::verify(),
+    };
+    // Set the resume policy *before* with_config so the latter can thread
+    // `checkpoint_every` / `checkpoint_root` from the incoming EngineConfig
+    // into the policy (matching how these lived directly on the config in
+    // the old `generate_pyramid_resumable` signature).
+    EngineBuilder::new(raster, plan.clone(), sink)
+        .with_resume(policy)
+        .with_config(cfg.clone())
+        .run()
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -140,7 +163,7 @@ fn run_fresh_pyramid(dir: &Path, src: &Raster, plan: &PyramidPlan) -> PathBuf {
     let base = dir.join("tiles");
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let config = EngineConfig::default();
-    let _ = generate_pyramid_resumable(src, plan, &sink, &config, ResumeMode::Overwrite)
+    let _ = run_resumable(src, plan, &sink, &config, ResumeMode::Overwrite)
         .expect("fresh overwrite run should succeed");
     base
 }
@@ -259,7 +282,7 @@ fn overwrite_mode_starts_fresh() {
     let plan = small_plan(128, 128, 64);
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
 
-    let result = generate_pyramid_resumable(
+    let result = run_resumable(
         &src,
         &plan,
         &sink,
@@ -308,7 +331,7 @@ fn resume_mode_continues_after_partial_run() {
     // doctor the checkpoint to claim only half of the tiles are complete and
     // assert the resumed run writes exactly the remaining half.
     let first_sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
-    generate_pyramid_resumable(
+    run_resumable(
         &src,
         &plan,
         &first_sink,
@@ -353,7 +376,7 @@ fn resume_mode_continues_after_partial_run() {
     // Resumed run — wrap FsSink in a RecordingSink to count writes.
     let recording =
         RecordingSink::new(FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw));
-    let result = generate_pyramid_resumable(
+    let result = run_resumable(
         &src,
         &plan,
         &recording,
@@ -407,7 +430,7 @@ fn resume_mode_refuses_if_plan_hash_differs() {
     std::fs::write(base.join(JOB_FILE), serde_json::to_vec(&stale).unwrap()).unwrap();
 
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
-    let err = generate_pyramid_resumable(
+    let err = run_resumable(
         &src,
         &plan,
         &sink,
@@ -455,7 +478,7 @@ fn verify_mode_passes_on_intact_output() {
     // Re-run in Verify mode. MUST NOT touch any output files.
     let before = list_tile_files(&base);
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
-    let result = generate_pyramid_resumable(
+    let result = run_resumable(
         &src,
         &plan,
         &sink,
@@ -489,7 +512,7 @@ fn verify_mode_fails_on_missing_tile() {
     std::fs::remove_file(base.join(&rel)).unwrap();
 
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
-    let err = generate_pyramid_resumable(
+    let err = run_resumable(
         &src,
         &plan,
         &sink,
@@ -525,7 +548,7 @@ fn verify_mode_fails_on_corrupted_tile() {
     std::fs::write(&path, &bytes).unwrap();
 
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
-    let err = generate_pyramid_resumable(
+    let err = run_resumable(
         &src,
         &plan,
         &sink,
@@ -597,7 +620,7 @@ fn checkpoint_written_periodically() {
         }
     });
 
-    generate_pyramid_resumable(&src, &plan, &sink, &config, ResumeMode::Overwrite).unwrap();
+    run_resumable(&src, &plan, &sink, &config, ResumeMode::Overwrite).unwrap();
     stop.store(true, Ordering::SeqCst);
     watcher.join().unwrap();
 
@@ -645,7 +668,7 @@ fn checkpoint_file_survives_kill_and_resume() {
     // panic deterministic with respect to the 50th write.
     let config = EngineConfig::default().with_checkpoint_every(10);
     let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        generate_pyramid_resumable(&src, &plan, &panicking, &config, ResumeMode::Overwrite)
+        run_resumable(&src, &plan, &panicking, &config, ResumeMode::Overwrite)
     }));
     assert!(
         crashed.is_err() || matches!(crashed, Ok(Err(_))),
@@ -669,7 +692,7 @@ fn checkpoint_file_survives_kill_and_resume() {
     // Resume with a recording sink to count the remaining writes.
     let recording =
         RecordingSink::new(FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw));
-    generate_pyramid_resumable(
+    run_resumable(
         &src,
         &plan,
         &recording,
@@ -717,8 +740,7 @@ fn resume_survives_process_boundary() {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             // Intentionally ignore the Result; the catch_unwind boundary is
             // what we actually care about here.
-            let _ =
-                generate_pyramid_resumable(&src, &plan, &panicking, &config, ResumeMode::Overwrite);
+            let _ = run_resumable(&src, &plan, &panicking, &config, ResumeMode::Overwrite);
         }));
         // Deliberately drop every engine value here. The only surviving
         // state is the tiles already on disk plus the checkpoint JSON.
@@ -734,7 +756,7 @@ fn resume_survives_process_boundary() {
     assert_eq!(plan, plan2, "plan reconstruction must be deterministic");
     let src2 = gradient_raster(256, 256);
     let sink2 = FsSink::new(base.clone(), plan2.clone()).with_format(TileFormat::Raw);
-    generate_pyramid_resumable(
+    run_resumable(
         &src2,
         &plan2,
         &sink2,
@@ -765,7 +787,7 @@ fn idempotent_resume_of_completed_job() {
     // Second Resume run wrapped in a recording sink: the count MUST be 0.
     let recording =
         RecordingSink::new(FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw));
-    let result = generate_pyramid_resumable(
+    let result = run_resumable(
         &src,
         &plan,
         &recording,
