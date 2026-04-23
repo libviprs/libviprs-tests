@@ -219,7 +219,12 @@ fn streaming_resume_agrees_with_monolithic() {
 }
 
 #[test]
-fn streaming_verify_is_rejected() {
+fn streaming_verify_is_now_supported() {
+    // Historically Streaming+Verify was rejected with IncompatibleSource
+    // because the verify loop needed the full raster. After the stream-
+    // verify implementation landed (see `builder_stream_verify.rs` for
+    // the full coverage), Streaming+Verify now succeeds against a
+    // previously-generated pyramid.
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
     let src = gradient_raster(64, 64);
@@ -227,16 +232,21 @@ fn streaming_verify_is_rejected() {
         .unwrap()
         .plan();
 
+    // Seed an intact pyramid first so Verify has something to walk.
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Streaming)
+        .with_resume(ResumePolicy::overwrite())
+        .run()
+        .unwrap();
+
     let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
-    let res = EngineBuilder::new(&src, plan, &sink)
+    let result = EngineBuilder::new(&src, plan, &sink)
         .with_engine(EngineKind::Streaming)
         .with_resume(ResumePolicy::verify())
-        .run();
-
-    match res {
-        Err(EngineError::IncompatibleSource { .. }) => {}
-        other => panic!("expected IncompatibleSource for Streaming+Verify, got {other:?}"),
-    }
+        .run()
+        .expect("streaming verify now supported");
+    assert_eq!(result.tiles_produced, 0, "verify must not write tiles");
 }
 
 #[test]
@@ -332,7 +342,12 @@ fn mapreduce_resume_short_circuits_already_complete_tiles() {
 }
 
 #[test]
-fn mapreduce_verify_is_rejected() {
+fn mapreduce_verify_is_now_supported() {
+    // MapReduce+Verify flipped from IncompatibleSource to supported once
+    // the stream-verify implementation landed. Both Streaming and
+    // MapReduce route through the same verify_from_strip_source helper,
+    // since verify is read-only and doesn't need MapReduce's parallel
+    // write pipeline. Full coverage lives in builder_mapreduce_verify.rs.
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
     let src = gradient_raster(64, 64);
@@ -340,14 +355,18 @@ fn mapreduce_verify_is_rejected() {
         .unwrap()
         .plan();
 
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::MapReduce)
+        .with_resume(ResumePolicy::overwrite())
+        .run()
+        .unwrap();
+
     let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
-    let res = EngineBuilder::new(&src, plan, &sink)
+    let result = EngineBuilder::new(&src, plan, &sink)
         .with_engine(EngineKind::MapReduce)
         .with_resume(ResumePolicy::verify())
-        .run();
-
-    match res {
-        Err(EngineError::IncompatibleSource { .. }) => {}
-        other => panic!("expected IncompatibleSource for MapReduce+Verify, got {other:?}"),
-    }
+        .run()
+        .expect("mapreduce verify now supported");
+    assert_eq!(result.tiles_produced, 0);
 }
