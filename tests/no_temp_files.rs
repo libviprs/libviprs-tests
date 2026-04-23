@@ -1,5 +1,6 @@
 use libviprs::{
-    EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster, generate_pyramid,
+    EngineBuilder, EngineConfig, EngineKind, Layout, MemorySink, PixelFormat, PyramidPlanner,
+    Raster,
 };
 
 /// Mirrors libvips' test_seq.sh: verify the engine doesn't create temp files.
@@ -37,12 +38,10 @@ fn no_temp_files_during_processing() {
         std::env::set_var("TMPDIR", temp_dir.path());
     }
 
-    let result = generate_pyramid(
-        &src,
-        &plan,
-        &sink,
-        &EngineConfig::default().with_concurrency(4),
-    );
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default().with_concurrency(4))
+        .run();
 
     // Restore TMPDIR
     match old_tmpdir {

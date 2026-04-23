@@ -20,8 +20,8 @@
 use std::path::{Path, PathBuf};
 
 use libviprs::{
-    EngineConfig, FsSink, Layout, MemorySink, PixelFormat, PyramidPlanner, extract_page_image,
-    generate_pyramid,
+    EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, MemorySink, PixelFormat,
+    PyramidPlanner, extract_page_image,
 };
 
 const FIXTURE_PDF: &str = concat!(
@@ -196,8 +196,11 @@ fn blueprint_mix_pyramid_matches_expected() {
     let sink = FsSink::new(base.clone(), plan.clone());
     let config = EngineConfig::default();
 
-    let result =
-        generate_pyramid(&raster, &plan, &sink, &config).expect("pyramid generation failed");
+    let result = EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .expect("pyramid generation failed");
 
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 
@@ -237,8 +240,16 @@ fn blueprint_mix_pyramid_deterministic() {
     let sink2 = MemorySink::new();
     let config = EngineConfig::default();
 
-    generate_pyramid(&raster, &plan, &sink1, &config).unwrap();
-    generate_pyramid(&raster, &plan, &sink2, &config).unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &sink1)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config.clone())
+        .run()
+        .unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &sink2)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     let mut tiles1 = sink1.tiles();
     let mut tiles2 = sink2.tiles();
@@ -266,8 +277,11 @@ fn blueprint_mix_pyramid_concurrent_matches_expected() {
     let sink = FsSink::new(base.clone(), plan.clone());
     let config = EngineConfig::default().with_concurrency(4);
 
-    let result =
-        generate_pyramid(&raster, &plan, &sink, &config).expect("pyramid generation failed");
+    let result = EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .expect("pyramid generation failed");
 
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 
@@ -318,7 +332,11 @@ fn blueprint_mix_rendered_pyramid_matches_vips() {
     let base = dir.path().join("blueprint_mix_rendered");
     let sink = FsSink::new(base.clone(), plan.clone());
 
-    let result = generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
+    let result = EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 
     let expected_files = collect_files(Path::new(RENDERED_MIX_EXPECTED), "png");
@@ -345,7 +363,11 @@ fn blueprint_mix_rendered_pyramid_concurrent_matches_vips() {
     let sink = FsSink::new(base.clone(), plan.clone());
     let config = EngineConfig::default().with_concurrency(4);
 
-    let result = generate_pyramid(&raster, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 
     let expected_files = collect_files(Path::new(RENDERED_MIX_EXPECTED), "png");
@@ -371,8 +393,16 @@ fn blueprint_mix_rendered_pyramid_deterministic() {
     let sink1 = MemorySink::new();
     let sink2 = MemorySink::new();
 
-    generate_pyramid(&raster, &plan, &sink1, &EngineConfig::default()).unwrap();
-    generate_pyramid(&raster, &plan, &sink2, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &sink1)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &sink2)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let mut tiles1 = sink1.tiles();
     let mut tiles2 = sink2.tiles();
@@ -420,7 +450,11 @@ fn blueprint_mix_rendered_budgeted_matches_vips() {
     let base = dir.path().join("mix_budgeted");
     let sink = FsSink::new(base.clone(), plan.clone());
 
-    generate_pyramid(&fixture_raster, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&fixture_raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let expected_files = collect_files(Path::new(RENDERED_MIX_EXPECTED), "png");
     let actual_files = collect_files(&base, "png");

@@ -32,7 +32,8 @@
 use libviprs::checksum::ChecksumAlgo;
 use libviprs::sink::{DedupeStrategy, FsSink};
 use libviprs::{
-    BlankTileStrategy, EngineConfig, Layout, PixelFormat, PyramidPlanner, Raster, generate_pyramid,
+    BlankTileStrategy, EngineBuilder, EngineConfig, EngineKind, Layout, PixelFormat,
+    PyramidPlanner, Raster,
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -220,7 +221,11 @@ fn no_dedupe_default() {
     let sink = FsSink::new(base.clone(), plan.clone()).with_dedupe(DedupeStrategy::None);
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Emit);
 
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     // No _shared directory.
     assert!(
@@ -262,7 +267,11 @@ fn blanks_dedupe_reduces_disk_usage() {
     let dir_none = tempfile::tempdir().unwrap();
     let base_none = dir_none.path().join("out");
     let sink_none = FsSink::new(base_none.clone(), plan.clone()).with_dedupe(DedupeStrategy::None);
-    generate_pyramid(&src, &plan, &sink_none, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink_none)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config.clone())
+        .run()
+        .unwrap();
     let bytes_none = total_output_bytes(&base_none);
 
     // Deduped.
@@ -270,7 +279,11 @@ fn blanks_dedupe_reduces_disk_usage() {
     let base_dedupe = dir_dedupe.path().join("out");
     let sink_dedupe =
         FsSink::new(base_dedupe.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
-    generate_pyramid(&src, &plan, &sink_dedupe, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink_dedupe)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
     let bytes_dedupe = total_output_bytes(&base_dedupe);
 
     assert!(
@@ -304,7 +317,11 @@ fn blanks_dedupe_all_point_to_same_inode() {
 
     let sink = FsSink::new(base.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Emit);
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     // Find the shared blank file(s).
     let shared_dir = base.join("_shared");
@@ -352,7 +369,11 @@ fn blanks_dedupe_manifest_lists_references() {
 
     let sink = FsSink::new(base.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Emit);
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     let manifest_path = base.join("manifest.json");
     assert!(
@@ -409,13 +430,21 @@ fn blanks_dedupe_decoded_tile_content_matches_undedupled_run() {
     let dir_none = tempfile::tempdir().unwrap();
     let base_none = dir_none.path().join("out");
     let sink_none = FsSink::new(base_none.clone(), plan.clone()).with_dedupe(DedupeStrategy::None);
-    generate_pyramid(&src, &plan, &sink_none, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink_none)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config.clone())
+        .run()
+        .unwrap();
 
     let dir_dedupe = tempfile::tempdir().unwrap();
     let base_dedupe = dir_dedupe.path().join("out");
     let sink_dedupe =
         FsSink::new(base_dedupe.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
-    generate_pyramid(&src, &plan, &sink_dedupe, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink_dedupe)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     for coord in plan.tile_coords() {
         let rel = plan.tile_path(coord, "png").unwrap();
@@ -447,7 +476,11 @@ fn all_mode_dedupes_identical_non_blank_tiles() {
     // Disable blank-tile skipping so the grey-half tiles are actually written
     // — otherwise there's nothing interesting to dedupe.
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Emit);
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config.clone())
+        .run()
+        .unwrap();
 
     // Count distinct physical files under _shared/; must be at least 2
     // (white block + grey block).
@@ -461,7 +494,11 @@ fn all_mode_dedupes_identical_non_blank_tiles() {
     let dir_none = tempfile::tempdir().unwrap();
     let base_none = dir_none.path().join("out");
     let sink_none = FsSink::new(base_none.clone(), plan.clone()).with_dedupe(DedupeStrategy::None);
-    generate_pyramid(&src, &plan, &sink_none, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink_none)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     let bytes_all = total_output_bytes(&base);
     let bytes_none = total_output_bytes(&base_none);
@@ -487,14 +524,22 @@ fn all_mode_with_distinct_tiles_is_equivalent_to_none() {
     let dir_none = tempfile::tempdir().unwrap();
     let base_none = dir_none.path().join("out");
     let sink_none = FsSink::new(base_none.clone(), plan.clone()).with_dedupe(DedupeStrategy::None);
-    generate_pyramid(&src, &plan, &sink_none, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink_none)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config.clone())
+        .run()
+        .unwrap();
 
     let dir_all = tempfile::tempdir().unwrap();
     let base_all = dir_all.path().join("out");
     let sink_all = FsSink::new(base_all.clone(), plan.clone()).with_dedupe(DedupeStrategy::All {
         algo: ChecksumAlgo::default(),
     });
-    generate_pyramid(&src, &plan, &sink_all, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink_all)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     // Every planned tile must exist at its real path in both runs and decode
     // identically. On the All side a `_shared/` directory may exist but must
@@ -533,7 +578,11 @@ fn mix_with_resume_mode_rebuilds_dedupe_index() {
     // First run: generate with dedupe.
     let sink = FsSink::new(base.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Emit);
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config.clone())
+        .run()
+        .unwrap();
 
     // Capture the shared file listing + contents.
     let shared = base.join("_shared");
@@ -558,7 +607,11 @@ fn mix_with_resume_mode_rebuilds_dedupe_index() {
     let sink_resume = FsSink::new(base.clone(), plan.clone())
         .with_dedupe(DedupeStrategy::Blanks)
         .with_resume(true);
-    generate_pyramid(&src, &plan, &sink_resume, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink_resume)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     assert!(
         victim_path.exists(),
@@ -596,12 +649,20 @@ fn determinism_of_dedupe_hashes() {
     let dir1 = tempfile::tempdir().unwrap();
     let base1 = dir1.path().join("out");
     let sink1 = FsSink::new(base1.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
-    generate_pyramid(&src, &plan, &sink1, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink1)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config.clone())
+        .run()
+        .unwrap();
 
     let dir2 = tempfile::tempdir().unwrap();
     let base2 = dir2.path().join("out");
     let sink2 = FsSink::new(base2.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
-    generate_pyramid(&src, &plan, &sink2, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink2)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     let names = |dir: &Path| -> HashSet<String> {
         std::fs::read_dir(dir.join("_shared"))

@@ -14,7 +14,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use libviprs::{
-    EngineConfig, FsSink, Layout, MemorySink, PyramidPlanner, extract_page_image, generate_pyramid,
+    EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, MemorySink, PyramidPlanner,
+    extract_page_image,
 };
 
 const FIXTURE_PDF_PORTRAIT: &str = concat!(
@@ -151,7 +152,11 @@ fn google_centre_portrait_generates_all_tiles() {
     let sink = MemorySink::new();
     let config = EngineConfig::default();
 
-    let result = generate_pyramid(&raster, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 
     // Every tile should be 256x256
@@ -174,7 +179,11 @@ fn google_centre_portrait_path_format() {
     let base = dir.path().join("portrait_google");
     let sink = FsSink::new(base.clone(), plan.clone());
 
-    generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let files = collect_files(&base, "png");
     assert_eq!(files.len() as u64, plan.total_tile_count());
@@ -200,11 +209,19 @@ fn google_centre_portrait_concurrent_matches() {
     let plan = planner.plan();
 
     let ref_sink = MemorySink::new();
-    generate_pyramid(&raster, &plan, &ref_sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &ref_sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let conc_sink = MemorySink::new();
     let config = EngineConfig::default().with_concurrency(4);
-    generate_pyramid(&raster, &plan, &conc_sink, &config).unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &conc_sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     let mut ref_tiles = ref_sink.tiles();
     let mut conc_tiles = conc_sink.tiles();
@@ -231,8 +248,16 @@ fn google_centre_portrait_deterministic() {
     let sink2 = MemorySink::new();
     let config = EngineConfig::default();
 
-    generate_pyramid(&raster, &plan, &sink1, &config).unwrap();
-    generate_pyramid(&raster, &plan, &sink2, &config).unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &sink1)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config.clone())
+        .run()
+        .unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &sink2)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     let mut tiles1 = sink1.tiles();
     let mut tiles2 = sink2.tiles();
@@ -288,7 +313,11 @@ fn google_centre_blueprint_generates_all_tiles() {
     let plan = planner.plan();
     let sink = MemorySink::new();
 
-    let result = generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
+    let result = EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 }
 
@@ -318,7 +347,11 @@ fn google_no_centre_portrait_generates_tiles() {
     let plan = planner.plan();
     let sink = MemorySink::new();
 
-    let result = generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
+    let result = EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 }
 
@@ -340,7 +373,11 @@ fn google_centre_portrait_matches_vips_fixtures() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("portrait_google");
     let sink = FsSink::new(base.clone(), plan.clone());
-    generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     // Collect vips fixture tiles (excludes blank.png and vips-properties.xml)
     let vips_files = collect_files(Path::new(EXPECTED_PORTRAIT_GOOGLE), "png");
@@ -433,7 +470,11 @@ fn google_centre_mix_matches_vips_fixtures() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("mix_google");
     let sink = FsSink::new(base.clone(), plan.clone());
-    generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let vips_files = collect_files(Path::new(EXPECTED_MIX_GOOGLE), "png");
     let vips_tiles: Vec<_> = vips_files

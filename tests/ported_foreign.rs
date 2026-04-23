@@ -14,8 +14,8 @@ use std::path::Path;
 use image::ImageEncoder;
 use libviprs::source::decode_bytes;
 use libviprs::{
-    EngineConfig, FsSink, Layout, PixelFormat, PyramidPlanner, Raster, TileFormat, decode_file,
-    extract_page_image, generate_pyramid, pdf_info,
+    EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, PixelFormat, PyramidPlanner, Raster,
+    TileFormat, decode_file, extract_page_image, pdf_info,
 };
 
 // ---------------------------------------------------------------------------
@@ -1698,7 +1698,11 @@ fn test_dz_tile_size() {
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let config = EngineConfig::default();
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 
     // Verify that at least one tile file exists
@@ -1719,7 +1723,10 @@ fn test_dz_overlap() {
     let base = dir.path().join("dz_overlap");
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
 
-    let result = generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 
     let raw_count = count_files(&base, "raw");
@@ -1738,7 +1745,10 @@ fn test_dz_layout_deepzoom() {
     let base = dir.path().join("deepzoom_out");
     let sink = FsSink::new(base.clone(), plan.clone());
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     // DeepZoom should produce a .dzi manifest
     let dzi = dir.path().join("deepzoom_out.dzi");
@@ -1767,7 +1777,10 @@ fn test_dz_layout_xyz() {
     let base = dir.path().join("xyz_out");
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     // XYZ path: {z}/{x}/{y}.ext
     let top = plan.levels.last().unwrap();
@@ -1808,7 +1821,10 @@ fn test_dz_layout_zoomify() {
     let base = dir.path().join("zoomify_out");
     let sink =
         FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Jpeg { quality: 80 });
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     // Zoomify uses TileGroup directories
     let tg0 = base.join("TileGroup0");
@@ -1844,7 +1860,10 @@ fn test_dz_layout_iiif() {
     let base = dir.path().join("iiif_out");
     let sink =
         FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Jpeg { quality: 80 });
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let info_json = base.join("info.json");
     assert!(info_json.exists(), "IIIF info.json should exist");
@@ -1883,7 +1902,10 @@ fn test_dz_zip() {
 
     let zip_path = dir.path().join("tiles.zip");
     let sink = ZipSink::new(zip_path.clone(), plan.clone(), TileFormat::Png);
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     assert!(zip_path.exists(), "ZIP file should exist");
     let metadata = std::fs::metadata(&zip_path).unwrap();
@@ -1901,7 +1923,10 @@ fn test_dz_format_png() {
     let base = dir.path().join("png_tiles");
     let sink = FsSink::new(base.clone(), plan.clone());
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let png_count = count_files(&base, "png");
     assert!(png_count > 0, "No PNG tiles produced");
@@ -1925,7 +1950,10 @@ fn test_dz_format_jpeg() {
     let sink =
         FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Jpeg { quality: 85 });
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let jpeg_count = count_files(&base, "jpeg");
     assert!(jpeg_count > 0, "No JPEG tiles produced");
@@ -1980,12 +2008,19 @@ fn test_dz_skip_blanks() {
     let base_skip = dir_skip.path().join("skip");
     let sink = FsSink::new(base_skip.clone(), plan.clone());
     let config_skip = EngineConfig::default().skip_blanks(true);
-    let result_skip = generate_pyramid(&src, &plan, &sink, &config_skip).unwrap();
+    let result_skip = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config_skip)
+        .run()
+        .unwrap();
 
     let dir_no = tempfile::tempdir().unwrap();
     let base_no = dir_no.path().join("noskip");
     let sink_no = FsSink::new(base_no.clone(), plan.clone());
-    let result_no = generate_pyramid(&src, &plan, &sink_no, &EngineConfig::default()).unwrap();
+    let result_no = EngineBuilder::new(&src, plan.clone(), &sink_no)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     assert!(
         result_skip.tiles_produced <= result_no.tiles_produced,
@@ -2023,7 +2058,10 @@ fn test_dz_properties() {
 
     let base = dir.path().join("props");
     let sink = FsSink::new(base.clone(), plan.clone());
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let dzi = dir.path().join("props.dzi");
     assert!(dzi.exists());
@@ -3640,7 +3678,10 @@ fn test_uhdr_dzsave() {
     let base = dir.path().join("uhdr_dz");
     let sink =
         FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Jpeg { quality: 80 });
-    let result = generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
     assert!(
         result.tiles_produced > 0,
         "Should produce tiles from UHDR source"

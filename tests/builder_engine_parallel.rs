@@ -17,10 +17,8 @@
 
 use libviprs::sink::{CollectedTile, MemorySink, TileSink};
 use libviprs::streaming::RasterStripSource;
-use libviprs::streaming_mapreduce::MapReduceConfig;
 use libviprs::{
     EngineBuilder, EngineError, EngineKind, Layout, PixelFormat, PyramidPlanner, Raster,
-    generate_pyramid_mapreduce, generate_pyramid_mapreduce_auto,
 };
 
 fn gradient_raster(w: u32, h: u32) -> Raster {
@@ -169,57 +167,54 @@ fn mapreduce_engine_with_strip_source_runs() {
 }
 
 // ---------------------------------------------------------------------------
-// Parity with legacy MapReduce free functions
+// Cross-engine determinism — every engine produces the same tiles for the
+// same raster + plan. The previous revision compared individual engines
+// against their now-deleted legacy free-function counterparts; this pair
+// cross-checks them against each other.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn mapreduce_strip_parity_with_free_fn() {
+fn mapreduce_strip_agrees_with_streaming_strip() {
     let src = gradient_raster(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
 
-    let legacy = MemorySink::new();
-    generate_pyramid_mapreduce(
-        &RasterStripSource::new(&src),
-        &plan,
-        &legacy,
-        &MapReduceConfig::default(),
-        &libviprs::observe::NoopObserver,
+    let (_, streaming) = EngineBuilder::new(
+        RasterStripSource::new(&src),
+        plan.clone(),
+        MemorySink::new(),
     )
+    .with_engine(EngineKind::Streaming)
+    .run_collect()
     .unwrap();
 
-    let (_, builder) = EngineBuilder::new(RasterStripSource::new(&src), plan, MemorySink::new())
+    let (_, mapreduce) = EngineBuilder::new(RasterStripSource::new(&src), plan, MemorySink::new())
         .with_engine(EngineKind::MapReduce)
         .run_collect()
         .unwrap();
 
-    assert_same_tiles(&sorted(&legacy), &sorted(&builder));
+    assert_same_tiles(&sorted(&streaming), &sorted(&mapreduce));
 }
 
 #[test]
-fn mapreduce_raster_parity_with_free_fn_auto() {
+fn mapreduce_raster_agrees_with_monolithic_raster() {
     let src = gradient_raster(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
 
-    let legacy = MemorySink::new();
-    generate_pyramid_mapreduce_auto(
-        &src,
-        &plan,
-        &legacy,
-        &MapReduceConfig::default(),
-        &libviprs::observe::NoopObserver,
-    )
-    .unwrap();
+    let (_, mono) = EngineBuilder::new(&src, plan.clone(), MemorySink::new())
+        .with_engine(EngineKind::Monolithic)
+        .run_collect()
+        .unwrap();
 
-    let (_, builder) = EngineBuilder::new(&src, plan, MemorySink::new())
+    let (_, mapreduce) = EngineBuilder::new(&src, plan, MemorySink::new())
         .with_engine(EngineKind::MapReduce)
         .run_collect()
         .unwrap();
 
-    assert_same_tiles(&sorted(&legacy), &sorted(&builder));
+    assert_same_tiles(&sorted(&mono), &sorted(&mapreduce));
 }
 
 #[test]
