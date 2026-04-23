@@ -164,7 +164,8 @@ fn run_pyramid(
     let planner = PyramidPlanner::new(IMG_W, IMG_H, TILE_SIZE, OVERLAP, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
-    let sink = FsSink::new(base.to_path_buf(), plan.clone(), fmt)
+    let sink = FsSink::new(base.to_path_buf(), plan.clone())
+        .with_format(fmt)
         .with_manifest(ManifestBuilder::new())
         .with_checksums(mode, algo);
 
@@ -190,8 +191,7 @@ fn no_checksums_by_default() {
     let plan = planner.plan();
 
     // No `.with_checksums(...)` call.
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_manifest(ManifestBuilder::new());
+    let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
     let value = read_manifest_json(&base);
@@ -584,7 +584,8 @@ fn verify_happens_inline_when_checksum_mode_verify() {
     let planner = PyramidPlanner::new(IMG_W, IMG_H, TILE_SIZE, OVERLAP, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
-    let inner = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw)
+    let inner = FsSink::new(base.clone(), plan.clone())
+        .with_format(TileFormat::Raw)
         .with_manifest(ManifestBuilder::new())
         .with_checksums(ChecksumMode::Verify, ChecksumAlgo::Blake3);
     let sink = CorruptingSink::new(inner);
@@ -732,7 +733,7 @@ fn checksum_of_blank_placeholder_is_stable() {
     let planner = PyramidPlanner::new(IMG_W, IMG_H, TILE_SIZE, OVERLAP, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
+    let sink = FsSink::new(base.clone(), plan.clone())
         .with_manifest(ManifestBuilder::new())
         .with_checksums(ChecksumMode::EmitOnly, ChecksumAlgo::Blake3);
 

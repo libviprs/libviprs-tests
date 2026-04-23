@@ -217,13 +217,13 @@ mod threading {
 
         let dir1 = tempfile::tempdir().unwrap();
         let base1 = dir1.path().join("t1");
-        let sink1 = FsSink::new(base1.clone(), plan.clone(), TileFormat::Png);
+        let sink1 = FsSink::new(base1.clone(), plan.clone());
         let config1 = EngineConfig::with_threads(1);
         generate_pyramid(&src, &plan, &sink1, &config1).unwrap();
 
         let dir4 = tempfile::tempdir().unwrap();
         let base4 = dir4.path().join("t4");
-        let sink4 = FsSink::new(base4.clone(), plan.clone(), TileFormat::Png);
+        let sink4 = FsSink::new(base4.clone(), plan.clone());
         let config4 = EngineConfig::with_threads(4);
         generate_pyramid(&src, &plan, &sink4, &config4).unwrap();
 
@@ -535,7 +535,7 @@ mod timeout {
 
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path().join("progress");
-        let sink = FsSink::new(base, plan.clone(), TileFormat::Png);
+        let sink = FsSink::new(base, plan.clone());
 
         let observer = CollectingObserver::new();
         let _result =

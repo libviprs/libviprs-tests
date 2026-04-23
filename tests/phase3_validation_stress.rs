@@ -390,7 +390,7 @@ fn run_golden_pyramid(
     config: &EngineConfig,
 ) -> PathBuf {
     let base = dir.join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), format);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(format);
     generate_pyramid(raster, plan, &sink, config).unwrap();
     base
 }
@@ -448,7 +448,7 @@ fn restart_during_level_generation_resume_completes_output() {
     // (level index 2) — a mid-level abort is the whole point.
     let panic_after = plan.total_tile_count() as usize / 3;
 
-    let inner = FsSink::new(crash_base.clone(), plan.clone(), TileFormat::Png);
+    let inner = FsSink::new(crash_base.clone(), plan.clone());
     let panicking = PanickingSink::new(inner, PanicTrigger::NthWrite(panic_after));
 
     let first_run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -466,7 +466,7 @@ fn restart_during_level_generation_resume_completes_output() {
     );
 
     // --- resume run into the same directory ---
-    let resume_sink = FsSink::new(crash_base.clone(), plan.clone(), TileFormat::Png);
+    let resume_sink = FsSink::new(crash_base.clone(), plan.clone());
     generate_pyramid_resumable(
         &src,
         &plan,
@@ -524,7 +524,7 @@ fn restart_during_tile_encode_resume_completes_output() {
         }
     };
 
-    let inner = FsSink::new(crash_base.clone(), plan.clone(), TileFormat::Png);
+    let inner = FsSink::new(crash_base.clone(), plan.clone());
     let panicking = PanickingSink::new(inner, PanicTrigger::Coord(target));
 
     let first_run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -541,7 +541,7 @@ fn restart_during_tile_encode_resume_completes_output() {
         "panic during tile encode should surface"
     );
 
-    let resume_sink = FsSink::new(crash_base.clone(), plan.clone(), TileFormat::Png);
+    let resume_sink = FsSink::new(crash_base.clone(), plan.clone());
     generate_pyramid_resumable(
         &src,
         &plan,
@@ -579,8 +579,7 @@ fn partial_sink_failure_retry_then_skip_produces_valid_partial() {
     let out_dir = tempfile::tempdir_in(root.path()).unwrap();
     let base = out_dir.path().join("pyramid");
 
-    let inner = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_manifest(ManifestBuilder::new());
+    let inner = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
     let flaky = FlakySink::new(
         inner, /* fail_percent */ 10, /* seed */ 0xCAFEF00D,
@@ -658,8 +657,7 @@ fn large_image_sparse_output_correctness() {
     let out_dir = tempfile::tempdir_in(root.path()).unwrap();
     let base = out_dir.path().join("pyramid");
 
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::Blanks);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
 
     let config = EngineConfig::default()
         .with_concurrency(4)
@@ -718,7 +716,7 @@ fn deterministic_manifests_across_concurrency() {
     for c in concurrencies {
         let dir = tempfile::tempdir_in(root.path()).unwrap();
         let base = dir.path().join("pyramid");
-        let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
+        let sink = FsSink::new(base.clone(), plan.clone())
             .with_manifest(ManifestBuilder::new().with_checksums(ChecksumAlgo::Blake3));
         let cfg = EngineConfig::default().with_concurrency(c);
         generate_pyramid(&src, &plan, &sink, &cfg).unwrap();
@@ -766,7 +764,7 @@ fn multithreaded_stress_100_small_pyramids() {
                 let dir =
                     tempfile::tempdir_in(root.path()).expect("failed to mkdir per-pyramid tempdir");
                 let base = dir.path().join("pyramid");
-                let sink = FsSink::new(base.clone(), (*plan).clone(), TileFormat::Png)
+                let sink = FsSink::new(base.clone(), (*plan).clone())
                     .with_manifest(ManifestBuilder::new().with_checksums(ChecksumAlgo::Blake3))
                     .with_checksum_mode(ChecksumMode::Verify);
 
@@ -810,7 +808,7 @@ fn full_phase3_pipeline_integration() {
     let plan = standard_planner(1024, 768, 256);
 
     let base = root.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
+    let sink = FsSink::new(base.clone(), plan.clone())
         .with_manifest(ManifestBuilder::new().with_checksums(ChecksumAlgo::Blake3))
         .with_dedupe(DedupeStrategy::Blanks)
         .with_checksum_mode(ChecksumMode::Verify);
@@ -849,7 +847,7 @@ fn verify_mode_on_output_of_full_pipeline() {
     let plan = standard_planner(1024, 768, 256);
 
     let base = root.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
+    let sink = FsSink::new(base.clone(), plan.clone())
         .with_manifest(ManifestBuilder::new().with_checksums(ChecksumAlgo::Blake3))
         .with_dedupe(DedupeStrategy::Blanks)
         .with_checksum_mode(ChecksumMode::Verify);
@@ -896,7 +894,7 @@ fn checkpoint_written_frequently_enough_to_bound_rework() {
     let base = crash_dir.path().join("pyramid");
 
     // First run: panic at the 500th write.
-    let inner = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let inner = FsSink::new(base.clone(), plan.clone());
     let panicking = PanickingSink::new(inner, PanicTrigger::NthWrite(500));
     let cfg = EngineConfig::default()
         .with_concurrency(1) // deterministic ordering so "500th write"
@@ -909,7 +907,7 @@ fn checkpoint_written_frequently_enough_to_bound_rework() {
 
     // Second run: re-wrap FsSink in a RecordingSink so we can count how
     // many writes the resume path performs.
-    let inner2 = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let inner2 = FsSink::new(base.clone(), plan.clone());
     let rec = RecordingSink::new(inner2);
     generate_pyramid_resumable(&src, &plan, &rec, &cfg, ResumeMode::Resume).unwrap();
 

@@ -377,7 +377,7 @@ fn archive_extraction_produces_identical_fs_output() {
     // Run 1: FsSink directly.
     let fs_dir = tempfile::tempdir().unwrap();
     let fs_base = fs_dir.path().join("out");
-    let fs_sink = FsSink::new(fs_base.clone(), plan.clone(), TileFormat::Png);
+    let fs_sink = FsSink::new(fs_base.clone(), plan.clone());
     generate_pyramid(&src, &plan, &fs_sink, &EngineConfig::default()).unwrap();
 
     // Run 2: PackfileSink (tar) + extract.

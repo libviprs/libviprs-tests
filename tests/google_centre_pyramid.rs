@@ -14,8 +14,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use libviprs::{
-    EngineConfig, FsSink, Layout, MemorySink, PyramidPlanner, TileFormat, extract_page_image,
-    generate_pyramid,
+    EngineConfig, FsSink, Layout, MemorySink, PyramidPlanner, extract_page_image, generate_pyramid,
 };
 
 const FIXTURE_PDF_PORTRAIT: &str = concat!(
@@ -173,7 +172,7 @@ fn google_centre_portrait_path_format() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("portrait_google");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
 
     generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
 
@@ -340,7 +339,7 @@ fn google_centre_portrait_matches_vips_fixtures() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("portrait_google");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
     generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
 
     // Collect vips fixture tiles (excludes blank.png and vips-properties.xml)
@@ -433,7 +432,7 @@ fn google_centre_mix_matches_vips_fixtures() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("mix_google");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
     generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
 
     let vips_files = collect_files(Path::new(EXPECTED_MIX_GOOGLE), "png");

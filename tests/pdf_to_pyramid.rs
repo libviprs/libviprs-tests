@@ -7,7 +7,7 @@ use std::path::Path;
 
 use libviprs::{
     EngineConfig, FsSink, GeoCoord, GeoTransform, Layout, MemorySink, PixelFormat, PyramidPlanner,
-    TileFormat, extract_page_image, generate_pyramid,
+    extract_page_image, generate_pyramid,
 };
 
 const FIXTURE_PDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blueprint.pdf");
@@ -93,7 +93,7 @@ fn pdf_to_pyramid_filesystem_png() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("blueprint_tiles");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
     let config = EngineConfig::default().with_concurrency(4);
 
     let result =

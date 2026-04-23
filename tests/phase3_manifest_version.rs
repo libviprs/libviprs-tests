@@ -97,8 +97,7 @@ fn emits_manifest_json_next_to_dzi() {
     let plan = planner.plan();
 
     let base = dir.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_manifest(ManifestBuilder::new());
+    let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
@@ -121,8 +120,7 @@ fn manifest_has_schema_version_field() {
     let plan = planner.plan();
 
     let base = dir.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_manifest(ManifestBuilder::new());
+    let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
@@ -159,7 +157,8 @@ fn manifest_records_generation_settings() {
     let plan = planner.plan();
 
     let base = dir.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Jpeg { quality: 80 })
+    let sink = FsSink::new(base.clone(), plan.clone())
+        .with_format(TileFormat::Jpeg { quality: 80 })
         .with_manifest(ManifestBuilder::new());
 
     let config = EngineConfig::default().with_concurrency(3);
@@ -197,8 +196,7 @@ fn manifest_records_source_metadata() {
     let plan = planner.plan();
 
     let base = dir.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_manifest(ManifestBuilder::new());
+    let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
@@ -233,8 +231,7 @@ fn manifest_records_per_level_metadata() {
     let plan = planner.plan();
 
     let base = dir.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_manifest(ManifestBuilder::new());
+    let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
@@ -286,8 +283,7 @@ fn manifest_records_sparse_policy() {
     let plan = planner.plan();
 
     let base = dir.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_manifest(ManifestBuilder::new());
+    let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Placeholder);
     generate_pyramid(&src, &plan, &sink, &config).unwrap();
@@ -321,7 +317,7 @@ fn manifest_with_checksums_has_per_tile_hash() {
     let plan = planner.plan();
 
     let base = dir.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
+    let sink = FsSink::new(base.clone(), plan.clone())
         .with_manifest(ManifestBuilder::new().with_checksums(ChecksumAlgo::Blake3));
 
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
@@ -366,8 +362,7 @@ fn manifest_without_checksums_is_none() {
     let plan = planner.plan();
 
     let base = dir.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_manifest(ManifestBuilder::new());
+    let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
@@ -397,7 +392,7 @@ fn manifest_deterministic_across_runs() {
         let planner =
             PyramidPlanner::new(IMG_W, IMG_H, TILE_SIZE, OVERLAP, Layout::DeepZoom).unwrap();
         let plan = planner.plan();
-        let sink = FsSink::new(out.to_path_buf(), plan.clone(), TileFormat::Png)
+        let sink = FsSink::new(out.to_path_buf(), plan.clone())
             .with_manifest(ManifestBuilder::new().with_checksums(ChecksumAlgo::Blake3));
         generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
         let bytes = std::fs::read(manifest_path(out)).unwrap();
@@ -439,8 +434,7 @@ fn manifest_parses_with_unknown_future_fields() {
     let plan = planner.plan();
 
     let base = dir.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_manifest(ManifestBuilder::new());
+    let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
     let bytes = std::fs::read(manifest_path(&base)).unwrap();
@@ -482,8 +476,7 @@ fn dzi_xml_still_emitted() {
     let plan = planner.plan();
 
     let base = dir.path().join("pyramid");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_manifest(ManifestBuilder::new());
+    let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
