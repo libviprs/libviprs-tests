@@ -100,7 +100,7 @@ fn raw_format_via_builder() {
 #[test]
 fn compose_format_and_dedupe() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(128, 128);
+    let _src = gradient_raster(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();

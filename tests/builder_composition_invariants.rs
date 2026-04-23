@@ -69,7 +69,10 @@ fn snapshot(sink: &MemorySink) -> TileSnapshot {
     t
 }
 
-fn apply(mut builder: EngineBuilder<MemorySink>, knob: &Knob) -> EngineBuilder<MemorySink> {
+fn apply<'a>(
+    mut builder: EngineBuilder<'a, MemorySink>,
+    knob: &Knob,
+) -> EngineBuilder<'a, MemorySink> {
     match knob {
         Knob::Concurrency(n) => builder = builder.with_concurrency((*n as usize).max(1)),
         Knob::BufferSize(n) => builder = builder.with_buffer_size(((*n as usize) + 1) * 16),
