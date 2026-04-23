@@ -1,5 +1,6 @@
 use libviprs::{
-    EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster, generate_pyramid,
+    EngineBuilder, EngineConfig, EngineKind, Layout, MemorySink, PixelFormat, PyramidPlanner,
+    Raster,
 };
 
 fn gradient_raster(w: u32, h: u32) -> Raster {
@@ -25,14 +26,22 @@ fn deterministic_across_concurrency_levels() {
 
     // Reference: single-threaded
     let ref_sink = MemorySink::new();
-    generate_pyramid(&src, &plan, &ref_sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &ref_sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
     let mut ref_tiles = ref_sink.tiles();
     ref_tiles.sort_by_key(|t| (t.coord.level, t.coord.row, t.coord.col));
 
     for concurrency in [1, 2, 4, 8, 16, 32] {
         let sink = MemorySink::new();
         let config = EngineConfig::default().with_concurrency(concurrency);
-        generate_pyramid(&src, &plan, &sink, &config).unwrap();
+        EngineBuilder::new(&src, plan.clone(), &sink)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(config)
+            .run()
+            .unwrap();
 
         let mut tiles = sink.tiles();
         tiles.sort_by_key(|t| (t.coord.level, t.coord.row, t.coord.col));
@@ -65,16 +74,18 @@ fn deterministic_across_tile_sizes() {
 
         // Single-threaded vs 4-thread
         let sink_st = MemorySink::new();
-        generate_pyramid(&src, &plan, &sink_st, &EngineConfig::default()).unwrap();
+        EngineBuilder::new(&src, plan.clone(), &sink_st)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(EngineConfig::default())
+            .run()
+            .unwrap();
 
         let sink_mt = MemorySink::new();
-        generate_pyramid(
-            &src,
-            &plan,
-            &sink_mt,
-            &EngineConfig::default().with_concurrency(4),
-        )
-        .unwrap();
+        EngineBuilder::new(&src, plan.clone(), &sink_mt)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(EngineConfig::default().with_concurrency(4))
+            .run()
+            .unwrap();
 
         let mut tiles_st = sink_st.tiles();
         let mut tiles_mt = sink_mt.tiles();

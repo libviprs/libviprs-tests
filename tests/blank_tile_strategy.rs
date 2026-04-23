@@ -10,8 +10,8 @@
 use libviprs::engine::is_blank_tile;
 use libviprs::sink::BLANK_TILE_MARKER;
 use libviprs::{
-    BlankTileStrategy, EngineConfig, FsSink, Layout, PixelFormat, PyramidPlanner, Raster,
-    TileFormat, generate_pyramid,
+    BlankTileStrategy, EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, PixelFormat,
+    PyramidPlanner, Raster, TileFormat,
 };
 use std::path::{Path, PathBuf};
 
@@ -85,7 +85,11 @@ fn run_and_compare(input_fixture: &str, strategy: BlankTileStrategy, expected_na
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let config = EngineConfig::default().with_blank_tile_strategy(strategy);
 
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     // Compare output against expected fixtures
     let expected_base = expected_dir(expected_name);
@@ -171,7 +175,11 @@ fn emit_solid_white_tiles_skipped_is_zero() {
     let sink = libviprs::MemorySink::new();
     let config = EngineConfig::default();
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     assert_eq!(result.tiles_skipped, 0);
     assert_eq!(result.tiles_produced, plan.total_tile_count());
@@ -356,7 +364,11 @@ fn placeholder_concurrent_matches_expected() {
         .with_blank_tile_strategy(BlankTileStrategy::Placeholder)
         .with_concurrency(4);
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     assert_eq!(result.tiles_produced, plan.total_tile_count());
     assert_eq!(result.tiles_skipped, plan.total_tile_count());
@@ -441,7 +453,11 @@ fn placeholder_solid_white_tiles_skipped_equals_total() {
     let sink = libviprs::MemorySink::new();
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Placeholder);
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     assert_eq!(result.tiles_skipped, plan.total_tile_count());
     assert_eq!(result.tiles_produced, plan.total_tile_count());
@@ -463,7 +479,11 @@ fn placeholder_gradient_tiles_skipped_is_zero() {
     let sink = libviprs::MemorySink::new();
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Placeholder);
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     assert_eq!(result.tiles_skipped, 0);
 }
@@ -486,7 +506,11 @@ fn placeholder_half_white_tiles_skipped_is_partial() {
     let sink = libviprs::MemorySink::new();
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Placeholder);
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     assert!(result.tiles_skipped > 0, "Expected some tiles skipped");
     assert!(

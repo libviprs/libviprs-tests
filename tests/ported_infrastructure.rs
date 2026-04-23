@@ -9,8 +9,8 @@
 use std::path::Path;
 
 use libviprs::{
-    EngineConfig, FsSink, Layout, PixelFormat, PyramidPlanner, Raster, TileFormat, decode_file,
-    generate_pyramid,
+    EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, PixelFormat, PyramidPlanner, Raster,
+    TileFormat, decode_file,
 };
 
 /// Path to the libvips reference test images directory.
@@ -219,13 +219,21 @@ mod threading {
         let base1 = dir1.path().join("t1");
         let sink1 = FsSink::new(base1.clone(), plan.clone());
         let config1 = EngineConfig::with_threads(1);
-        generate_pyramid(&src, &plan, &sink1, &config1).unwrap();
+        EngineBuilder::new(&src, plan.clone(), &sink1)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(config1)
+            .run()
+            .unwrap();
 
         let dir4 = tempfile::tempdir().unwrap();
         let base4 = dir4.path().join("t4");
         let sink4 = FsSink::new(base4.clone(), plan.clone());
         let config4 = EngineConfig::with_threads(4);
-        generate_pyramid(&src, &plan, &sink4, &config4).unwrap();
+        EngineBuilder::new(&src, plan.clone(), &sink4)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(config4)
+            .run()
+            .unwrap();
 
         // Compare top-level tiles
         let top = plan.levels.last().unwrap();
@@ -495,6 +503,7 @@ mod pipeline {
 
 mod timeout {
     use super::*;
+    use libviprs::CollectingObserver;
 
     #[test]
     #[ignore]
@@ -537,10 +546,13 @@ mod timeout {
         let base = dir.path().join("progress");
         let sink = FsSink::new(base, plan.clone());
 
-        let observer = CollectingObserver::new();
-        let _result =
-            generate_pyramid_observed(&src, &plan, &sink, &EngineConfig::default(), &observer)
-                .unwrap();
+        let observer = std::sync::Arc::new(CollectingObserver::new());
+        let _result = EngineBuilder::new(&src, plan.clone(), &sink)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(EngineConfig::default())
+            .with_observer_arc(observer.clone())
+            .run()
+            .unwrap();
 
         assert!(
             observer.event_count() > 0,

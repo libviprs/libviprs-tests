@@ -47,8 +47,8 @@ use libviprs::sink::BLANK_TILE_MARKER;
 use libviprs::sink::{SinkError, Tile, TileSink};
 use libviprs::source::generate_test_raster;
 use libviprs::{
-    BlankTileStrategy, EngineConfig, EngineError, FsSink, Layout, PyramidPlanner, TileFormat,
-    generate_pyramid,
+    BlankTileStrategy, EngineBuilder, EngineConfig, EngineError, EngineKind, FsSink, Layout,
+    PyramidPlanner, TileFormat,
 };
 
 use std::io::{Read, Write};
@@ -169,7 +169,11 @@ fn run_pyramid(
         .with_manifest(ManifestBuilder::new())
         .with_checksums(mode, algo);
 
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
     plan
 }
 
@@ -192,7 +196,10 @@ fn no_checksums_by_default() {
 
     // No `.with_checksums(...)` call.
     let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let value = read_manifest_json(&base);
     match value.get("checksums") {
@@ -590,13 +597,11 @@ fn verify_happens_inline_when_checksum_mode_verify() {
         .with_checksums(ChecksumMode::Verify, ChecksumAlgo::Blake3);
     let sink = CorruptingSink::new(inner);
 
-    let err = generate_pyramid(
-        &src,
-        &plan,
-        &sink,
-        &EngineConfig::default().with_concurrency(1),
-    )
-    .expect_err("engine must fail when a tile fails its checksum round-trip");
+    let err = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default().with_concurrency(1))
+        .run()
+        .expect_err("engine must fail when a tile fails its checksum round-trip");
 
     assert!(
         matches!(err, EngineError::ChecksumMismatch { .. }),
@@ -738,7 +743,11 @@ fn checksum_of_blank_placeholder_is_stable() {
         .with_checksums(ChecksumMode::EmitOnly, ChecksumAlgo::Blake3);
 
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Placeholder);
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     // Expected hash = blake3 of a single BLANK_TILE_MARKER byte.
     let expected_hex = blake3::hash(&[BLANK_TILE_MARKER]).to_hex().to_string();

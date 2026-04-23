@@ -15,8 +15,8 @@ use libviprs::manifest::{
 };
 use libviprs::source::generate_test_raster;
 use libviprs::{
-    BlankTileStrategy, EngineConfig, FsSink, Layout, MemorySink, PyramidPlanner, TileFormat,
-    generate_pyramid,
+    BlankTileStrategy, EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, MemorySink,
+    PyramidPlanner, TileFormat,
 };
 use std::path::Path;
 
@@ -99,7 +99,10 @@ fn emits_manifest_json_next_to_dzi() {
     let base = dir.path().join("pyramid");
     let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     // Just asserting it parses proves it both exists and is valid JSON.
     let _value = read_manifest_json(&base);
@@ -122,7 +125,10 @@ fn manifest_has_schema_version_field() {
     let base = dir.path().join("pyramid");
     let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let value = read_manifest_json(&base);
     assert_eq!(
@@ -162,7 +168,11 @@ fn manifest_records_generation_settings() {
         .with_manifest(ManifestBuilder::new());
 
     let config = EngineConfig::default().with_concurrency(3);
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     let bytes = std::fs::read(manifest_path(&base)).unwrap();
     let parsed: ManifestV1 = serde_json::from_slice(&bytes).unwrap();
@@ -198,7 +208,10 @@ fn manifest_records_source_metadata() {
     let base = dir.path().join("pyramid");
     let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let bytes = std::fs::read(manifest_path(&base)).unwrap();
     let parsed: ManifestV1 = serde_json::from_slice(&bytes).unwrap();
@@ -233,7 +246,10 @@ fn manifest_records_per_level_metadata() {
     let base = dir.path().join("pyramid");
     let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let bytes = std::fs::read(manifest_path(&base)).unwrap();
     let parsed: ManifestV1 = serde_json::from_slice(&bytes).unwrap();
@@ -286,7 +302,11 @@ fn manifest_records_sparse_policy() {
     let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Placeholder);
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     let bytes = std::fs::read(manifest_path(&base)).unwrap();
     let parsed: ManifestV1 = serde_json::from_slice(&bytes).unwrap();
@@ -320,7 +340,10 @@ fn manifest_with_checksums_has_per_tile_hash() {
     let sink = FsSink::new(base.clone(), plan.clone())
         .with_manifest(ManifestBuilder::new().with_checksums(ChecksumAlgo::Blake3));
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let bytes = std::fs::read(manifest_path(&base)).unwrap();
     let parsed: ManifestV1 = serde_json::from_slice(&bytes).unwrap();
@@ -364,7 +387,10 @@ fn manifest_without_checksums_is_none() {
     let base = dir.path().join("pyramid");
     let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let bytes = std::fs::read(manifest_path(&base)).unwrap();
     let parsed: ManifestV1 = serde_json::from_slice(&bytes).unwrap();
@@ -394,7 +420,10 @@ fn manifest_deterministic_across_runs() {
         let plan = planner.plan();
         let sink = FsSink::new(out.to_path_buf(), plan.clone())
             .with_manifest(ManifestBuilder::new().with_checksums(ChecksumAlgo::Blake3));
-        generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+        EngineBuilder::new(&src, plan.clone(), &sink)
+            .with_engine(EngineKind::Monolithic)
+            .run()
+            .unwrap();
         let bytes = std::fs::read(manifest_path(out)).unwrap();
         serde_json::from_slice(&bytes).unwrap()
     }
@@ -435,7 +464,10 @@ fn manifest_parses_with_unknown_future_fields() {
 
     let base = dir.path().join("pyramid");
     let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let bytes = std::fs::read(manifest_path(&base)).unwrap();
     let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
@@ -478,7 +510,10 @@ fn dzi_xml_still_emitted() {
     let base = dir.path().join("pyramid");
     let sink = FsSink::new(base.clone(), plan.clone()).with_manifest(ManifestBuilder::new());
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     let dzi = dir.path().join("pyramid.dzi");
     assert!(
@@ -508,7 +543,10 @@ fn memory_sink_does_not_emit_manifest() {
     // MemorySink has no `with_manifest` API; verify that by construction it
     // can be used with generate_pyramid without emitting any files.
     let sink = MemorySink::new();
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     // The tempdir should have no files in it at all.
     let entries: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();

@@ -31,12 +31,11 @@
 
 use std::path::Path;
 
-use libviprs::observe::NoopObserver;
 use libviprs::pdf::{PdfError, render_page_pdfium};
-use libviprs::streaming::{BudgetPolicy, StripSource, generate_pyramid_streaming};
+use libviprs::streaming::{BudgetPolicy, StripSource};
 use libviprs::{
-    EngineConfig, EngineError, Layout, MemorySink, PdfiumStripSource, PixelFormat, PyramidPlan,
-    PyramidPlanner, StreamingConfig,
+    EngineBuilder, EngineConfig, EngineError, EngineKind, Layout, MemorySink, PdfiumStripSource,
+    PixelFormat, PyramidPlan, PyramidPlanner,
 };
 
 const FIXTURE_BLUEPRINT: &str =
@@ -502,7 +501,7 @@ fn end_to_end_streaming_pre_flight_min(fixture: &str) {
     .plan();
     let canvas_w = plan.canvas_width;
     let budget = canvas_w as u64 * MIN_STRIP_HEIGHT as u64 * 4;
-    run_streaming(fixture, &source, &plan, budget);
+    run_streaming(fixture, source, &plan, budget);
 }
 
 fn end_to_end_streaming_generous(fixture: &str, headroom: u64) {
@@ -519,19 +518,19 @@ fn end_to_end_streaming_generous(fixture: &str, headroom: u64) {
     .plan();
     let canvas_w = plan.canvas_width;
     let budget = canvas_w as u64 * MIN_STRIP_HEIGHT as u64 * 4 * headroom;
-    run_streaming(fixture, &source, &plan, budget);
+    run_streaming(fixture, source, &plan, budget);
 }
 
-fn run_streaming(fixture: &str, source: &PdfiumStripSource, plan: &PyramidPlan, budget: u64) {
+fn run_streaming(fixture: &str, source: PdfiumStripSource, plan: &PyramidPlan, budget: u64) {
     let sink = MemorySink::new();
     let mut engine = EngineConfig::default();
     engine.background_rgb = BACKGROUND_RGB;
-    let config = StreamingConfig {
-        memory_budget_bytes: budget,
-        engine,
-        budget_policy: BudgetPolicy::Error,
-    };
-    let result = generate_pyramid_streaming(source, plan, &sink, &config, &NoopObserver)
+    let result = EngineBuilder::new(source, plan.clone(), &sink)
+        .with_engine(EngineKind::Streaming)
+        .with_config(engine)
+        .with_memory_budget(budget)
+        .with_budget_policy(BudgetPolicy::Error)
+        .run()
         .unwrap_or_else(|e| {
             panic!("generate_pyramid_streaming({fixture}, budget={budget}): {e:?}")
         });
@@ -697,12 +696,13 @@ fn budget_auto_adjust_drives_end_to_end_streaming() {
     let sink = MemorySink::new();
     let mut engine = EngineConfig::default();
     engine.background_rgb = BACKGROUND_RGB;
-    let config = StreamingConfig {
-        memory_budget_bytes: engine_budget,
-        engine,
-        budget_policy: BudgetPolicy::Error,
-    };
-    let result = generate_pyramid_streaming(&source, &plan, &sink, &config, &NoopObserver).unwrap();
+    let result = EngineBuilder::new(source, plan.clone(), &sink)
+        .with_engine(EngineKind::Streaming)
+        .with_config(engine)
+        .with_memory_budget(engine_budget)
+        .with_budget_policy(BudgetPolicy::Error)
+        .run()
+        .unwrap();
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 }
 
@@ -722,12 +722,12 @@ fn engine_preflight_errors_when_budget_below_min_strip() {
     .unwrap()
     .plan();
     let sink = MemorySink::new();
-    let config = StreamingConfig {
-        memory_budget_bytes: 1,
-        engine: EngineConfig::default(),
-        budget_policy: BudgetPolicy::Error,
-    };
-    let result = generate_pyramid_streaming(&source, &plan, &sink, &config, &NoopObserver);
+    let result = EngineBuilder::new(source, plan.clone(), &sink)
+        .with_engine(EngineKind::Streaming)
+        .with_config(EngineConfig::default())
+        .with_memory_budget(1)
+        .with_budget_policy(BudgetPolicy::Error)
+        .run();
     match result {
         Err(EngineError::BudgetExceeded { .. }) => {}
         other => panic!("expected EngineError::BudgetExceeded, got {other:?}"),

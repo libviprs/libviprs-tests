@@ -1,5 +1,6 @@
 use libviprs::{
-    EngineConfig, FsSink, Layout, PixelFormat, PyramidPlanner, Raster, TileFormat, generate_pyramid,
+    EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, PixelFormat, PyramidPlanner, Raster,
+    TileFormat,
 };
 use std::path::Path;
 
@@ -44,7 +45,11 @@ fn full_pyramid_to_disk_deep_zoom_raw() {
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let config = EngineConfig::default().with_concurrency(4);
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     // Tile count matches
     let actual_files = count_files(&base, "raw");
@@ -75,7 +80,11 @@ fn full_pyramid_to_disk_deep_zoom_png() {
     let sink = FsSink::new(base.clone(), plan.clone());
     let config = EngineConfig::default().with_concurrency(2);
 
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     let actual_files = count_files(&base, "png");
     assert_eq!(actual_files as u64, plan.total_tile_count());
@@ -97,7 +106,11 @@ fn full_pyramid_to_disk_xyz_layout() {
     let base = dir.path().join("xyz_tiles");
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let actual_files = count_files(&base, "raw");
     assert_eq!(actual_files as u64, plan.total_tile_count());
@@ -122,7 +135,11 @@ fn full_pyramid_to_disk_jpeg() {
     let sink =
         FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Jpeg { quality: 80 });
 
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let actual_files = count_files(&base, "jpeg");
     assert_eq!(actual_files as u64, plan.total_tile_count());
@@ -144,11 +161,19 @@ fn deterministic_fs_output() {
 
     // Run 1
     let sink1 = FsSink::new(dir1.path().join("out"), plan.clone()).with_format(TileFormat::Raw);
-    generate_pyramid(&src, &plan, &sink1, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink1)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     // Run 2
     let sink2 = FsSink::new(dir2.path().join("out"), plan.clone()).with_format(TileFormat::Raw);
-    generate_pyramid(&src, &plan, &sink2, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink2)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     // Compare every tile file
     for coord in plan.tile_coords() {

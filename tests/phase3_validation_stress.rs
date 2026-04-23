@@ -39,9 +39,9 @@ use std::time::{Duration, Instant};
 use libviprs::checksum::verify_output;
 use libviprs::manifest::{ChecksumAlgo, ManifestBuilder, ManifestV1};
 use libviprs::{
-    BlankTileStrategy, ChecksumMode, DedupeStrategy, EngineConfig, FailurePolicy, FsSink, Layout,
-    PixelFormat, PyramidPlan, PyramidPlanner, Raster, ResumeMode, RetryPolicy, SinkError, Tile,
-    TileCoord, TileFormat, TileSink, generate_pyramid, generate_pyramid_resumable,
+    BlankTileStrategy, ChecksumMode, DedupeStrategy, EngineBuilder, EngineConfig, EngineKind,
+    FailurePolicy, FsSink, Layout, PixelFormat, PyramidPlan, PyramidPlanner, Raster, ResumeMode,
+    RetryPolicy, SinkError, Tile, TileCoord, TileFormat, TileSink, generate_pyramid_resumable,
 };
 
 // =============================================================================
@@ -391,7 +391,11 @@ fn run_golden_pyramid(
 ) -> PathBuf {
     let base = dir.join("pyramid");
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(format);
-    generate_pyramid(raster, plan, &sink, config).unwrap();
+    EngineBuilder::new(raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config.clone())
+        .run()
+        .unwrap();
     base
 }
 
@@ -594,7 +598,11 @@ fn partial_sink_failure_retry_then_skip_produces_valid_partial() {
                 .with_jitter(false),
         ));
 
-    generate_pyramid(&src, &plan, &flaky, &config).expect("RetryThenSkip must not surface errors");
+    EngineBuilder::new(&src, plan.clone(), &flaky)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .expect("RetryThenSkip must not surface errors");
 
     // Every emitted .png must be a real PNG file (starts with \x89PNG).
     let mut written = 0usize;
@@ -663,7 +671,11 @@ fn large_image_sparse_output_correctness() {
         .with_concurrency(4)
         .with_blank_tile_strategy(BlankTileStrategy::Placeholder);
 
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     // Space budget: total bytes on disk < 10 % of raw RGB pixels.
     let raw_bytes = (W as u64) * (H as u64) * PixelFormat::Rgb8.bytes_per_pixel() as u64;
@@ -719,7 +731,11 @@ fn deterministic_manifests_across_concurrency() {
         let sink = FsSink::new(base.clone(), plan.clone())
             .with_manifest(ManifestBuilder::new().with_checksums(ChecksumAlgo::Blake3));
         let cfg = EngineConfig::default().with_concurrency(c);
-        generate_pyramid(&src, &plan, &sink, &cfg).unwrap();
+        EngineBuilder::new(&src, plan.clone(), &sink)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(cfg)
+            .run()
+            .unwrap();
 
         let mpath = dir.path().join("pyramid.manifest.json");
         let bytes = std::fs::read(&mpath).unwrap();
@@ -769,7 +785,10 @@ fn multithreaded_stress_100_small_pyramids() {
                     .with_checksum_mode(ChecksumMode::Verify);
 
                 let cfg = EngineConfig::default().with_concurrency(2);
-                generate_pyramid(&src, &plan, &sink, &cfg)
+                EngineBuilder::new(&*src, (*plan).clone(), &sink)
+                    .with_engine(EngineKind::Monolithic)
+                    .with_config(cfg)
+                    .run()
                     .unwrap_or_else(|e| panic!("thread {t} pyramid {i} failed: {e:?}"));
 
                 // Re-verify on the finished output.

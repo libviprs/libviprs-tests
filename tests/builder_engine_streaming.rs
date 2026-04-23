@@ -1,16 +1,18 @@
-//! Phase 0 TDD — `EngineBuilder` over a `StripSource` parity with
-//! `generate_pyramid_streaming`.
+//! Phase 0 → Phase 2 — `EngineBuilder` over a `StripSource`.
 //!
 //! Pins:
 //!
 //! - `EngineBuilder::new(strip_source, plan, sink)` accepts anything
-//!   implementing `StripSource` via `From<T: StripSource>` on `EngineSource`.
-//! - `.with_memory_budget(bytes)` drives strip-height selection identically
-//!   to today's `StreamingConfig::memory_budget_bytes`.
-//! - `.with_budget_policy(BudgetPolicy::…)` honoured when the budget is too
-//!   tight (error vs. auto-adjust).
-//! - Strip-source path still emits the full set of tiles byte-for-byte
-//!   matching the monolithic path.
+//!   implementing `StripSource` via the `IntoEngineSource` impl.
+//! - `.with_memory_budget(bytes)` drives strip-height selection.
+//! - `.with_budget_policy(BudgetPolicy::…)` honoured when the budget is
+//!   too tight (error vs. auto-adjust).
+//! - Strip-source path produces the same tile set as the default
+//!   (Monolithic) path — they are two lenses on the same pyramid.
+//!
+//! The previous revision compared against the legacy
+//! `generate_pyramid_streaming` free function. That function has been
+//! deleted; these tests now assert on builder-only observables.
 
 #![cfg(feature = "builder_v1")]
 #![allow(unused_imports)]
@@ -19,7 +21,6 @@ use libviprs::sink::{CollectedTile, MemorySink, TileSink};
 use libviprs::streaming::{BudgetPolicy, RasterStripSource, StreamingConfig, StripSource};
 use libviprs::{
     EngineBuilder, EngineConfig, EngineKind, Layout, PixelFormat, PyramidPlanner, Raster,
-    generate_pyramid_observed, generate_pyramid_streaming,
 };
 
 fn gradient_raster(w: u32, h: u32) -> Raster {
@@ -66,49 +67,18 @@ fn builder_accepts_strip_source() {
 }
 
 #[test]
-fn builder_strip_source_parity_with_streaming_free_fn() {
-    let src = gradient_raster(320, 240);
-    let plan = PyramidPlanner::new(320, 240, 64, 0, Layout::DeepZoom)
-        .unwrap()
-        .plan();
-
-    // Legacy path: explicit streaming free function.
-    let legacy = MemorySink::new();
-    generate_pyramid_streaming(
-        &RasterStripSource::new(&src),
-        &plan,
-        &legacy,
-        &StreamingConfig::default(),
-        &libviprs::observe::NoopObserver,
-    )
-    .unwrap();
-
-    // Builder path: same source wrapped via From, routed by auto-engine.
-    let (_, builder) = EngineBuilder::new(RasterStripSource::new(&src), plan, MemorySink::new())
-        .run_collect()
-        .unwrap();
-
-    assert_same_tiles(&sorted(&legacy), &sorted(&builder));
-}
-
-#[test]
-fn builder_strip_parity_with_monolithic() {
-    // Streaming path and monolithic path must agree byte-for-byte — the
-    // builder must not introduce its own rounding/ordering differences.
+fn strip_source_and_monolithic_agree() {
+    // Running the same raster through Monolithic vs Streaming must produce
+    // byte-identical output — engines are lenses on the same pyramid.
     let src = gradient_raster(192, 128);
     let plan = PyramidPlanner::new(192, 128, 64, 0, Layout::Google)
         .unwrap()
         .plan();
 
-    let mono = MemorySink::new();
-    generate_pyramid_observed(
-        &src,
-        &plan,
-        &mono,
-        &EngineConfig::default(),
-        &libviprs::observe::NoopObserver,
-    )
-    .unwrap();
+    let (_, mono) = EngineBuilder::new(&src, plan.clone(), MemorySink::new())
+        .with_engine(EngineKind::Monolithic)
+        .run_collect()
+        .unwrap();
 
     let (_, stream) = EngineBuilder::new(RasterStripSource::new(&src), plan, MemorySink::new())
         .with_engine(EngineKind::Streaming)

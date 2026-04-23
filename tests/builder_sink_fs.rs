@@ -1,13 +1,9 @@
-//! Phase 0 TDD — `FsSink::new(dir, plan)` with fluent builder methods.
+//! `FsSink::new(dir, plan)` with fluent builder methods.
 //!
-//! Today: `FsSink::new(dir, plan, format)` — format is a positional arg.
-//! Target: `FsSink::new(dir, plan).with_format(fmt)` — format defaults to PNG,
-//! every other knob (dedupe, checksums, resume, manifest, blank strategy)
-//! reachable through `with_*` methods that can be composed in any order.
-//!
-//! A two-arg ctor is strictly additive: the three-arg form gets a deprecation
-//! alias (`FsSink::new_with_format`) in PR #2 so downstream code keeps
-//! compiling until they migrate.
+//! `FsSink::new` takes two arguments; the tile encoding format defaults to
+//! PNG and is overridden via `.with_format(fmt)`. Every other knob (dedupe,
+//! checksums, resume, manifest, blank strategy) is reachable through
+//! `with_*` methods that can be composed in any order.
 
 #![cfg(feature = "builder_v1")]
 #![allow(unused_imports)]
@@ -152,25 +148,5 @@ fn builder_methods_are_order_insensitive_for_orthogonal_knobs() {
         count_files(&a_dir, "png"),
         count_files(&b_dir, "png"),
         "tile counts differ between orderings"
-    );
-}
-
-#[test]
-fn deprecated_three_arg_new_still_works() {
-    // Migration alias so downstream code compiles during the transition.
-    let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(64, 64);
-    let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
-        .unwrap()
-        .plan();
-
-    #[allow(deprecated)]
-    let sink = FsSink::new_with_format(dir.path().join("out"), plan.clone(), TileFormat::Png);
-
-    EngineBuilder::new(&src, plan.clone(), sink).run().unwrap();
-
-    assert_eq!(
-        count_files(&dir.path().join("out"), "png") as u64,
-        plan.total_tile_count()
     );
 }
