@@ -39,10 +39,36 @@ use std::time::{Duration, Instant};
 use libviprs::checksum::verify_output;
 use libviprs::manifest::{ChecksumAlgo, ManifestBuilder, ManifestV1};
 use libviprs::{
-    BlankTileStrategy, ChecksumMode, DedupeStrategy, EngineBuilder, EngineConfig, EngineKind,
-    FailurePolicy, FsSink, Layout, PixelFormat, PyramidPlan, PyramidPlanner, Raster, ResumeMode,
-    RetryPolicy, SinkError, Tile, TileCoord, TileFormat, TileSink, generate_pyramid_resumable,
+    BlankTileStrategy, ChecksumMode, DedupeStrategy, EngineBuilder, EngineConfig, EngineError,
+    EngineKind, EngineResult, FailurePolicy, FsSink, Layout, PixelFormat, PyramidPlan,
+    PyramidPlanner, Raster, ResumeMode, ResumePolicy, RetryPolicy, SinkError, Tile, TileCoord,
+    TileFormat, TileSink,
 };
+
+/// Test shim: route the old `generate_pyramid_resumable(raster, plan, sink,
+/// &cfg, mode)` call shape through the new `EngineBuilder::with_resume`
+/// pathway.
+fn run_resumable<S: TileSink>(
+    raster: &Raster,
+    plan: &PyramidPlan,
+    sink: S,
+    cfg: &EngineConfig,
+    mode: ResumeMode,
+) -> Result<EngineResult, EngineError> {
+    let policy = match mode {
+        ResumeMode::Overwrite => ResumePolicy::overwrite(),
+        ResumeMode::Resume => ResumePolicy::resume(),
+        ResumeMode::Verify => ResumePolicy::verify(),
+    };
+    // Set the resume policy *before* with_config so the latter can thread
+    // `checkpoint_every` / `checkpoint_root` from the incoming EngineConfig
+    // into the policy (matching how these lived directly on the config in
+    // the old `generate_pyramid_resumable` signature).
+    EngineBuilder::new(raster, plan.clone(), sink)
+        .with_resume(policy)
+        .with_config(cfg.clone())
+        .run()
+}
 
 // =============================================================================
 // Shared helpers
@@ -456,7 +482,7 @@ fn restart_during_level_generation_resume_completes_output() {
     let panicking = PanickingSink::new(inner, PanicTrigger::NthWrite(panic_after));
 
     let first_run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        generate_pyramid_resumable(
+        run_resumable(
             &src,
             &plan,
             &panicking,
@@ -471,7 +497,7 @@ fn restart_during_level_generation_resume_completes_output() {
 
     // --- resume run into the same directory ---
     let resume_sink = FsSink::new(crash_base.clone(), plan.clone());
-    generate_pyramid_resumable(
+    run_resumable(
         &src,
         &plan,
         &resume_sink,
@@ -532,7 +558,7 @@ fn restart_during_tile_encode_resume_completes_output() {
     let panicking = PanickingSink::new(inner, PanicTrigger::Coord(target));
 
     let first_run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        generate_pyramid_resumable(
+        run_resumable(
             &src,
             &plan,
             &panicking,
@@ -546,7 +572,7 @@ fn restart_during_tile_encode_resume_completes_output() {
     );
 
     let resume_sink = FsSink::new(crash_base.clone(), plan.clone());
-    generate_pyramid_resumable(
+    run_resumable(
         &src,
         &plan,
         &resume_sink,
@@ -844,7 +870,7 @@ fn full_phase3_pipeline_integration() {
                 .with_jitter(false),
         ));
 
-    generate_pyramid_resumable(&src, &plan, &sink, &cfg, ResumeMode::Resume).unwrap();
+    run_resumable(&src, &plan, &sink, &cfg, ResumeMode::Resume).unwrap();
 
     // Belt-and-braces: the manifest must exist and parse.
     let m_bytes = std::fs::read(root.path().join("pyramid.manifest.json")).unwrap();
@@ -883,7 +909,7 @@ fn verify_mode_on_output_of_full_pipeline() {
                 .with_jitter(false),
         ));
 
-    generate_pyramid_resumable(&src, &plan, &sink, &cfg, ResumeMode::Resume).unwrap();
+    run_resumable(&src, &plan, &sink, &cfg, ResumeMode::Resume).unwrap();
 
     verify_output(&base).expect("verify_output must pass on full-pipeline output");
 }
@@ -921,14 +947,14 @@ fn checkpoint_written_frequently_enough_to_bound_rework() {
         .with_checkpoint_every(5);
 
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        generate_pyramid_resumable(&src, &plan, &panicking, &cfg, ResumeMode::Resume)
+        run_resumable(&src, &plan, &panicking, &cfg, ResumeMode::Resume)
     }));
 
     // Second run: re-wrap FsSink in a RecordingSink so we can count how
     // many writes the resume path performs.
     let inner2 = FsSink::new(base.clone(), plan.clone());
     let rec = RecordingSink::new(inner2);
-    generate_pyramid_resumable(&src, &plan, &rec, &cfg, ResumeMode::Resume).unwrap();
+    run_resumable(&src, &plan, &rec, &cfg, ResumeMode::Resume).unwrap();
 
     let replayed = rec.write_count();
     // With checkpoint_every(5) we accept at most 10 tiles of rework:
@@ -1001,7 +1027,7 @@ fn s3_restart_resumes() {
         PanicTrigger::NthWrite(plan.total_tile_count() as usize / 3),
     );
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        generate_pyramid_resumable(
+        run_resumable(
             &src,
             &plan,
             &panicking,
@@ -1012,7 +1038,7 @@ fn s3_restart_resumes() {
 
     // Second run: resume and finish.
     let resume_sink = ObjectStoreSink::new(cfg.clone(), plan.clone(), TileFormat::Png).unwrap();
-    generate_pyramid_resumable(
+    run_resumable(
         &src,
         &plan,
         &resume_sink,
