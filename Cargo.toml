@@ -11,6 +11,12 @@ default = []
 pdfium = ["libviprs/pdfium", "dep:pdfium-render"]
 ported_tests = []
 s3 = ["libviprs/s3"]
+# Enables the v1-builder integration test suite (EngineBuilder, per-component
+# builders, extension hatch). The tests reference a public API that does not
+# yet exist in `libviprs`; enabling this feature without the matching source
+# migration in place is *expected* to fail compilation. The feature is off by
+# default so `cargo test` and CI remain green during the TDD red phase.
+builder_v1 = []
 # Enables Phase 3 packfile archive-sink integration tests in
 # `tests/phase3_packfile.rs`. Activates the `packfile` feature on the
 # core `libviprs` crate so that `libviprs::sink::PackfileSink` and
@@ -47,3 +53,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # independently of the core crate's implementation.
 blake3 = "1"
 sha2 = "0.10"
+# Used by `tests/builder_composition_invariants.rs` under the `builder_v1`
+# feature. Listed unconditionally — dev-deps cannot be optional — but only
+# linked from code guarded by `#[cfg(feature = "builder_v1")]`.
+proptest = "1"
