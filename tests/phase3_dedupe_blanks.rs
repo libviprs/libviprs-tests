@@ -32,8 +32,7 @@
 use libviprs::checksum::ChecksumAlgo;
 use libviprs::sink::{DedupeStrategy, FsSink};
 use libviprs::{
-    BlankTileStrategy, EngineConfig, Layout, PixelFormat, PyramidPlanner, Raster, TileFormat,
-    generate_pyramid,
+    BlankTileStrategy, EngineConfig, Layout, PixelFormat, PyramidPlanner, Raster, generate_pyramid,
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -218,8 +217,7 @@ fn no_dedupe_default() {
     let src = whitespace_heavy_raster();
     let plan = make_plan(IMG_SIZE, IMG_SIZE);
 
-    let sink =
-        FsSink::new(base.clone(), plan.clone(), TileFormat::Png).with_dedupe(DedupeStrategy::None);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_dedupe(DedupeStrategy::None);
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Emit);
 
     generate_pyramid(&src, &plan, &sink, &config).unwrap();
@@ -263,16 +261,15 @@ fn blanks_dedupe_reduces_disk_usage() {
     // Baseline: no dedupe.
     let dir_none = tempfile::tempdir().unwrap();
     let base_none = dir_none.path().join("out");
-    let sink_none = FsSink::new(base_none.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::None);
+    let sink_none = FsSink::new(base_none.clone(), plan.clone()).with_dedupe(DedupeStrategy::None);
     generate_pyramid(&src, &plan, &sink_none, &config).unwrap();
     let bytes_none = total_output_bytes(&base_none);
 
     // Deduped.
     let dir_dedupe = tempfile::tempdir().unwrap();
     let base_dedupe = dir_dedupe.path().join("out");
-    let sink_dedupe = FsSink::new(base_dedupe.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::Blanks);
+    let sink_dedupe =
+        FsSink::new(base_dedupe.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
     generate_pyramid(&src, &plan, &sink_dedupe, &config).unwrap();
     let bytes_dedupe = total_output_bytes(&base_dedupe);
 
@@ -305,8 +302,7 @@ fn blanks_dedupe_all_point_to_same_inode() {
     let src = whitespace_heavy_raster();
     let plan = make_plan(IMG_SIZE, IMG_SIZE);
 
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::Blanks);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Emit);
     generate_pyramid(&src, &plan, &sink, &config).unwrap();
 
@@ -354,8 +350,7 @@ fn blanks_dedupe_manifest_lists_references() {
     let src = whitespace_heavy_raster();
     let plan = make_plan(IMG_SIZE, IMG_SIZE);
 
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::Blanks);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Emit);
     generate_pyramid(&src, &plan, &sink, &config).unwrap();
 
@@ -413,14 +408,13 @@ fn blanks_dedupe_decoded_tile_content_matches_undedupled_run() {
 
     let dir_none = tempfile::tempdir().unwrap();
     let base_none = dir_none.path().join("out");
-    let sink_none = FsSink::new(base_none.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::None);
+    let sink_none = FsSink::new(base_none.clone(), plan.clone()).with_dedupe(DedupeStrategy::None);
     generate_pyramid(&src, &plan, &sink_none, &config).unwrap();
 
     let dir_dedupe = tempfile::tempdir().unwrap();
     let base_dedupe = dir_dedupe.path().join("out");
-    let sink_dedupe = FsSink::new(base_dedupe.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::Blanks);
+    let sink_dedupe =
+        FsSink::new(base_dedupe.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
     generate_pyramid(&src, &plan, &sink_dedupe, &config).unwrap();
 
     for coord in plan.tile_coords() {
@@ -447,10 +441,9 @@ fn all_mode_dedupes_identical_non_blank_tiles() {
     let src = identical_non_blank_regions_raster();
     let plan = make_plan(IMG_SIZE, IMG_SIZE);
 
-    let sink =
-        FsSink::new(base.clone(), plan.clone(), TileFormat::Png).with_dedupe(DedupeStrategy::All {
-            algo: ChecksumAlgo::default(),
-        });
+    let sink = FsSink::new(base.clone(), plan.clone()).with_dedupe(DedupeStrategy::All {
+        algo: ChecksumAlgo::default(),
+    });
     // Disable blank-tile skipping so the grey-half tiles are actually written
     // — otherwise there's nothing interesting to dedupe.
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Emit);
@@ -467,8 +460,7 @@ fn all_mode_dedupes_identical_non_blank_tiles() {
     // Total disk usage is meaningfully smaller than a no-dedupe run.
     let dir_none = tempfile::tempdir().unwrap();
     let base_none = dir_none.path().join("out");
-    let sink_none = FsSink::new(base_none.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::None);
+    let sink_none = FsSink::new(base_none.clone(), plan.clone()).with_dedupe(DedupeStrategy::None);
     generate_pyramid(&src, &plan, &sink_none, &config).unwrap();
 
     let bytes_all = total_output_bytes(&base);
@@ -494,17 +486,14 @@ fn all_mode_with_distinct_tiles_is_equivalent_to_none() {
 
     let dir_none = tempfile::tempdir().unwrap();
     let base_none = dir_none.path().join("out");
-    let sink_none = FsSink::new(base_none.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::None);
+    let sink_none = FsSink::new(base_none.clone(), plan.clone()).with_dedupe(DedupeStrategy::None);
     generate_pyramid(&src, &plan, &sink_none, &config).unwrap();
 
     let dir_all = tempfile::tempdir().unwrap();
     let base_all = dir_all.path().join("out");
-    let sink_all = FsSink::new(base_all.clone(), plan.clone(), TileFormat::Png).with_dedupe(
-        DedupeStrategy::All {
-            algo: ChecksumAlgo::default(),
-        },
-    );
+    let sink_all = FsSink::new(base_all.clone(), plan.clone()).with_dedupe(DedupeStrategy::All {
+        algo: ChecksumAlgo::default(),
+    });
     generate_pyramid(&src, &plan, &sink_all, &config).unwrap();
 
     // Every planned tile must exist at its real path in both runs and decode
@@ -542,8 +531,7 @@ fn mix_with_resume_mode_rebuilds_dedupe_index() {
     let plan = make_plan(IMG_SIZE, IMG_SIZE);
 
     // First run: generate with dedupe.
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::Blanks);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Emit);
     generate_pyramid(&src, &plan, &sink, &config).unwrap();
 
@@ -567,7 +555,7 @@ fn mix_with_resume_mode_rebuilds_dedupe_index() {
 
     // Resume-mode rerun: must rebuild the missing shared content at the
     // same filename.
-    let sink_resume = FsSink::new(base.clone(), plan.clone(), TileFormat::Png)
+    let sink_resume = FsSink::new(base.clone(), plan.clone())
         .with_dedupe(DedupeStrategy::Blanks)
         .with_resume(true);
     generate_pyramid(&src, &plan, &sink_resume, &config).unwrap();
@@ -607,14 +595,12 @@ fn determinism_of_dedupe_hashes() {
 
     let dir1 = tempfile::tempdir().unwrap();
     let base1 = dir1.path().join("out");
-    let sink1 = FsSink::new(base1.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::Blanks);
+    let sink1 = FsSink::new(base1.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
     generate_pyramid(&src, &plan, &sink1, &config).unwrap();
 
     let dir2 = tempfile::tempdir().unwrap();
     let base2 = dir2.path().join("out");
-    let sink2 = FsSink::new(base2.clone(), plan.clone(), TileFormat::Png)
-        .with_dedupe(DedupeStrategy::Blanks);
+    let sink2 = FsSink::new(base2.clone(), plan.clone()).with_dedupe(DedupeStrategy::Blanks);
     generate_pyramid(&src, &plan, &sink2, &config).unwrap();
 
     let names = |dir: &Path| -> HashSet<String> {

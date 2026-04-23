@@ -80,7 +80,7 @@ fn generate_pyramid_fixture(raster: &Raster, strategy: BlankTileStrategy, output
         std::fs::remove_dir_all(&base).unwrap();
     }
 
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let config = EngineConfig::default().with_blank_tile_strategy(strategy);
 
     let result = generate_pyramid(raster, &plan, &sink, &config).unwrap();

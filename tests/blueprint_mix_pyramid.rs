@@ -20,8 +20,8 @@
 use std::path::{Path, PathBuf};
 
 use libviprs::{
-    EngineConfig, FsSink, Layout, MemorySink, PixelFormat, PyramidPlanner, TileFormat,
-    extract_page_image, generate_pyramid,
+    EngineConfig, FsSink, Layout, MemorySink, PixelFormat, PyramidPlanner, extract_page_image,
+    generate_pyramid,
 };
 
 const FIXTURE_PDF: &str = concat!(
@@ -193,7 +193,7 @@ fn blueprint_mix_pyramid_matches_expected() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("blueprint_mix");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
     let config = EngineConfig::default();
 
     let result =
@@ -263,7 +263,7 @@ fn blueprint_mix_pyramid_concurrent_matches_expected() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("blueprint_mix");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
     let config = EngineConfig::default().with_concurrency(4);
 
     let result =
@@ -316,7 +316,7 @@ fn blueprint_mix_rendered_pyramid_matches_vips() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("blueprint_mix_rendered");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
 
     let result = generate_pyramid(&raster, &plan, &sink, &EngineConfig::default()).unwrap();
     assert_eq!(result.tiles_produced, plan.total_tile_count());
@@ -342,7 +342,7 @@ fn blueprint_mix_rendered_pyramid_concurrent_matches_vips() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("blueprint_mix_rendered");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
     let config = EngineConfig::default().with_concurrency(4);
 
     let result = generate_pyramid(&raster, &plan, &sink, &config).unwrap();
@@ -418,7 +418,7 @@ fn blueprint_mix_rendered_budgeted_matches_vips() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("mix_budgeted");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
 
     generate_pyramid(&fixture_raster, &plan, &sink, &EngineConfig::default()).unwrap();
 

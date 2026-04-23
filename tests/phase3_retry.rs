@@ -488,14 +488,14 @@ fn retrying_sink_wraps_fs_sink_without_regression() {
     // Baseline: unwrapped FsSink.
     let base_dir = tempfile::tempdir().unwrap();
     let base = base_dir.path().join("baseline");
-    let baseline_sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let baseline_sink = FsSink::new(base.clone(), plan.clone());
     let baseline_result =
         generate_pyramid(&src, &plan, &baseline_sink, &EngineConfig::default()).unwrap();
 
     // Wrapped: RetryingSink<FsSink>.
     let wrap_dir = tempfile::tempdir().unwrap();
     let wrap_base = wrap_dir.path().join("wrapped");
-    let fs_sink = FsSink::new(wrap_base.clone(), plan.clone(), TileFormat::Png);
+    let fs_sink = FsSink::new(wrap_base.clone(), plan.clone());
     let retrying = RetryingSink::new(fs_sink, RetryPolicy::default());
     let config = EngineConfig::default()
         .with_failure_policy(FailurePolicy::RetryThenFail(RetryPolicy::default()));
@@ -610,7 +610,7 @@ fn partial_sink_failure_leaves_valid_partial_output() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("partial");
     let inner = PartialFailFs {
-        fs: FsSink::new(base.clone(), plan.clone(), TileFormat::Png),
+        fs: FsSink::new(base.clone(), plan.clone()),
         bad,
     };
     let policy = RetryPolicy::new(2, Duration::from_millis(1))

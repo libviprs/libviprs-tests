@@ -138,7 +138,7 @@ fn list_tile_files(dir: &Path) -> Vec<PathBuf> {
 /// idempotent-resume tests.
 fn run_fresh_pyramid(dir: &Path, src: &Raster, plan: &PyramidPlan) -> PathBuf {
     let base = dir.join("tiles");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let config = EngineConfig::default();
     let _ = generate_pyramid_resumable(src, plan, &sink, &config, ResumeMode::Overwrite)
         .expect("fresh overwrite run should succeed");
@@ -257,7 +257,7 @@ fn overwrite_mode_starts_fresh() {
 
     let src = gradient_raster(128, 128);
     let plan = small_plan(128, 128, 64);
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
 
     let result = generate_pyramid_resumable(
         &src,
@@ -307,7 +307,7 @@ fn resume_mode_continues_after_partial_run() {
     // Do a first full run so we have valid tile output on disk. We'll then
     // doctor the checkpoint to claim only half of the tiles are complete and
     // assert the resumed run writes exactly the remaining half.
-    let first_sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let first_sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     generate_pyramid_resumable(
         &src,
         &plan,
@@ -351,7 +351,8 @@ fn resume_mode_continues_after_partial_run() {
     }
 
     // Resumed run — wrap FsSink in a RecordingSink to count writes.
-    let recording = RecordingSink::new(FsSink::new(base.clone(), plan.clone(), TileFormat::Raw));
+    let recording =
+        RecordingSink::new(FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw));
     let result = generate_pyramid_resumable(
         &src,
         &plan,
@@ -405,7 +406,7 @@ fn resume_mode_refuses_if_plan_hash_differs() {
     );
     std::fs::write(base.join(JOB_FILE), serde_json::to_vec(&stale).unwrap()).unwrap();
 
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let err = generate_pyramid_resumable(
         &src,
         &plan,
@@ -453,7 +454,7 @@ fn verify_mode_passes_on_intact_output() {
 
     // Re-run in Verify mode. MUST NOT touch any output files.
     let before = list_tile_files(&base);
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let result = generate_pyramid_resumable(
         &src,
         &plan,
@@ -487,7 +488,7 @@ fn verify_mode_fails_on_missing_tile() {
     let rel = plan.tile_path(victim, "raw").unwrap();
     std::fs::remove_file(base.join(&rel)).unwrap();
 
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let err = generate_pyramid_resumable(
         &src,
         &plan,
@@ -523,7 +524,7 @@ fn verify_mode_fails_on_corrupted_tile() {
     bytes[0] ^= 0xFF;
     std::fs::write(&path, &bytes).unwrap();
 
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let err = generate_pyramid_resumable(
         &src,
         &plan,
@@ -558,7 +559,7 @@ fn checkpoint_written_periodically() {
     let plan = small_plan(1024, 1024, 128);
     assert!(plan.total_tile_count() >= 100, "test setup too small");
 
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     // `with_checkpoint_every` is a new builder method on EngineConfig.
     let config = EngineConfig::default().with_checkpoint_every(10);
 
@@ -635,8 +636,10 @@ fn checkpoint_file_survives_kill_and_resume() {
     // Panic on the 50th tile write. The engine should propagate the panic
     // (wrapped as WorkerPanic or via unwind), but the on-disk checkpoint
     // must reflect the tiles that were successfully flushed before the kill.
-    let panicking =
-        PanickingSink::new(FsSink::new(base.clone(), plan.clone(), TileFormat::Raw), 50);
+    let panicking = PanickingSink::new(
+        FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw),
+        50,
+    );
     // Use catch_unwind so we can observe the crash without aborting the
     // whole test binary. Single-threaded execution (concurrency=0) keeps the
     // panic deterministic with respect to the 50th write.
@@ -664,7 +667,8 @@ fn checkpoint_file_survives_kill_and_resume() {
     let already = meta.completed_tiles.len();
 
     // Resume with a recording sink to count the remaining writes.
-    let recording = RecordingSink::new(FsSink::new(base.clone(), plan.clone(), TileFormat::Raw));
+    let recording =
+        RecordingSink::new(FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw));
     generate_pyramid_resumable(
         &src,
         &plan,
@@ -706,7 +710,7 @@ fn resume_survives_process_boundary() {
     assert!(total > 20);
     {
         let panicking = PanickingSink::new(
-            FsSink::new(base.clone(), plan.clone(), TileFormat::Raw),
+            FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw),
             (total / 2) as usize,
         );
         let config = EngineConfig::default().with_checkpoint_every(5);
@@ -729,7 +733,7 @@ fn resume_survives_process_boundary() {
     let plan2 = small_plan(256, 256, 64);
     assert_eq!(plan, plan2, "plan reconstruction must be deterministic");
     let src2 = gradient_raster(256, 256);
-    let sink2 = FsSink::new(base.clone(), plan2.clone(), TileFormat::Raw);
+    let sink2 = FsSink::new(base.clone(), plan2.clone()).with_format(TileFormat::Raw);
     generate_pyramid_resumable(
         &src2,
         &plan2,
@@ -759,7 +763,8 @@ fn idempotent_resume_of_completed_job() {
     let base = run_fresh_pyramid(dir.path(), &src, &plan);
 
     // Second Resume run wrapped in a recording sink: the count MUST be 0.
-    let recording = RecordingSink::new(FsSink::new(base.clone(), plan.clone(), TileFormat::Raw));
+    let recording =
+        RecordingSink::new(FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw));
     let result = generate_pyramid_resumable(
         &src,
         &plan,

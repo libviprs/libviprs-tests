@@ -82,7 +82,7 @@ fn run_and_compare(input_fixture: &str, strategy: BlankTileStrategy, expected_na
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("output");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let config = EngineConfig::default().with_blank_tile_strategy(strategy);
 
     generate_pyramid(&src, &plan, &sink, &config).unwrap();
@@ -351,7 +351,7 @@ fn placeholder_concurrent_matches_expected() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("output");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let config = EngineConfig::default()
         .with_blank_tile_strategy(BlankTileStrategy::Placeholder)
         .with_concurrency(4);

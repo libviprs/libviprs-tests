@@ -1695,7 +1695,7 @@ fn test_dz_tile_size() {
     let plan = planner.plan();
 
     let base = dir.path().join("dz_tile_size");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let config = EngineConfig::default();
 
     let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
@@ -1717,7 +1717,7 @@ fn test_dz_overlap() {
     let plan = planner.plan();
 
     let base = dir.path().join("dz_overlap");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
 
     let result = generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
     assert_eq!(result.tiles_produced, plan.total_tile_count());
@@ -1736,7 +1736,7 @@ fn test_dz_layout_deepzoom() {
     let plan = planner.plan();
 
     let base = dir.path().join("deepzoom_out");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
 
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
@@ -1765,7 +1765,7 @@ fn test_dz_layout_xyz() {
     let plan = planner.plan();
 
     let base = dir.path().join("xyz_out");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
 
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
@@ -1806,7 +1806,8 @@ fn test_dz_layout_zoomify() {
     let plan = planner.plan();
 
     let base = dir.path().join("zoomify_out");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Jpeg { quality: 80 });
+    let sink =
+        FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Jpeg { quality: 80 });
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
     // Zoomify uses TileGroup directories
@@ -1841,7 +1842,8 @@ fn test_dz_layout_iiif() {
     let plan = planner.plan();
 
     let base = dir.path().join("iiif_out");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Jpeg { quality: 80 });
+    let sink =
+        FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Jpeg { quality: 80 });
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
     let info_json = base.join("info.json");
@@ -1897,7 +1899,7 @@ fn test_dz_format_png() {
     let plan = planner.plan();
 
     let base = dir.path().join("png_tiles");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
 
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
@@ -1920,7 +1922,8 @@ fn test_dz_format_jpeg() {
     let plan = planner.plan();
 
     let base = dir.path().join("jpeg_tiles");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Jpeg { quality: 85 });
+    let sink =
+        FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Jpeg { quality: 85 });
 
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
@@ -1975,13 +1978,13 @@ fn test_dz_skip_blanks() {
     let plan = planner.plan();
 
     let base_skip = dir_skip.path().join("skip");
-    let sink = FsSink::new(base_skip.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base_skip.clone(), plan.clone());
     let config_skip = EngineConfig::default().skip_blanks(true);
     let result_skip = generate_pyramid(&src, &plan, &sink, &config_skip).unwrap();
 
     let dir_no = tempfile::tempdir().unwrap();
     let base_no = dir_no.path().join("noskip");
-    let sink_no = FsSink::new(base_no.clone(), plan.clone(), TileFormat::Png);
+    let sink_no = FsSink::new(base_no.clone(), plan.clone());
     let result_no = generate_pyramid(&src, &plan, &sink_no, &EngineConfig::default()).unwrap();
 
     assert!(
@@ -2019,7 +2022,7 @@ fn test_dz_properties() {
     let plan = planner.plan();
 
     let base = dir.path().join("props");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
     generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
 
     let dzi = dir.path().join("props.dzi");
@@ -2061,7 +2064,7 @@ fn test_dz_region() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("region");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
     generate_pyramid_region(
         &src,
         &plan,
@@ -3635,7 +3638,8 @@ fn test_uhdr_dzsave() {
     let plan = planner.plan();
 
     let base = dir.path().join("uhdr_dz");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Jpeg { quality: 80 });
+    let sink =
+        FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Jpeg { quality: 80 });
     let result = generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
     assert!(
         result.tiles_produced > 0,
