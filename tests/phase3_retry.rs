@@ -54,7 +54,9 @@ use libviprs::sink::{CollectedTile, FsSink, MemorySink, SinkError, Tile, TileFor
 use libviprs::sink::{FailurePolicy, RetryPolicy, RetryingSink};
 
 use libviprs::planner::TileCoord;
-use libviprs::{EngineConfig, Layout, PixelFormat, PyramidPlanner, Raster, generate_pyramid};
+use libviprs::{
+    EngineBuilder, EngineConfig, EngineKind, Layout, PixelFormat, PyramidPlanner, Raster,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -235,7 +237,11 @@ fn no_retry_on_successful_writes() {
     let config = EngineConfig::default()
         .with_failure_policy(FailurePolicy::RetryThenFail(RetryPolicy::default()));
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
     assert_eq!(
         result.retry_count, 0,
         "clean run should not produce any retries"
@@ -268,7 +274,11 @@ fn retries_on_transient_errors() {
     let sink = RetryingSink::new(flaky, policy.clone());
     let config = EngineConfig::default().with_failure_policy(FailurePolicy::RetryThenFail(policy));
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
     assert_eq!(
         result.retry_count as u32, N,
         "should have retried exactly N times across all tiles"
@@ -289,7 +299,10 @@ fn retry_exhaustion_under_fail_fast_errors() {
     let sink = RetryingSink::new(fail_sink, RetryPolicy::default());
     let config = EngineConfig::default().with_failure_policy(FailurePolicy::FailFast);
 
-    let res = generate_pyramid(&src, &plan, &sink, &config);
+    let res = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run();
     assert!(
         res.is_err(),
         "FailFast should propagate the sink error as an EngineError"
@@ -308,7 +321,10 @@ fn retry_exhaustion_under_retry_then_skip_continues() {
     let sink = RetryingSink::new(AlwaysFailSink::new(), policy.clone());
     let config = EngineConfig::default().with_failure_policy(FailurePolicy::RetryThenSkip(policy));
 
-    let result = generate_pyramid(&src, &plan, &sink, &config)
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
         .expect("RetryThenSkip should never fail the engine");
 
     assert!(
@@ -353,7 +369,11 @@ fn backoff_grows_exponentially() {
         // Single-threaded so retries happen sequentially.
         .with_concurrency(0);
 
-    let _ = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let _ = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     // Re-extract the RecordingRetrySink via the RetryingSink accessor, or the
     // sink's captured timestamps. Because RetryingSink consumed the inner
@@ -411,7 +431,11 @@ fn jitter_randomizes_backoff() {
         .with_failure_policy(FailurePolicy::RetryThenFail(policy))
         .with_concurrency(0);
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
     assert!(
         result.retry_count >= 50,
         "expected >= 50 retries to exercise jitter distribution, got {}",
@@ -458,7 +482,11 @@ fn max_backoff_is_capped() {
         .with_concurrency(0);
 
     let start = Instant::now();
-    let _ = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let _ = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
     let elapsed = start.elapsed();
 
     // Sum of uncapped backoffs would be 1 + 10 + 100 + 1000 = 1111 seconds.
@@ -488,18 +516,24 @@ fn retrying_sink_wraps_fs_sink_without_regression() {
     // Baseline: unwrapped FsSink.
     let base_dir = tempfile::tempdir().unwrap();
     let base = base_dir.path().join("baseline");
-    let baseline_sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
-    let baseline_result =
-        generate_pyramid(&src, &plan, &baseline_sink, &EngineConfig::default()).unwrap();
+    let baseline_sink = FsSink::new(base.clone(), plan.clone());
+    let baseline_result = EngineBuilder::new(&src, plan.clone(), &baseline_sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
 
     // Wrapped: RetryingSink<FsSink>.
     let wrap_dir = tempfile::tempdir().unwrap();
     let wrap_base = wrap_dir.path().join("wrapped");
-    let fs_sink = FsSink::new(wrap_base.clone(), plan.clone(), TileFormat::Png);
+    let fs_sink = FsSink::new(wrap_base.clone(), plan.clone());
     let retrying = RetryingSink::new(fs_sink, RetryPolicy::default());
     let config = EngineConfig::default()
         .with_failure_policy(FailurePolicy::RetryThenFail(RetryPolicy::default()));
-    let wrapped_result = generate_pyramid(&src, &plan, &retrying, &config).unwrap();
+    let wrapped_result = EngineBuilder::new(&src, plan.clone(), &retrying)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     assert_eq!(
         wrapped_result.retry_count, 0,
@@ -566,7 +600,11 @@ fn retry_policy_propagates_to_result() {
     let sink = RetryingSink::new(flaky, policy.clone());
     let config = EngineConfig::default().with_failure_policy(FailurePolicy::RetryThenFail(policy));
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
     assert_eq!(
         result.retry_count as u32, N,
         "retry count in EngineResult must match actual retry attempts"
@@ -610,7 +648,7 @@ fn partial_sink_failure_leaves_valid_partial_output() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("partial");
     let inner = PartialFailFs {
-        fs: FsSink::new(base.clone(), plan.clone(), TileFormat::Png),
+        fs: FsSink::new(base.clone(), plan.clone()),
         bad,
     };
     let policy = RetryPolicy::new(2, Duration::from_millis(1))
@@ -620,7 +658,10 @@ fn partial_sink_failure_leaves_valid_partial_output() {
     let sink = RetryingSink::new(inner, policy.clone());
     let config = EngineConfig::default().with_failure_policy(FailurePolicy::RetryThenSkip(policy));
 
-    let result = generate_pyramid(&src, &plan, &sink, &config)
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
         .expect("RetryThenSkip should complete successfully on partial failure");
     assert!(
         result.skipped_due_to_failure >= 1,

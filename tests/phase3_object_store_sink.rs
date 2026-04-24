@@ -27,8 +27,8 @@
 
 use libviprs::sink::{ObjectStore, ObjectStoreConfig, ObjectStoreSink, RetryPolicy};
 use libviprs::{
-    EngineConfig, Layout, PixelFormat, PyramidPlanner, Raster, SinkError, TileFormat,
-    generate_pyramid,
+    EngineBuilder, EngineConfig, EngineKind, Layout, PixelFormat, PyramidPlanner, Raster,
+    SinkError, TileFormat,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -275,7 +275,11 @@ fn tile_keys_are_deterministic() {
     let run = |backend: Arc<RecordingObjectStore>| {
         let cfg = cfg_with_backend(backend.clone()).with_key_prefix("pyramids/run-1");
         let sink = ObjectStoreSink::new(cfg, plan.clone(), TileFormat::Png).unwrap();
-        generate_pyramid(&src, &plan, &sink, &engine).unwrap();
+        EngineBuilder::new(&src, plan.clone(), &sink)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(engine.clone())
+            .run()
+            .unwrap();
     };
 
     let a = RecordingObjectStore::new();
@@ -324,7 +328,11 @@ fn multipart_upload_large_tile() {
     // Raw format so tile payloads are large and predictable (256*256*3 = 196608 B).
     let sink = ObjectStoreSink::new(cfg, plan.clone(), TileFormat::Raw).unwrap();
 
-    generate_pyramid(&src, &plan, &sink, &engine).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(engine.clone())
+        .run()
+        .unwrap();
 
     let large_puts = backend
         .writes
@@ -362,7 +370,10 @@ fn idempotent_rewrite() {
     let run_once = || {
         let cfg = cfg_with_backend(backend.clone()).with_key_prefix("pyramids/idempotent");
         let sink = ObjectStoreSink::new(cfg, plan.clone(), TileFormat::Png).unwrap();
-        generate_pyramid(&src, &plan, &sink, &engine)
+        EngineBuilder::new(&src, plan.clone(), &sink)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(engine.clone())
+            .run()
     };
 
     run_once().expect("first run must succeed");
@@ -413,7 +424,11 @@ fn retry_policy_recovers_from_transient_failure() {
     // );
     let sink = ObjectStoreSink::new(cfg, plan.clone(), TileFormat::Png).unwrap();
 
-    generate_pyramid(&src, &plan, &sink, &engine).expect("pyramid should succeed after retries");
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(engine.clone())
+        .run()
+        .expect("pyramid should succeed after retries");
 
     let total_tiles = plan.total_tile_count() as usize;
     assert_eq!(
@@ -461,7 +476,10 @@ fn retry_exhausted_surfaces_error() {
     // );
     let sink = ObjectStoreSink::new(cfg, plan.clone(), TileFormat::Png).unwrap();
 
-    let err = generate_pyramid(&src, &plan, &sink, &engine)
+    let err = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(engine.clone())
+        .run()
         .expect_err("pyramid must fail when every retry fails");
     // The pipeline wraps sink failures in its own error; just require the
     // message references the sink-level cause so we know it bubbled up.
@@ -501,7 +519,11 @@ fn deterministic_key_layout_deep_zoom() {
         .with_image_name("output");
     let sink = ObjectStoreSink::new(cfg, plan.clone(), TileFormat::Png).unwrap();
 
-    generate_pyramid(&src, &plan, &sink, &engine).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(engine.clone())
+        .run()
+        .unwrap();
 
     let keys = backend.keys();
     assert!(!keys.is_empty());
@@ -554,7 +576,11 @@ fn key_prefix_respected() {
     let cfg = cfg_with_backend(backend.clone()).with_key_prefix("foo/bar");
     let sink = ObjectStoreSink::new(cfg, plan.clone(), TileFormat::Png).unwrap();
 
-    generate_pyramid(&src, &plan, &sink, &engine).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(engine.clone())
+        .run()
+        .unwrap();
 
     assert!(backend.total_writes() > 0, "expected at least one put");
     for key in backend.keys() {
@@ -619,6 +645,9 @@ fn smoke_test_against_minio_if_env_set() {
     let sink = ObjectStoreSink::new(cfg, plan.clone(), TileFormat::Png)
         .expect("smoke test: sink construction must succeed");
 
-    generate_pyramid(&src, &plan, &sink, &engine)
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(engine.clone())
+        .run()
         .expect("smoke test: pyramid run against real S3 must succeed");
 }

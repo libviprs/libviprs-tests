@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use libviprs::{
-    CollectingObserver, EngineConfig, EngineEvent, Layout, MemorySink, PixelFormat, PyramidPlanner,
-    Raster, generate_pyramid_observed,
+    CollectingObserver, EngineBuilder, EngineEvent, EngineKind, Layout, MemorySink, PixelFormat,
+    PyramidPlanner, Raster,
 };
 
 fn gradient_raster(w: u32, h: u32) -> Raster {
@@ -22,17 +24,14 @@ fn progress_events_match_tile_count() {
     let src = gradient_raster(512, 384);
     let planner = PyramidPlanner::new(512, 384, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
-    let sink = MemorySink::new();
-    let obs = CollectingObserver::new();
+    let obs = Arc::new(CollectingObserver::new());
 
-    let result = generate_pyramid_observed(
-        &src,
-        &plan,
-        &sink,
-        &EngineConfig::default().with_concurrency(4),
-        &obs,
-    )
-    .unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), MemorySink::new())
+        .with_engine(EngineKind::Monolithic)
+        .with_concurrency(4)
+        .with_observer_arc(obs.clone())
+        .run()
+        .unwrap();
 
     let events = obs.events();
 
@@ -66,10 +65,13 @@ fn level_started_before_tile_completed() {
     let src = gradient_raster(256, 256);
     let planner = PyramidPlanner::new(256, 256, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
-    let sink = MemorySink::new();
-    let obs = CollectingObserver::new();
+    let obs = Arc::new(CollectingObserver::new());
 
-    generate_pyramid_observed(&src, &plan, &sink, &EngineConfig::default(), &obs).unwrap();
+    EngineBuilder::new(&src, plan.clone(), MemorySink::new())
+        .with_engine(EngineKind::Monolithic)
+        .with_observer_arc(obs.clone())
+        .run()
+        .unwrap();
 
     let events = obs.events();
 
@@ -102,17 +104,14 @@ fn level_completed_tiles_match_actual() {
     let src = gradient_raster(300, 200);
     let planner = PyramidPlanner::new(300, 200, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
-    let sink = MemorySink::new();
-    let obs = CollectingObserver::new();
+    let obs = Arc::new(CollectingObserver::new());
 
-    generate_pyramid_observed(
-        &src,
-        &plan,
-        &sink,
-        &EngineConfig::default().with_concurrency(2),
-        &obs,
-    )
-    .unwrap();
+    EngineBuilder::new(&src, plan.clone(), MemorySink::new())
+        .with_engine(EngineKind::Monolithic)
+        .with_concurrency(2)
+        .with_observer_arc(obs.clone())
+        .run()
+        .unwrap();
 
     let events = obs.events();
 
@@ -139,16 +138,12 @@ fn peak_memory_bounded_for_medium_image() {
     let src = gradient_raster(2048, 2048);
     let planner = PyramidPlanner::new(2048, 2048, 256, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
-    let sink = MemorySink::new();
 
-    let result = generate_pyramid_observed(
-        &src,
-        &plan,
-        &sink,
-        &EngineConfig::default().with_concurrency(4),
-        &libviprs::observe::NoopObserver,
-    )
-    .unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), MemorySink::new())
+        .with_engine(EngineKind::Monolithic)
+        .with_concurrency(4)
+        .run()
+        .unwrap();
 
     let source_bytes = 2048u64 * 2048 * 3;
     // Peak should not exceed 2x source
