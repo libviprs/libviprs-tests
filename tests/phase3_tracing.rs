@@ -29,7 +29,8 @@
 //! No core-crate changes are made by this file.
 
 use libviprs::{
-    EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster, generate_pyramid,
+    EngineBuilder, EngineConfig, EngineKind, Layout, MemorySink, PixelFormat, PyramidPlanner,
+    Raster,
 };
 
 // ---------------------------------------------------------------------------
@@ -63,7 +64,11 @@ fn result_has_bytes_written_after_run() {
     let plan = planner.plan();
     let sink = MemorySink::new();
 
-    let result = generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     assert!(
         result.bytes_written > 0,
@@ -79,7 +84,11 @@ fn result_has_bytes_read_after_run() {
     let plan = planner.plan();
     let sink = MemorySink::new();
 
-    let result = generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     assert!(
         result.bytes_read > 0,
@@ -95,7 +104,11 @@ fn result_duration_is_positive() {
     let plan = planner.plan();
     let sink = MemorySink::new();
 
-    let result = generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     assert!(
         result.duration > std::time::Duration::from_nanos(0),
@@ -111,7 +124,11 @@ fn stage_durations_sum_roughly_equals_total() {
     let plan = planner.plan();
     let sink = MemorySink::new();
 
-    let result = generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let stages = &result.stage_durations;
     let stage_sum = stages.planning + stages.decode + stages.resize + stages.encode + stages.sink;
@@ -136,7 +153,11 @@ fn retry_count_zero_on_happy_path() {
     let plan = planner.plan();
     let sink = MemorySink::new();
 
-    let result = generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     assert_eq!(
         result.retry_count, 0,
@@ -154,7 +175,11 @@ fn queue_pressure_peak_bounded_by_concurrency() {
 
     let concurrency: u32 = 4;
     let config = EngineConfig::default().with_concurrency(concurrency as usize);
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     // The peak in-flight tile count should never exceed the configured
     // concurrency by more than a small fudge factor (e.g. +1 for the
@@ -180,7 +205,11 @@ fn memory_sink_bytes_written_matches_payload_size() {
     let plan = planner.plan();
     let sink = MemorySink::new();
 
-    let result = generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     // Planned API: `CollectedTile` exposes the final encoded tile via
     // a `raster` accessor whose `data()` returns the raw bytes that
@@ -321,8 +350,13 @@ mod tracing_tests {
         let collector = SpanCollector::new();
         let subscriber = Registry::default().with(collector.clone());
 
+        let plan_for_run = plan.clone();
         let result = with_default(subscriber, || {
-            generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap()
+            EngineBuilder::new(&src, plan_for_run, &sink)
+                .with_engine(EngineKind::Monolithic)
+                .with_config(EngineConfig::default())
+                .run()
+                .unwrap()
         });
 
         (collector.snapshot(), plan, result)

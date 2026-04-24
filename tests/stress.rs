@@ -1,5 +1,6 @@
 use libviprs::{
-    EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster, generate_pyramid,
+    EngineBuilder, EngineConfig, EngineKind, Layout, MemorySink, PixelFormat, PyramidPlanner,
+    Raster,
 };
 
 fn synthetic_raster(w: u32, h: u32) -> Raster {
@@ -27,7 +28,11 @@ fn large_image_stress_10k() {
     let sink = MemorySink::new();
     let config = EngineConfig::default().with_concurrency(8);
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     assert_eq!(result.tiles_produced, plan.total_tile_count());
     // Peak memory should be bounded: less than 512 MB for a ~300 MB source
@@ -47,14 +52,22 @@ fn large_image_determinism_stress() {
     let plan = planner.plan();
 
     let ref_sink = MemorySink::new();
-    generate_pyramid(&src, &plan, &ref_sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &ref_sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
     let mut ref_tiles = ref_sink.tiles();
     ref_tiles.sort_by_key(|t| (t.coord.level, t.coord.row, t.coord.col));
 
     for concurrency in [4, 16, 32] {
         let sink = MemorySink::new();
         let config = EngineConfig::default().with_concurrency(concurrency);
-        generate_pyramid(&src, &plan, &sink, &config).unwrap();
+        EngineBuilder::new(&src, plan.clone(), &sink)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(config)
+            .run()
+            .unwrap();
 
         let mut tiles = sink.tiles();
         tiles.sort_by_key(|t| (t.coord.level, t.coord.row, t.coord.col));
@@ -82,7 +95,11 @@ fn rapid_fire_many_small_pyramids() {
     for i in 0..100 {
         let sink = MemorySink::new();
         let config = EngineConfig::default().with_concurrency(4);
-        let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+        let result = EngineBuilder::new(&src, plan.clone(), &sink)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(config)
+            .run()
+            .unwrap();
         assert_eq!(
             result.tiles_produced,
             plan.total_tile_count(),

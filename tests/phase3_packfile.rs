@@ -48,9 +48,8 @@ use std::path::{Path, PathBuf};
 
 use libviprs::sink::{PackfileFormat, PackfileSink};
 use libviprs::{
-    BlankTileStrategy, DedupeStrategy, EngineConfig, FsSink, Layout, PixelFormat, PyramidPlan,
-    PyramidPlanner, Raster, RasterStripSource, StreamingConfig, TileFormat, generate_pyramid,
-    generate_pyramid_streaming,
+    BlankTileStrategy, DedupeStrategy, EngineBuilder, EngineConfig, EngineKind, FsSink, Layout,
+    PixelFormat, PyramidPlan, PyramidPlanner, Raster, RasterStripSource, TileFormat,
 };
 
 // ---------------------------------------------------------------------------
@@ -187,7 +186,11 @@ fn tar_sink_produces_valid_archive() {
         plan.clone(),
         TileFormat::Png,
     );
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let entries = list_tar(&out);
     // Every planned tile must appear in the archive listing.
@@ -217,7 +220,11 @@ fn tarball_contains_manifest_json() {
         plan.clone(),
         TileFormat::Png,
     );
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let entries = list_tar(&out);
     assert!(
@@ -242,7 +249,11 @@ fn tarball_contains_dzi_xml_for_deepzoom_layout() {
         plan.clone(),
         TileFormat::Png,
     );
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let entries = list_tar(&out);
     assert!(
@@ -267,7 +278,11 @@ fn targz_is_valid_gzip() {
         plan.clone(),
         TileFormat::Png,
     );
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let mut f = File::open(&out).expect("open targz");
     let mut head = [0u8; 2];
@@ -295,7 +310,11 @@ fn zip_sink_produces_valid_archive() {
         plan.clone(),
         TileFormat::Png,
     );
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let reader = File::open(&out).expect("open zip");
     let mut archive = zip::ZipArchive::new(BufReader::new(reader)).expect("parse zip");
@@ -341,7 +360,11 @@ fn archive_tile_paths_match_layout() {
         plan.clone(),
         TileFormat::Png,
     );
-    generate_pyramid(&src, &plan, &sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let entries: BTreeSet<String> = list_tar(&out).into_iter().collect();
     let expected = expected_dzi_tile_paths(&plan, "layout", "png");
@@ -377,8 +400,12 @@ fn archive_extraction_produces_identical_fs_output() {
     // Run 1: FsSink directly.
     let fs_dir = tempfile::tempdir().unwrap();
     let fs_base = fs_dir.path().join("out");
-    let fs_sink = FsSink::new(fs_base.clone(), plan.clone(), TileFormat::Png);
-    generate_pyramid(&src, &plan, &fs_sink, &EngineConfig::default()).unwrap();
+    let fs_sink = FsSink::new(fs_base.clone(), plan.clone());
+    EngineBuilder::new(&src, plan.clone(), &fs_sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     // Run 2: PackfileSink (tar) + extract.
     let tar_dir = tempfile::tempdir().unwrap();
@@ -389,7 +416,11 @@ fn archive_extraction_produces_identical_fs_output() {
         plan.clone(),
         TileFormat::Png,
     );
-    generate_pyramid(&src, &plan, &packfile_sink, &EngineConfig::default()).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &packfile_sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .unwrap();
 
     let extract_dir = tempfile::tempdir().unwrap();
     extract_tar_to(&tar_path, extract_dir.path());
@@ -440,7 +471,11 @@ fn packfile_with_blank_tolerance_dedupes_correctly() {
         plan.clone(),
         TileFormat::Png,
     );
-    generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     let entries = list_tar(&out);
 
@@ -487,10 +522,6 @@ fn packfile_streaming_memory_bounded() {
     let plan = make_plan(2048, 2048, 256);
 
     let budget: u64 = 2_000_000; // 2 MB
-    let config = StreamingConfig {
-        memory_budget_bytes: budget,
-        engine: EngineConfig::default(),
-    };
 
     let sink = make_packfile(
         out.clone(),
@@ -499,14 +530,12 @@ fn packfile_streaming_memory_bounded() {
         TileFormat::Png,
     );
     let strip_src = RasterStripSource::new(&src);
-    let result = generate_pyramid_streaming(
-        &strip_src,
-        &plan,
-        &sink,
-        &config,
-        &libviprs::observe::NoopObserver,
-    )
-    .unwrap();
+    let result = EngineBuilder::new(strip_src, plan.clone(), &sink)
+        .with_engine(EngineKind::Streaming)
+        .with_config(EngineConfig::default())
+        .with_memory_budget(budget)
+        .run()
+        .unwrap();
 
     // Smoke: streaming must produce every tile.
     assert_eq!(result.tiles_produced, plan.total_tile_count());

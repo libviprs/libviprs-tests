@@ -23,8 +23,8 @@
 
 use libviprs::engine::{is_blank_tile, is_blank_tile_with_tolerance};
 use libviprs::{
-    BlankTileStrategy, EngineConfig, Layout, MemorySink, PixelFormat, PyramidPlanner, Raster,
-    generate_pyramid,
+    BlankTileStrategy, EngineBuilder, EngineConfig, EngineKind, Layout, MemorySink, PixelFormat,
+    PyramidPlanner, Raster,
 };
 
 // ---------------------------------------------------------------------------
@@ -257,7 +257,11 @@ fn engine_with_tolerance_writes_placeholder_for_near_white_tiles() {
         },
     );
 
-    let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     assert!(
         result.tiles_skipped > 0,
@@ -283,10 +287,18 @@ fn determinism_with_tolerance() {
     );
 
     let sink_a = MemorySink::new();
-    let result_a = generate_pyramid(&src, &plan, &sink_a, &config).unwrap();
+    let result_a = EngineBuilder::new(&src, plan.clone(), &sink_a)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config.clone())
+        .run()
+        .unwrap();
 
     let sink_b = MemorySink::new();
-    let result_b = generate_pyramid(&src, &plan, &sink_b, &config).unwrap();
+    let result_b = EngineBuilder::new(&src, plan.clone(), &sink_b)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     assert_eq!(
         result_a.tiles_skipped, result_b.tiles_skipped,
@@ -328,7 +340,11 @@ fn property_at_higher_tolerance_never_fewer_blanks() {
                 max_channel_delta: t,
             },
         );
-        let result = generate_pyramid(&src, &plan, &sink, &config).unwrap();
+        let result = EngineBuilder::new(&src, plan.clone(), &sink)
+            .with_engine(EngineKind::Monolithic)
+            .with_config(config)
+            .run()
+            .unwrap();
         assert!(
             result.tiles_skipped >= last_skipped,
             "monotonicity violated: tolerance {} skipped {}, previous {}",
