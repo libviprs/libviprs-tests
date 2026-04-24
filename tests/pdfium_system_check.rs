@@ -111,7 +111,7 @@ fn pdfium_system_check() {
     }
 
     // 7. Test: does libviprs::render_page_pdfium work end-to-end?
-    match libviprs::pdf::render_page_pdfium(Path::new(FIXTURE_PDF), 1, 150) {
+    match libviprs::pdf::render_page_pdfium(Path::new(FIXTURE_PDF), 1, 72) {
         Ok(raster) => {
             println!(
                 "libviprs render_page_pdfium: OK ({}x{} {:?})",

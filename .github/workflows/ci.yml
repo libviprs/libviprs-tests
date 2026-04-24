@@ -16,8 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Clone libviprs
-        run: git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
+      - name: Clone libviprs (matching branch or main)
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          git clone --depth 1 --branch "$BRANCH" https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs 2>/dev/null \
+            || git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
@@ -27,8 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Clone libviprs
-        run: git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
+      - name: Clone libviprs (matching branch or main)
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          git clone --depth 1 --branch "$BRANCH" https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs 2>/dev/null \
+            || git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install PDFium
@@ -39,15 +45,21 @@ jobs:
           sudo cp pdfium/lib/libpdfium.so /usr/local/lib/
           sudo cp -r pdfium/include/* /usr/local/include/
           sudo ldconfig
-      - run: cargo test --features pdfium
+      # Pdfium FFI calls are not safe to invoke concurrently against the
+      # shared process-wide Pdfium instance — parallel cargo-test workers
+      # race FPDF state. Force serial execution within each test binary.
+      - run: cargo test --features pdfium -- --test-threads=1
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Clone libviprs
-        run: git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
+      - name: Clone libviprs (matching branch or main)
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          git clone --depth 1 --branch "$BRANCH" https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs 2>/dev/null \
+            || git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt

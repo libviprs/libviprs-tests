@@ -8,8 +8,8 @@
 //! pre-existing expected output rather than generating everything at runtime.
 
 use libviprs::{
-    BlankTileStrategy, EngineConfig, FsSink, Layout, PixelFormat, PyramidPlanner, Raster,
-    TileFormat, TileSink, generate_pyramid,
+    BlankTileStrategy, EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, PixelFormat,
+    PyramidPlanner, Raster, TileFormat, TileSink,
 };
 use std::path::Path;
 
@@ -80,10 +80,14 @@ fn generate_pyramid_fixture(raster: &Raster, strategy: BlankTileStrategy, output
         std::fs::remove_dir_all(&base).unwrap();
     }
 
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Raw);
+    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let config = EngineConfig::default().with_blank_tile_strategy(strategy);
 
-    let result = generate_pyramid(raster, &plan, &sink, &config).unwrap();
+    let result = EngineBuilder::new(raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
     sink.finish().unwrap();
 
     eprintln!(
