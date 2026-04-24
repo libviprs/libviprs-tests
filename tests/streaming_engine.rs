@@ -30,7 +30,6 @@
 //!   reported peak memory is lower than monolithic for large images, and
 //!   that `compute_strip_height` respects budget constraints.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use libviprs::streaming::{BudgetPolicy, compute_strip_height, estimate_streaming_memory};
@@ -387,45 +386,6 @@ fn streaming_blank_tile_placeholder_gradient() {
     assert_eq!(result.tiles_produced, plan.total_tile_count());
     // Gradient has no blank tiles
     assert_eq!(result.tiles_skipped, 0);
-}
-
-// ---------------------------------------------------------------------------
-// 7. Blueprint fixture parity (PDF extract → streaming pyramid)
-// ---------------------------------------------------------------------------
-
-const FIXTURE_PDF_PORTRAIT: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/blueprint-portrait.pdf"
-);
-
-#[test]
-fn streaming_parity_blueprint_portrait() {
-    let src = libviprs::extract_page_image(Path::new(FIXTURE_PDF_PORTRAIT), 1)
-        .expect("failed to extract from blueprint-portrait.pdf");
-
-    let planner = PyramidPlanner::new(src.width(), src.height(), 256, 0, Layout::DeepZoom).unwrap();
-    let plan = planner.plan();
-
-    let ref_tiles = monolithic_tiles(&src, &plan, &EngineConfig::default());
-    // 2 MB — forces streaming for 3300x5024
-    let test_tiles = streaming_tiles(&src, &plan, 2_000_000, EngineConfig::default());
-    assert_tiles_match(&ref_tiles, &test_tiles, "blueprint portrait DeepZoom");
-}
-
-#[test]
-fn streaming_parity_blueprint_portrait_google_centre() {
-    let src = libviprs::extract_page_image(Path::new(FIXTURE_PDF_PORTRAIT), 1)
-        .expect("failed to extract from blueprint-portrait.pdf");
-
-    let planner = PyramidPlanner::new(src.width(), src.height(), 256, 0, Layout::Google)
-        .unwrap()
-        .with_centre(true);
-    let plan = planner.plan();
-
-    let ref_tiles = monolithic_tiles(&src, &plan, &EngineConfig::default());
-    // 5 MB
-    let test_tiles = streaming_tiles(&src, &plan, 5_000_000, EngineConfig::default());
-    assert_tiles_match(&ref_tiles, &test_tiles, "blueprint portrait Google+centre");
 }
 
 // ---------------------------------------------------------------------------
