@@ -1,6 +1,6 @@
 [package]
 name = "libviprs-tests"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["Roman Goldmann <roman@devshell.org>"]
 rust-version = "1.85"
@@ -10,6 +10,31 @@ publish = false
 default = []
 pdfium = ["libviprs/pdfium", "dep:pdfium-render"]
 ported_tests = []
+s3 = ["libviprs/s3"]
+# Enables the v1-builder integration test suite (EngineBuilder, per-component
+# builders, extension hatch). The tests reference a public API that does not
+# yet exist in `libviprs`; enabling this feature without the matching source
+# migration in place is *expected* to fail compilation. The feature is off by
+# default so `cargo test` and CI remain green during the TDD red phase.
+builder_v1 = []
+# Enables Phase 3 packfile archive-sink integration tests in
+# `tests/phase3_packfile.rs`. Activates the `packfile` feature on the
+# core `libviprs` crate so that `libviprs::sink::PackfileSink` and
+# `libviprs::sink::PackfileFormat` are exposed. The `tar` and `zip`
+# dev-dependencies are listed unconditionally under
+# `[dev-dependencies]` (Cargo does not support `optional = true` on
+# dev-deps), but they are only *linked* from code guarded by
+# `#[cfg(feature = "packfile")]`.
+packfile = ["libviprs/packfile"]
+# Enables Phase 3 tracing-span integration tests in
+# `tests/phase3_tracing.rs`. Activates the `tracing` feature on the
+# core `libviprs` crate so that `generate_pyramid` emits pipeline /
+# level / tile / encode / sink_write spans which the tests capture
+# via `tracing-subscriber`. The `tracing` and `tracing-subscriber`
+# crates are listed unconditionally under `[dev-dependencies]` (Cargo
+# does not support `optional = true` on dev-deps), but they are only
+# *linked* from code guarded by `#[cfg(feature = "tracing")]`.
+tracing = ["libviprs/tracing"]
 
 [dependencies]
 libviprs = { path = "../libviprs" }
@@ -17,3 +42,18 @@ pdfium-render = { version = "0.8", optional = true }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
 flate2 = "1"
 tempfile = "3"
+
+[dev-dependencies]
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+tar = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# Used by `tests/phase3_checksum.rs` to verify checksum hex digests
+# independently of the core crate's implementation.
+blake3 = "1"
+sha2 = "0.10"
+# Used by `tests/builder_composition_invariants.rs` under the `builder_v1`
+# feature. Listed unconditionally — dev-deps cannot be optional — but only
+# linked from code guarded by `#[cfg(feature = "builder_v1")]`.
+proptest = "1"

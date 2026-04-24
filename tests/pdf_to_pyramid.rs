@@ -6,8 +6,8 @@
 use std::path::Path;
 
 use libviprs::{
-    EngineConfig, FsSink, GeoCoord, GeoTransform, Layout, MemorySink, PixelFormat, PyramidPlanner,
-    TileFormat, extract_page_image, generate_pyramid,
+    EngineBuilder, EngineConfig, EngineKind, FsSink, GeoCoord, GeoTransform, Layout, MemorySink,
+    PixelFormat, PyramidPlanner, extract_page_image,
 };
 
 const FIXTURE_PDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blueprint.pdf");
@@ -49,8 +49,11 @@ fn pdf_to_georeferenced_pyramid_memory() {
     let sink = MemorySink::new();
     let config = EngineConfig::default().with_concurrency(4);
 
-    let result =
-        generate_pyramid(&raster, &plan, &sink, &config).expect("pyramid generation failed");
+    let result = EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .expect("pyramid generation failed");
 
     // Verify all tiles produced
     assert_eq!(result.tiles_produced, plan.total_tile_count());
@@ -93,11 +96,14 @@ fn pdf_to_pyramid_filesystem_png() {
 
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("blueprint_tiles");
-    let sink = FsSink::new(base.clone(), plan.clone(), TileFormat::Png);
+    let sink = FsSink::new(base.clone(), plan.clone());
     let config = EngineConfig::default().with_concurrency(4);
 
-    let result =
-        generate_pyramid(&raster, &plan, &sink, &config).expect("pyramid generation failed");
+    let result = EngineBuilder::new(&raster, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .expect("pyramid generation failed");
 
     assert_eq!(result.tiles_produced, plan.total_tile_count());
 
@@ -130,8 +136,16 @@ fn pdf_pyramid_deterministic() {
     let sink2 = MemorySink::new();
     let config = EngineConfig::default().with_concurrency(4);
 
-    generate_pyramid(&raster, &plan, &sink1, &config).unwrap();
-    generate_pyramid(&raster, &plan, &sink2, &config).unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &sink1)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config.clone())
+        .run()
+        .unwrap();
+    EngineBuilder::new(&raster, plan.clone(), &sink2)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(config)
+        .run()
+        .unwrap();
 
     let mut tiles1 = sink1.tiles();
     let mut tiles2 = sink2.tiles();
