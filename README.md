@@ -14,6 +14,30 @@ Integration and system tests for [libviprs](../libviprs), a pure-Rust image pyra
 
 This crate is kept in a separate repository to keep the libviprs library crate clean — no test fixtures, no heavy test-only dependencies.
 
+## Documentation: What's Tested Where
+
+The [libviprs CLI docs page](https://libviprs.org/cli/) now indexes the most
+representative test in this repo for every documented flag and subcommand. Next
+to each flag, the docs render a **"test"** link that resolves to the GitHub blob
+URL of the relevant `#[test]` function — so you can read the spec and jump
+straight to executable proof of the behavior.
+
+### Finding the test for a feature
+
+- **By flag** — visit `https://libviprs.org/cli/#flag-<name>` (e.g.
+  [`#flag-tile-size`](https://libviprs.org/cli/#flag-tile-size),
+  [`#flag-layout`](https://libviprs.org/cli/#flag-layout)). Each anchor reveals
+  a per-flag link to the test that demonstrates that feature.
+- **By command** — visit `https://libviprs.org/cli/#<command>` (e.g.
+  [`#pyramid`](https://libviprs.org/cli/#pyramid)) for the canonical end-to-end
+  test of that subcommand.
+- **By file** — see the [Test Suites](#test-suites) table below for a per-file
+  summary, or browse `tests/` directly.
+
+If you add a new flag to the CLI and want it indexed, add a test here whose
+name matches the flag (e.g. `tile_size_overrides_default`) — the docs build
+picks the closest-named `#[test]` per flag.
+
 ## Running Tests
 
 ```bash

@@ -840,7 +840,7 @@ dependencies = [
 
 [[package]]
 name = "libviprs"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "blake3",
  "flate2",
@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "libviprs-tests"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "flate2",
