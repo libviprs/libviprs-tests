@@ -625,11 +625,12 @@ fn checkpoint_written_periodically() {
     watcher.join().unwrap();
 
     // Mtime-based polling undercounts when consecutive writes land within a
-    // single filesystem mtime tick (common under tmpfs / fast containers).
-    // Halve the strict expectation; the regression we actually care about is
-    // "only the final flush happened", which would be a count of 1.
+    // single filesystem mtime tick — severe on virtiofs/9p (Docker on macOS),
+    // where 30+ flushes can collapse to ~13 observed ticks. The regression we
+    // actually care about is "only the final flush happened" (count == 1), so
+    // pin the floor at a small constant well above 1 but well below the ideal.
     let ideal = (plan.total_tile_count() / 10) as usize;
-    let expected_min = ideal / 2;
+    let expected_min = 3;
     assert!(
         observed_updates.load(Ordering::SeqCst) >= expected_min,
         "Expected at least {expected_min} checkpoint updates (ideal {ideal}), observed {}",
