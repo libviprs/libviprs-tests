@@ -1,3 +1,24 @@
+//! Large-image stress tests.
+//!
+//! Unlike the rest of the test suite — which loads inputs from
+//! `tests/fixtures/canonical_input.png` via
+//! `tests/common/fixtures::canonical_raster_scaled` — these tests
+//! deliberately keep an inline `synthetic_raster` generator. Rationale:
+//!
+//! 1. The stress paths run at 10K × 10K and 4K × 4K, well above the
+//!    256 × 256 canonical input. Scaling the canonical that aggressively
+//!    via nearest-neighbour produces large, blocky regions that don't
+//!    exercise downscale-averaging the way a unique-per-pixel pattern
+//!    does.
+//! 2. Checking in a 10K × 10K RGB8 PNG (~300 MB) just to feed these
+//!    tests would dominate the repo's disk footprint.
+//! 3. Every test in this file is `#[ignore]`d by default (run via
+//!    `cargo test -- --ignored stress`), so the synthetic input never
+//!    feeds an automated comparison against a checked-in fixture.
+//!
+//! See issue #44 for the broader fixture-discipline migration; this
+//! file is the documented Bucket D exception.
+
 use libviprs::{
     EngineBuilder, EngineConfig, EngineKind, Layout, MemorySink, PixelFormat, PyramidPlanner,
     Raster,
