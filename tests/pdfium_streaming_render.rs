@@ -25,60 +25,17 @@
 
 #![cfg(feature = "pdfium")]
 
+mod common;
+
 use std::path::Path;
 
+use common::{
+    DIM_DRIFT_TOLERANCE_PX, FIXTURE_BLUEPRINT, FIXTURE_MIX, FIXTURE_PORTRAIT, FIXTURES,
+    assert_same_region,
+};
 use libviprs::pdf::{PdfError, render_page_pdfium};
 use libviprs::streaming::{BudgetPolicy, StripSource};
 use libviprs::{PdfiumStripSource, PixelFormat};
-
-const FIXTURE_BLUEPRINT: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blueprint.pdf");
-const FIXTURE_PORTRAIT: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/blueprint-portrait.pdf"
-);
-const FIXTURE_MIX: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/blueprint-mix.pdf"
-);
-const FIXTURES: &[&str] = &[FIXTURE_BLUEPRINT, FIXTURE_PORTRAIT, FIXTURE_MIX];
-
-const DIM_DRIFT_TOLERANCE_PX: i64 = 4;
-const REGION_MEAN_TOLERANCE: f64 = 2.0;
-
-fn channel_means(data: &[u8]) -> [f64; 4] {
-    assert!(data.len() % 4 == 0);
-    let mut sums = [0u64; 4];
-    let pixels = data.len() / 4;
-    for chunk in data.chunks_exact(4) {
-        for i in 0..4 {
-            sums[i] += chunk[i] as u64;
-        }
-    }
-    let n = pixels.max(1) as f64;
-    [
-        sums[0] as f64 / n,
-        sums[1] as f64 / n,
-        sums[2] as f64 / n,
-        sums[3] as f64 / n,
-    ]
-}
-
-fn assert_same_region(label: &str, actual: &[u8], reference: &[u8]) {
-    assert_eq!(
-        actual.len(),
-        reference.len(),
-        "{label}: byte-length mismatch"
-    );
-    let a = channel_means(actual);
-    let b = channel_means(reference);
-    let max = (0..4).map(|i| (a[i] - b[i]).abs()).fold(0.0_f64, f64::max);
-    assert!(
-        max <= REGION_MEAN_TOLERANCE,
-        "{label}: per-channel mean drift {max:.3} > {REGION_MEAN_TOLERANCE:.3} \
-         (actual={a:?}, reference={b:?})"
-    );
-}
 
 // ---------------------------------------------------------------------------
 // Constructor & metadata
@@ -122,13 +79,19 @@ fn new_streaming_format_is_rgba8() {
 #[test]
 fn new_streaming_page_out_of_range_errors_typed() {
     let result = PdfiumStripSource::new_streaming(FIXTURE_BLUEPRINT, 999, 72);
-    assert!(result.is_err());
+    match result {
+        Err(PdfError::PageOutOfRange { page, .. }) => assert_eq!(page, 999),
+        other => panic!("expected PageOutOfRange for page 999, got {other:?}"),
+    }
 }
 
 #[test]
 fn new_streaming_page_zero_errors_typed() {
     let result = PdfiumStripSource::new_streaming(FIXTURE_BLUEPRINT, 0, 72);
-    assert!(result.is_err());
+    match result {
+        Err(PdfError::PageOutOfRange { page, .. }) => assert_eq!(page, 0),
+        other => panic!("expected PageOutOfRange for page 0, got {other:?}"),
+    }
 }
 
 /// Streaming-mode and cached-mode constructors must report dims within the

@@ -40,53 +40,16 @@
 
 #![cfg(feature = "pdfium")]
 
+mod common;
+
 use std::path::Path;
 
-use libviprs::pdf::page_rotate;
+use common::{FIXTURE_PORTRAIT, assert_same_region};
+use libviprs::pdf::{PageRotation, page_rotate};
 use libviprs::streaming::StripSource;
 use libviprs::{PdfiumStripSource, Raster};
 
-const FIXTURE_PORTRAIT: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/blueprint-portrait.pdf"
-);
-const REGION_MEAN_TOLERANCE: f64 = 2.0;
 const DPI: u32 = 72;
-
-fn channel_means(data: &[u8]) -> [f64; 4] {
-    let mut sums = [0u64; 4];
-    let pixels = data.len() / 4;
-    for chunk in data.chunks_exact(4) {
-        for i in 0..4 {
-            sums[i] += chunk[i] as u64;
-        }
-    }
-    let n = pixels.max(1) as f64;
-    [
-        sums[0] as f64 / n,
-        sums[1] as f64 / n,
-        sums[2] as f64 / n,
-        sums[3] as f64 / n,
-    ]
-}
-
-fn assert_same_region(label: &str, actual: &[u8], reference: &[u8]) {
-    assert_eq!(
-        actual.len(),
-        reference.len(),
-        "{label}: byte-length mismatch (actual={}, reference={})",
-        actual.len(),
-        reference.len(),
-    );
-    let a = channel_means(actual);
-    let b = channel_means(reference);
-    let max = (0..4).map(|i| (a[i] - b[i]).abs()).fold(0.0_f64, f64::max);
-    assert!(
-        max <= REGION_MEAN_TOLERANCE,
-        "{label}: per-channel mean drift {max:.3} > {REGION_MEAN_TOLERANCE:.3} \
-         (actual={a:?}, reference={b:?})"
-    );
-}
 
 /// Load `source`, mutate its first page's `/Rotate` to `rotation`, and
 /// save into a fresh tempfile. Returns the temp path; the `TempPath`
@@ -113,10 +76,11 @@ fn synth_rotated_fixture(source: &str, rotation: i64) -> tempfile::TempPath {
     let path = tmp.into_temp_path();
     doc.save(&path).expect("save mutated pdf");
     let actual_rotate = page_rotate(Path::new(&*path), 1).expect("re-read /Rotate");
-    let actual_degrees = actual_rotate.as_degrees();
+    let expected_rotate =
+        PageRotation::try_from_degrees(rotation).expect("test fixture rotation must be valid");
     assert_eq!(
-        actual_degrees, rotation,
-        "synth fixture round-trip /Rotate mismatch: wrote {rotation}, read {actual_degrees}"
+        actual_rotate, expected_rotate,
+        "synth fixture round-trip /Rotate mismatch: wrote {rotation} (-> {expected_rotate:?}), read {actual_rotate:?}"
     );
     path
 }
