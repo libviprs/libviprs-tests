@@ -8,10 +8,14 @@ in PNG encoding (compression, filters, chunk ordering) do not cause false failur
 ## Regenerating fixtures
 
 ```bash
-# Step 1: Extract source rasters from PDFs (uses libviprs)
+# Step 1: Extract source rasters from the source PDFs (uses libviprs)
 cargo test --test gen_source_rasters -- --ignored
 
-# Step 2: Generate all vips fixtures (uses Docker)
+# Step 2: Regenerate the canonical PDF / PNG set (uses lopdf + the
+# image crate, no external tools)
+cargo test --test gen_canonicals -- --ignored
+
+# Step 3: Generate all vips fixtures (uses Docker)
 bash tools/gen_fixtures.sh
 ```
 
@@ -23,6 +27,34 @@ bash tools/gen_fixtures.sh
 | `blueprint-mix.pdf` | Mixed vector+raster PDF, embedded 12738x220 RGB8 strip |
 | `blueprint.pdf` | Landscape blueprint (used for CLI plan tests, no fixtures generated) |
 | `password.pdf` | Password-protected PDF for error-handling tests |
+
+## Canonical fixture set
+
+Small, deterministic, self-contained PDFs and rasters intended to
+replace the per-file `gradient_raster` / `solid_raster` synthesisers
+that ~30 invariant tests in this crate use as ad-hoc input today. All
+five files are produced by `cargo test --test gen_canonicals --
+--ignored` (no Docker, no external tools — just `lopdf` + the `image`
+crate). Total disk footprint is under 5 KB.
+
+| File | Description |
+|---|---|
+| `canonical.pdf` | A4 (595 × 842 pt) page with a fixed four-quadrant fill (blue / green / red / yellow). The standard PDF input for invariant tests that need *some* content but don't care about the specific bytes. |
+| `canonical_solid_white.pdf` | A4 page with an empty content stream — clear-colour-only output. Drives the blank-tile and solid-white tolerance paths from a checked-in PDF rather than a synthetic `Raster::new(.., vec![255; …])`. |
+| `canonical_rotated_90.pdf` | `canonical.pdf` with `/Rotate 90`. Replaces the runtime `lopdf::save` round-trip in `pdfium_streaming_synthetic_rotations.rs`. |
+| `canonical_rotated_180.pdf` | `canonical.pdf` with `/Rotate 180`. |
+| `canonical_input.png` | 256 × 256 RGBA8 four-quadrant gradient. The standard *raster* input for tests that operate on a `Raster` directly without going through pdfium. |
+
+The generator self-checks the `/Rotate` round-trip on each PDF before
+writing, so a regen that produces malformed output fails loudly at
+generation time rather than at test time.
+
+Three additional canonicals (`canonical_blank.pdf`,
+`canonical_identical_halves.pdf`, `canonical_cmyk.pdf`) are tracked
+as follow-up work for tests that need shape-specific input
+(`phase3_blank_tolerance`, `phase3_dedupe_blanks`, `pdf_cmyk`); they
+need PDF colour-space and drawing-primitive plumbing not worth
+adding here.
 
 ## Extracted source rasters
 
