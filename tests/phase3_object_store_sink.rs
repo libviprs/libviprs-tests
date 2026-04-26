@@ -27,13 +27,15 @@
 
 use libviprs::sink::{ObjectStore, ObjectStoreConfig, ObjectStoreSink, RetryPolicy};
 use libviprs::{
-    EngineBuilder, EngineConfig, EngineKind, Layout, PixelFormat, PyramidPlanner, Raster,
-    SinkError, TileFormat,
+    EngineBuilder, EngineConfig, EngineKind, Layout, PyramidPlanner, SinkError, TileFormat,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 // ---------------------------------------------------------------------------
 // Fixture helpers (mirrors tests/blank_tile_strategy.rs style)
@@ -43,23 +45,6 @@ const BUCKET: &str = "test-bucket";
 const ENDPOINT: &str = "http://127.0.0.1:9000";
 const ACCESS_KEY: &str = "minio";
 const SECRET_KEY: &str = "minio123";
-
-/// Build a deterministic RGB gradient raster. Used so that running a pyramid
-/// twice produces byte-identical input, which lets us assert deterministic
-/// keys downstream.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + y) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
 
 /// Construct the planner used by most of the tests in this file. We pick sizes
 /// that exercise more than one pyramid level (so key layout is non-trivial)
@@ -269,7 +254,7 @@ impl ObjectStore for AlwaysFailObjectStore {
 #[test]
 fn tile_keys_are_deterministic() {
     let plan = make_plan(256, 256, 128);
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let engine = single_threaded_config();
 
     let run = |backend: Arc<RecordingObjectStore>| {
@@ -318,7 +303,7 @@ fn tile_keys_are_deterministic() {
 #[test]
 fn multipart_upload_large_tile() {
     let plan = make_plan(512, 512, 256);
-    let src = gradient_raster(512, 512);
+    let src = canonical_raster_scaled(512, 512);
     let engine = single_threaded_config();
 
     let backend = RecordingObjectStore::new();
@@ -363,7 +348,7 @@ fn multipart_upload_large_tile() {
 #[test]
 fn idempotent_rewrite() {
     let plan = make_plan(128, 128, 64);
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let engine = single_threaded_config();
     let backend = RecordingObjectStore::new();
 
@@ -411,7 +396,7 @@ fn idempotent_rewrite() {
 #[test]
 fn retry_policy_recovers_from_transient_failure() {
     let plan = make_plan(64, 64, 32);
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let engine = single_threaded_config();
     let flaky = FlakyObjectStore::new(2);
 
@@ -463,7 +448,7 @@ fn retry_policy_recovers_from_transient_failure() {
 #[test]
 fn retry_exhausted_surfaces_error() {
     let plan = make_plan(64, 64, 32);
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let engine = single_threaded_config();
     let failing = AlwaysFailObjectStore::new();
 
@@ -510,7 +495,7 @@ fn retry_exhausted_surfaces_error() {
 #[test]
 fn deterministic_key_layout_deep_zoom() {
     let plan = make_plan(128, 128, 64);
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let engine = single_threaded_config();
     let backend = RecordingObjectStore::new();
 
@@ -569,7 +554,7 @@ fn deterministic_key_layout_deep_zoom() {
 #[test]
 fn key_prefix_respected() {
     let plan = make_plan(128, 128, 64);
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let engine = single_threaded_config();
     let backend = RecordingObjectStore::new();
 
@@ -635,7 +620,7 @@ fn smoke_test_against_minio_if_env_set() {
     let _tmp = tempfile::tempdir().unwrap();
 
     let plan = make_plan(128, 128, 64);
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let engine = single_threaded_config();
 
     // TODO: re-add .with_retry(...) once `ObjectStoreConfig::with_retry` lands.

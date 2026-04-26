@@ -11,21 +11,10 @@
 #![allow(unused_imports)]
 
 use libviprs::sink::{PackfileFormat, PackfileSink, TileFormat, TileSink};
-use libviprs::{EngineBuilder, Layout, PixelFormat, PyramidPlanner, Raster};
+use libviprs::{EngineBuilder, Layout, PyramidPlanner};
 
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + y) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 #[test]
 fn builder_minimum_viable_call() {
@@ -40,7 +29,7 @@ fn builder_minimum_viable_call() {
         .build()
         .unwrap();
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     EngineBuilder::new(&src, plan, sink).run().unwrap();
 
     assert!(out.exists(), "packfile archive was not created");
@@ -61,7 +50,7 @@ fn builder_accepts_format_and_tile_format() {
         .build()
         .unwrap();
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     EngineBuilder::new(&src, plan, sink).run().unwrap();
 }
 
@@ -87,7 +76,7 @@ fn builder_is_order_insensitive() {
         .build()
         .unwrap();
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     EngineBuilder::new(&src, plan.clone(), a).run().unwrap();
     EngineBuilder::new(&src, plan, b).run().unwrap();
 
@@ -119,7 +108,7 @@ fn deprecated_new_still_works() {
     #[allow(deprecated)]
     let sink = PackfileSink::new(&out, PackfileFormat::Tar, plan.clone(), TileFormat::Png).unwrap();
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     EngineBuilder::new(&src, plan, sink).run().unwrap();
     assert!(out.exists());
 }

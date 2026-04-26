@@ -19,21 +19,10 @@ use std::time::Duration;
 use libviprs::resume::ResumeMode;
 use libviprs::retry::{FailurePolicy, RetryPolicy};
 use libviprs::sink::{FsSink, MemorySink, TileFormat};
-use libviprs::{EngineBuilder, Layout, PixelFormat, PyramidPlanner, Raster, ResumePolicy};
+use libviprs::{EngineBuilder, Layout, PyramidPlanner, ResumePolicy};
 
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + y) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 // ---------------------------------------------------------------------------
 // ResumePolicy factories
@@ -83,7 +72,7 @@ fn resume_policy_default_mode_is_overwrite() {
 #[test]
 fn builder_accepts_resume_policy() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -130,7 +119,7 @@ fn retry_policy_fail_fast_convenience() {
 fn builder_with_retry_lowers_to_retry_then_fail() {
     // `.with_retry(policy)` is a shorthand for
     // `.with_failure_policy(FailurePolicy::RetryThenFail(policy))`.
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -143,7 +132,7 @@ fn builder_with_retry_lowers_to_retry_then_fail() {
 
 #[test]
 fn builder_with_failure_policy_accepts_every_variant() {
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();

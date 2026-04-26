@@ -33,27 +33,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use libviprs::resume::{JobCheckpoint, JobMetadata, ResumeMode};
 use libviprs::sink::{FsSink, SinkError, Tile, TileFormat, TileSink};
 use libviprs::{
-    EngineBuilder, EngineConfig, EngineError, EngineKind, Layout, PixelFormat, PyramidPlanner,
-    Raster, ResumePolicy,
+    EngineBuilder, EngineConfig, EngineError, EngineKind, Layout, PyramidPlanner, ResumePolicy,
 };
+
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
 // ---------------------------------------------------------------------------
-
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
 
 fn list_files(dir: &Path, ext: &str) -> usize {
     let mut n = 0;
@@ -126,7 +114,7 @@ impl TileSink for RecordingSink {
 fn streaming_overwrite_produces_full_pyramid_and_checkpoint() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -151,7 +139,7 @@ fn streaming_overwrite_produces_full_pyramid_and_checkpoint() {
 fn streaming_resume_short_circuits_already_complete_tiles() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -193,7 +181,7 @@ fn streaming_resume_agrees_with_monolithic() {
     let dir = tempfile::tempdir().unwrap();
     let mono_dir = dir.path().join("mono");
     let stream_dir = dir.path().join("stream");
-    let src = gradient_raster(192, 128);
+    let src = canonical_raster_scaled(192, 128);
     let plan = PyramidPlanner::new(192, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -227,7 +215,7 @@ fn streaming_verify_is_now_supported() {
     // previously-generated pyramid.
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -253,7 +241,7 @@ fn streaming_verify_is_now_supported() {
 fn streaming_resume_rejects_plan_hash_mismatch() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
 
     let plan_a = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
@@ -291,7 +279,7 @@ fn streaming_resume_rejects_plan_hash_mismatch() {
 fn mapreduce_overwrite_produces_full_pyramid_and_checkpoint() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -316,7 +304,7 @@ fn mapreduce_overwrite_produces_full_pyramid_and_checkpoint() {
 fn mapreduce_resume_short_circuits_already_complete_tiles() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -350,7 +338,7 @@ fn mapreduce_verify_is_now_supported() {
     // write pipeline. Full coverage lives in builder_mapreduce_verify.rs.
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();

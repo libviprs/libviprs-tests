@@ -38,6 +38,9 @@ use libviprs::{
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+mod common;
+use common::fixtures::canonical_raster_scaled;
+
 // ---------------------------------------------------------------------------
 // Constants / helpers
 // ---------------------------------------------------------------------------
@@ -139,21 +142,6 @@ fn identical_non_blank_regions_raster() -> Raster {
             data[off] = 0x80;
             data[off + 1] = 0x80;
             data[off + 2] = 0x80;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
-
-/// Gradient raster — every tile differs from every other tile.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + y) % 256) as u8;
         }
     }
     Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
@@ -518,7 +506,7 @@ fn all_mode_dedupes_identical_non_blank_tiles() {
 #[test]
 fn all_mode_with_distinct_tiles_is_equivalent_to_none() {
     let plan = make_plan(IMG_SIZE, IMG_SIZE);
-    let src = gradient_raster(IMG_SIZE, IMG_SIZE);
+    let src = canonical_raster_scaled(IMG_SIZE, IMG_SIZE);
     let config = EngineConfig::default().with_blank_tile_strategy(BlankTileStrategy::Emit);
 
     let dir_none = tempfile::tempdir().unwrap();

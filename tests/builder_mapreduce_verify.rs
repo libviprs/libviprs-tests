@@ -45,27 +45,16 @@ use libviprs::manifest::ManifestBuilder;
 use libviprs::sink::{FsSink, TileFormat};
 use libviprs::streaming::RasterStripSource;
 use libviprs::{
-    CollectingObserver, EngineBuilder, EngineError, EngineEvent, EngineKind, Layout, PixelFormat,
-    PyramidPlanner, Raster, ResumePolicy, SinkError,
+    CollectingObserver, EngineBuilder, EngineError, EngineEvent, EngineKind, Layout,
+    PyramidPlanner, ResumePolicy, SinkError,
 };
+
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
 // ---------------------------------------------------------------------------
-
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
 
 /// Recursively enumerate every regular file under `dir` with the given
 /// extension. Used to assert that a Verify pass did not mutate the
@@ -122,7 +111,7 @@ fn corrupt_file(path: &Path) {
 fn mapreduce_verify_passes_on_intact_output() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -168,7 +157,7 @@ fn mapreduce_verify_passes_on_intact_output() {
 fn mapreduce_verify_accepts_strip_source() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -205,7 +194,7 @@ fn mapreduce_verify_accepts_strip_source() {
 fn mapreduce_verify_detects_missing_tile() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -249,7 +238,7 @@ fn mapreduce_verify_detects_missing_tile() {
 fn mapreduce_verify_detects_corrupt_raw_tile() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -288,7 +277,7 @@ fn mapreduce_verify_detects_corrupt_raw_tile() {
 fn mapreduce_verify_rejects_plan_hash_mismatch() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
 
     let plan_a = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
@@ -328,7 +317,7 @@ fn mapreduce_verify_rejects_plan_hash_mismatch() {
 fn mapreduce_verify_emits_observer_events() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(192, 128);
+    let src = canonical_raster_scaled(192, 128);
     let plan = PyramidPlanner::new(192, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -395,7 +384,7 @@ fn mapreduce_verify_emits_observer_events() {
 fn mapreduce_verify_honours_manifest_checksums() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(192, 128);
+    let src = canonical_raster_scaled(192, 128);
     let plan = PyramidPlanner::new(192, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();

@@ -50,10 +50,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use libviprs::resume::{JobMetadata, ResumeMode};
 use libviprs::{
-    EngineBuilder, EngineConfig, EngineError, EngineResult, FsSink, Layout, PixelFormat,
-    PyramidPlan, PyramidPlanner, Raster, ResumePolicy, SinkError, Tile, TileCoord, TileFormat,
-    TileSink,
+    EngineBuilder, EngineConfig, EngineError, EngineResult, FsSink, Layout, PyramidPlan,
+    PyramidPlanner, Raster, ResumePolicy, SinkError, Tile, TileCoord, TileFormat, TileSink,
 };
+
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 /// Test shim: route the old `generate_pyramid_resumable(raster, plan, sink,
 /// &cfg, mode)` call shape through the new `EngineBuilder::with_resume`
@@ -86,22 +88,6 @@ fn run_resumable<S: TileSink>(
 
 /// The well-known filename for the on-disk checkpoint.
 const JOB_FILE: &str = ".libviprs-job.json";
-
-/// Synthetic gradient raster. Deterministic so two runs produce identical
-/// tiles and Verify-mode comparisons are meaningful.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
 
 /// Build a small plan sized so that tile counts are comfortably above the
 /// checkpoint cadence we test with (enough tiles for "every 10" to fire
@@ -278,7 +264,7 @@ fn overwrite_mode_starts_fresh() {
     )
     .unwrap();
 
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = small_plan(128, 128, 64);
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
 
@@ -324,7 +310,7 @@ fn resume_mode_continues_after_partial_run() {
     let base = dir.path().join("tiles");
     std::fs::create_dir_all(&base).unwrap();
 
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = small_plan(128, 128, 64);
 
     // Do a first full run so we have valid tile output on disk. We'll then
@@ -419,7 +405,7 @@ fn resume_mode_refuses_if_plan_hash_differs() {
     let base = dir.path().join("tiles");
     std::fs::create_dir_all(&base).unwrap();
 
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = small_plan(128, 128, 64);
 
     // Pre-existing checkpoint with an obviously wrong hash.
@@ -471,7 +457,7 @@ fn resume_mode_refuses_if_plan_hash_differs() {
 #[test]
 fn verify_mode_passes_on_intact_output() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = small_plan(128, 128, 64);
     let base = run_fresh_pyramid(dir.path(), &src, &plan);
 
@@ -502,7 +488,7 @@ fn verify_mode_passes_on_intact_output() {
 #[test]
 fn verify_mode_fails_on_missing_tile() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = small_plan(128, 128, 64);
     let base = run_fresh_pyramid(dir.path(), &src, &plan);
 
@@ -534,7 +520,7 @@ fn verify_mode_fails_on_missing_tile() {
 #[test]
 fn verify_mode_fails_on_corrupted_tile() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = small_plan(128, 128, 64);
     let base = run_fresh_pyramid(dir.path(), &src, &plan);
 
@@ -578,7 +564,7 @@ fn checkpoint_written_periodically() {
 
     // Choose a plan that yields at least ~100 tiles so that a cadence of 10
     // fires roughly 10 times.
-    let src = gradient_raster(1024, 1024);
+    let src = canonical_raster_scaled(1024, 1024);
     let plan = small_plan(1024, 1024, 128);
     assert!(plan.total_tile_count() >= 100, "test setup too small");
 
@@ -652,7 +638,7 @@ fn checkpoint_file_survives_kill_and_resume() {
     let base = dir.path().join("tiles");
     std::fs::create_dir_all(&base).unwrap();
 
-    let src = gradient_raster(512, 512);
+    let src = canonical_raster_scaled(512, 512);
     let plan = small_plan(512, 512, 128);
     let total = plan.total_tile_count();
     assert!(total > 50, "need a plan large enough for a mid-run panic");
@@ -726,7 +712,7 @@ fn resume_survives_process_boundary() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
     std::fs::create_dir_all(&base).unwrap();
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let plan = small_plan(256, 256, 64);
 
     // First "process": panic mid-run so we have a partial checkpoint.
@@ -755,7 +741,7 @@ fn resume_survives_process_boundary() {
 
     let plan2 = small_plan(256, 256, 64);
     assert_eq!(plan, plan2, "plan reconstruction must be deterministic");
-    let src2 = gradient_raster(256, 256);
+    let src2 = canonical_raster_scaled(256, 256);
     let sink2 = FsSink::new(base.clone(), plan2.clone()).with_format(TileFormat::Raw);
     run_resumable(
         &src2,
@@ -781,7 +767,7 @@ fn resume_survives_process_boundary() {
 #[test]
 fn idempotent_resume_of_completed_job() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = small_plan(128, 128, 64);
     let base = run_fresh_pyramid(dir.path(), &src, &plan);
 
