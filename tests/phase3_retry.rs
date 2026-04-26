@@ -54,31 +54,17 @@ use libviprs::sink::{CollectedTile, FsSink, MemorySink, SinkError, Tile, TileFor
 use libviprs::sink::{FailurePolicy, RetryPolicy, RetryingSink};
 
 use libviprs::planner::TileCoord;
-use libviprs::{
-    EngineBuilder, EngineConfig, EngineKind, Layout, PixelFormat, PyramidPlanner, Raster,
-};
+use libviprs::{EngineBuilder, EngineConfig, EngineKind, Layout, PyramidPlanner, Raster};
+
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Simple gradient raster so tile content is non-blank and distinguishable.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
-
 fn small_plan() -> (Raster, libviprs::PyramidPlan) {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let planner = PyramidPlanner::new(256, 256, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     (src, plan)

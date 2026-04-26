@@ -27,6 +27,9 @@ use libviprs::{
     PyramidPlanner, Raster,
 };
 
+mod common;
+use common::fixtures::canonical_raster_scaled;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -50,25 +53,6 @@ fn near_white_raster(w: u32, h: u32, fmt: PixelFormat, jitter: u8) -> Raster {
         }
     }
     Raster::new(w, h, fmt, data).unwrap()
-}
-
-/// Build an RGB gradient raster — a strong horizontal + vertical ramp
-/// guaranteed to span the full 0..=255 range on every channel.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            // Map x/w and y/h to the full 0..=255 range so the spread is 255.
-            let fx = if w > 1 { (x * 255 / (w - 1)) as u8 } else { 0 };
-            let fy = if h > 1 { (y * 255 / (h - 1)) as u8 } else { 0 };
-            data[off] = fx;
-            data[off + 1] = fy;
-            data[off + 2] = fx.wrapping_add(fy);
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
 }
 
 /// Construct an RGBA raster with three independent channel generators.
@@ -122,7 +106,7 @@ fn tolerance_zero_equals_exact_match() {
     assert!(!is_blank_tile_with_tolerance(&near, 0));
 
     // Gradient → both false.
-    let grad = gradient_raster(16, 16);
+    let grad = canonical_raster_scaled(16, 16);
     assert_eq!(is_blank_tile(&grad), is_blank_tile_with_tolerance(&grad, 0));
     assert!(!is_blank_tile_with_tolerance(&grad, 0));
 }
@@ -158,7 +142,7 @@ fn near_white_above_tolerance_is_not_blank() {
 ///    classified as blank even at tolerance 10.
 #[test]
 fn gradient_is_not_blank_at_any_reasonable_tolerance() {
-    let raster = gradient_raster(64, 64);
+    let raster = canonical_raster_scaled(64, 64);
     assert!(!is_blank_tile_with_tolerance(&raster, 10));
     // Cross-check a few more points for sanity.
     assert!(!is_blank_tile_with_tolerance(&raster, 0));

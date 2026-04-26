@@ -34,28 +34,15 @@ use libviprs::manifest::ManifestBuilder;
 use libviprs::streaming::RasterStripSource;
 use libviprs::{
     CollectingObserver, EngineBuilder, EngineError, EngineEvent, EngineKind, FsSink, Layout,
-    PixelFormat, PyramidPlanner, Raster, ResumePolicy, TileFormat,
+    PyramidPlanner, ResumePolicy, TileFormat,
 };
+
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
-
-/// Deterministic gradient raster — the same pattern the other
-/// builder/streaming tests use so tile bytes are reproducible run-to-run.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
 
 /// Inline copy of `phase3_checksum::corrupt_file` — flips a single byte at a
 /// well-known offset inside `path`. For tiny files (<16 bytes) flips index
@@ -99,7 +86,7 @@ fn first_tile_relpath(plan: &libviprs::planner::PyramidPlan, ext: &str) -> std::
 fn streaming_verify_passes_on_intact_output() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -134,7 +121,7 @@ fn streaming_verify_passes_on_intact_output() {
 fn streaming_verify_accepts_strip_source() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let raster = gradient_raster(256, 192);
+    let raster = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -167,7 +154,7 @@ fn streaming_verify_accepts_strip_source() {
 fn streaming_verify_detects_missing_tile() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -214,7 +201,7 @@ fn streaming_verify_detects_missing_tile() {
 fn streaming_verify_detects_corrupt_raw_tile() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -254,7 +241,7 @@ fn streaming_verify_detects_corrupt_raw_tile() {
 fn streaming_verify_rejects_plan_hash_mismatch() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
 
     let plan_a = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
@@ -295,7 +282,7 @@ fn streaming_verify_rejects_plan_hash_mismatch() {
 fn streaming_verify_passes_png_by_existence_alone() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -345,7 +332,7 @@ fn streaming_verify_passes_png_by_existence_alone() {
 fn streaming_verify_honours_manifest_checksums() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -392,7 +379,7 @@ fn streaming_verify_honours_manifest_checksums() {
 fn streaming_verify_emits_observer_events() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();

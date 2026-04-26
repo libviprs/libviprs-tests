@@ -29,30 +29,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use libviprs::resume::JobMetadata;
 use libviprs::sink::{FsSink, SinkError, Tile, TileFormat, TileSink};
 use libviprs::{
-    CollectingObserver, EngineBuilder, EngineConfig, EngineEvent, EngineKind, Layout, PixelFormat,
-    PyramidPlan, PyramidPlanner, Raster, ResumePolicy, TileCoord,
+    CollectingObserver, EngineBuilder, EngineConfig, EngineEvent, EngineKind, Layout, PyramidPlan,
+    PyramidPlanner, Raster, ResumePolicy, TileCoord,
 };
+
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
 // ---------------------------------------------------------------------------
-
-/// Deterministic RGB gradient — identical to the one used across the other
-/// resume-test files so tile bytes line up between runs and between
-/// engines.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
 
 /// Build a modest plan large enough that tile counts are meaningful but
 /// small enough that every engine finishes promptly in CI.
@@ -199,7 +185,7 @@ fn read_job_metadata(dir: &Path) -> JobMetadata {
 fn monolithic_overwrite_emits_full_event_stream() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = small_plan(256, 192, 64);
 
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
@@ -233,7 +219,7 @@ fn monolithic_resume_emits_events_for_new_writes_only() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
     std::fs::create_dir_all(&base).unwrap();
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let plan = small_plan(256, 256, 64);
     let total = plan.total_tile_count();
     assert!(
@@ -307,7 +293,7 @@ fn monolithic_resume_emits_events_for_new_writes_only() {
 fn monolithic_verify_emits_events_for_every_tile() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = small_plan(256, 192, 64);
 
     // Seed: produce a complete, intact pyramid so Verify has something to
@@ -350,7 +336,7 @@ fn monolithic_verify_emits_events_for_every_tile() {
 fn streaming_overwrite_emits_full_event_stream() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = small_plan(256, 192, 64);
 
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
@@ -382,7 +368,7 @@ fn streaming_overwrite_emits_full_event_stream() {
 fn streaming_resume_emits_no_tile_events_when_complete() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = small_plan(256, 192, 64);
 
     // First run: produce the full pyramid + full checkpoint.
@@ -443,7 +429,7 @@ fn streaming_resume_emits_no_tile_events_when_complete() {
 fn streaming_verify_emits_events_for_every_tile() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = small_plan(256, 192, 64);
 
     // Seed a complete pyramid using the Streaming engine so Verify has
@@ -485,7 +471,7 @@ fn streaming_verify_emits_events_for_every_tile() {
 fn mapreduce_overwrite_emits_full_event_stream() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = small_plan(256, 192, 64);
 
     let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
@@ -515,7 +501,7 @@ fn mapreduce_overwrite_emits_full_event_stream() {
 fn mapreduce_verify_emits_events_for_every_tile() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = small_plan(256, 192, 64);
 
     // Seed a complete pyramid using the MapReduce engine.
@@ -555,7 +541,7 @@ fn _unused_helpers_touch() {
     let _ = read_job_metadata;
     let _: fn(&[EngineEvent]) -> EventCounts = EventCounts::from_events;
     let _: fn(&EventCounts, &PyramidPlan) = assert_full_stream;
-    let _: fn(u32, u32) -> Raster = gradient_raster;
+    let _: fn(u32, u32) -> Raster = canonical_raster_scaled;
     let _: fn(u32, u32, u32) -> PyramidPlan = small_plan;
     // Silence unused-import-via-dead-code for TileCoord when tests evolve.
     let _: fn() -> Option<TileCoord> = || None;

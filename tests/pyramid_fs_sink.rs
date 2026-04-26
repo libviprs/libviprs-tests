@@ -1,22 +1,10 @@
 use libviprs::{
-    EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, PixelFormat, PyramidPlanner, Raster,
-    TileFormat,
+    EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, PyramidPlanner, TileFormat,
 };
 use std::path::Path;
 
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + y) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 fn count_files(dir: &Path, ext: &str) -> usize {
     let mut count = 0;
@@ -37,7 +25,7 @@ fn count_files(dir: &Path, ext: &str) -> usize {
 #[test]
 fn full_pyramid_to_disk_deep_zoom_raw() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(512, 384);
+    let src = canonical_raster_scaled(512, 384);
     let planner = PyramidPlanner::new(512, 384, 256, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -72,7 +60,7 @@ fn full_pyramid_to_disk_deep_zoom_raw() {
 #[test]
 fn full_pyramid_to_disk_deep_zoom_png() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let planner = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -99,7 +87,7 @@ fn full_pyramid_to_disk_deep_zoom_png() {
 #[test]
 fn full_pyramid_to_disk_xyz_layout() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let planner = PyramidPlanner::new(256, 256, 128, 0, Layout::Xyz).unwrap();
     let plan = planner.plan();
 
@@ -127,7 +115,7 @@ fn full_pyramid_to_disk_xyz_layout() {
 #[test]
 fn full_pyramid_to_disk_jpeg() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let planner = PyramidPlanner::new(64, 64, 256, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -155,7 +143,7 @@ fn full_pyramid_to_disk_jpeg() {
 fn deterministic_fs_output() {
     let dir1 = tempfile::tempdir().unwrap();
     let dir2 = tempfile::tempdir().unwrap();
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let planner = PyramidPlanner::new(256, 256, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 

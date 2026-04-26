@@ -18,6 +18,9 @@ use libviprs::{
     TileFormat, decode_file, extract_page_image, pdf_info,
 };
 
+mod common;
+use common::fixtures::canonical_raster_scaled;
+
 // ---------------------------------------------------------------------------
 // Fixture path
 // ---------------------------------------------------------------------------
@@ -63,21 +66,6 @@ fn create_test_png_16bit(w: u32, h: u32) -> Vec<u8> {
             .unwrap();
     }
     buf
-}
-
-/// Build a gradient `Raster` for pyramid tests (same as other test files).
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + y) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
 }
 
 /// Recursively count files with a given extension under `dir`.
@@ -1689,7 +1677,7 @@ fn test_pdf_reference_reschart() {
 /// Subset of libvips test_foreign.py::test_dzsave.
 fn test_dz_tile_size() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let tile_size = 128;
     let planner = PyramidPlanner::new(256, 256, tile_size, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
@@ -1715,7 +1703,7 @@ fn test_dz_tile_size() {
 /// Subset of libvips test_foreign.py::test_dzsave.
 fn test_dz_overlap() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let overlap = 1;
     let planner = PyramidPlanner::new(256, 256, 128, overlap, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
@@ -1770,7 +1758,7 @@ fn test_dz_layout_deepzoom() {
 /// Subset of libvips test_foreign.py::test_dzsave.
 fn test_dz_layout_xyz() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let planner = PyramidPlanner::new(256, 256, 128, 0, Layout::Xyz).unwrap();
     let plan = planner.plan();
 
@@ -1813,7 +1801,7 @@ fn test_dz_layout_xyz() {
 ///
 /// Reference: test_foreign.py::test_dzsave
 fn test_dz_layout_zoomify() {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let dir = tempfile::tempdir().unwrap();
     let planner = PyramidPlanner::new(256, 256, 256, 0, Layout::Zoomify).unwrap();
     let plan = planner.plan();
@@ -1852,7 +1840,7 @@ fn test_dz_layout_zoomify() {
 ///
 /// Reference: test_foreign.py::test_dzsave
 fn test_dz_layout_iiif() {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let dir = tempfile::tempdir().unwrap();
     let planner = PyramidPlanner::new(256, 256, 256, 0, Layout::Iiif).unwrap();
     let plan = planner.plan();
@@ -1895,7 +1883,7 @@ fn test_dz_layout_iiif() {
 ///
 /// Reference: test_foreign.py::test_dzsave
 fn test_dz_zip() {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let dir = tempfile::tempdir().unwrap();
     let planner = PyramidPlanner::new(256, 256, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
@@ -1916,7 +1904,7 @@ fn test_dz_zip() {
 /// Subset of libvips test_foreign.py::test_dzsave.
 fn test_dz_format_png() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let planner = PyramidPlanner::new(64, 64, 256, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -1942,7 +1930,7 @@ fn test_dz_format_png() {
 /// Subset of libvips test_foreign.py::test_dzsave.
 fn test_dz_format_jpeg() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let planner = PyramidPlanner::new(64, 64, 256, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -2049,7 +2037,7 @@ fn test_dz_skip_blanks() {
 ///
 /// Reference: test_foreign.py::test_dzsave (properties section)
 fn test_dz_properties() {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let dir = tempfile::tempdir().unwrap();
     let tile_size = 128;
     let overlap = 1;

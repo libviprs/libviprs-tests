@@ -19,23 +19,10 @@
 
 use libviprs::sink::{CollectedTile, MemorySink, TileSink};
 use libviprs::streaming::{BudgetPolicy, RasterStripSource, StreamingConfig, StripSource};
-use libviprs::{
-    EngineBuilder, EngineConfig, EngineKind, Layout, PixelFormat, PyramidPlanner, Raster,
-};
+use libviprs::{EngineBuilder, EngineConfig, EngineKind, Layout, PyramidPlanner, Raster};
 
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 3 + y * 5) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 fn sorted(sink: &MemorySink) -> Vec<CollectedTile> {
     let mut t = sink.tiles();
@@ -53,7 +40,7 @@ fn assert_same_tiles(a: &[CollectedTile], b: &[CollectedTile]) {
 
 #[test]
 fn builder_accepts_strip_source() {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let strip = RasterStripSource::new(&src);
     let plan = PyramidPlanner::new(256, 256, 64, 0, Layout::DeepZoom)
         .unwrap()
@@ -70,7 +57,7 @@ fn builder_accepts_strip_source() {
 fn strip_source_and_monolithic_agree() {
     // Running the same raster through Monolithic vs Streaming must produce
     // byte-identical output — engines are lenses on the same pyramid.
-    let src = gradient_raster(192, 128);
+    let src = canonical_raster_scaled(192, 128);
     let plan = PyramidPlanner::new(192, 128, 64, 0, Layout::Google)
         .unwrap()
         .plan();
@@ -90,7 +77,7 @@ fn strip_source_and_monolithic_agree() {
 
 #[test]
 fn with_memory_budget_drives_strip_height() {
-    let src = gradient_raster(512, 512);
+    let src = canonical_raster_scaled(512, 512);
     let plan = PyramidPlanner::new(512, 512, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -112,7 +99,7 @@ fn with_memory_budget_drives_strip_height() {
 
 #[test]
 fn with_budget_policy_error_surfaces_on_tight_budget() {
-    let src = gradient_raster(4096, 4096);
+    let src = canonical_raster_scaled(4096, 4096);
     let plan = PyramidPlanner::new(4096, 4096, 256, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -133,7 +120,7 @@ fn with_budget_policy_error_surfaces_on_tight_budget() {
 fn raster_source_auto_wrapped_for_streaming_kind() {
     // `EngineKind::Streaming` + `&Raster` — builder must auto-wrap into a
     // RasterStripSource. No strip-source plumbing at the call site.
-    let src = gradient_raster(256, 128);
+    let src = canonical_raster_scaled(256, 128);
     let plan = PyramidPlanner::new(256, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -149,7 +136,7 @@ fn raster_source_auto_wrapped_for_streaming_kind() {
 
 #[test]
 fn explicit_streaming_kind_does_not_change_output_vs_auto() {
-    let src = gradient_raster(160, 160);
+    let src = canonical_raster_scaled(160, 160);
     let plan = PyramidPlanner::new(160, 160, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();

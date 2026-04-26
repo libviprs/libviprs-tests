@@ -28,30 +28,14 @@
 //!
 //! No core-crate changes are made by this file.
 
-use libviprs::{
-    EngineBuilder, EngineConfig, EngineKind, Layout, MemorySink, PixelFormat, PyramidPlanner,
-    Raster,
-};
+use libviprs::{EngineBuilder, EngineConfig, EngineKind, Layout, MemorySink, PyramidPlanner};
+
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-/// Synthetic RGB gradient raster with non-trivial pixel values, matching
-/// the style used elsewhere in the tests crate.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
 
 // ===========================================================================
 // Part 1 — EngineResult counter extensions
@@ -59,7 +43,7 @@ fn gradient_raster(w: u32, h: u32) -> Raster {
 
 #[test]
 fn result_has_bytes_written_after_run() {
-    let src = gradient_raster(512, 384);
+    let src = canonical_raster_scaled(512, 384);
     let planner = PyramidPlanner::new(512, 384, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let sink = MemorySink::new();
@@ -79,7 +63,7 @@ fn result_has_bytes_written_after_run() {
 
 #[test]
 fn result_has_bytes_read_after_run() {
-    let src = gradient_raster(512, 384);
+    let src = canonical_raster_scaled(512, 384);
     let planner = PyramidPlanner::new(512, 384, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let sink = MemorySink::new();
@@ -99,7 +83,7 @@ fn result_has_bytes_read_after_run() {
 
 #[test]
 fn result_duration_is_positive() {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let planner = PyramidPlanner::new(256, 256, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let sink = MemorySink::new();
@@ -119,7 +103,7 @@ fn result_duration_is_positive() {
 
 #[test]
 fn stage_durations_sum_roughly_equals_total() {
-    let src = gradient_raster(512, 512);
+    let src = canonical_raster_scaled(512, 512);
     let planner = PyramidPlanner::new(512, 512, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let sink = MemorySink::new();
@@ -148,7 +132,7 @@ fn stage_durations_sum_roughly_equals_total() {
 
 #[test]
 fn retry_count_zero_on_happy_path() {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let planner = PyramidPlanner::new(256, 256, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let sink = MemorySink::new();
@@ -168,7 +152,7 @@ fn retry_count_zero_on_happy_path() {
 
 #[test]
 fn queue_pressure_peak_bounded_by_concurrency() {
-    let src = gradient_raster(1024, 1024);
+    let src = canonical_raster_scaled(1024, 1024);
     let planner = PyramidPlanner::new(1024, 1024, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let sink = MemorySink::new();
@@ -200,7 +184,7 @@ fn queue_pressure_peak_bounded_by_concurrency() {
 
 #[test]
 fn memory_sink_bytes_written_matches_payload_size() {
-    let src = gradient_raster(512, 384);
+    let src = canonical_raster_scaled(512, 384);
     let planner = PyramidPlanner::new(512, 384, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let sink = MemorySink::new();
@@ -342,7 +326,7 @@ mod tracing_tests {
         libviprs::PyramidPlan,
         libviprs::EngineResult,
     ) {
-        let src = gradient_raster(w, h);
+        let src = canonical_raster_scaled(w, h);
         let planner = PyramidPlanner::new(w, h, tile_size, 0, Layout::DeepZoom).unwrap();
         let plan = planner.plan();
         let sink = MemorySink::new();
