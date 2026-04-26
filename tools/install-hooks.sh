@@ -6,6 +6,10 @@ set -euo pipefail
 #
 # Installs:
 #   pre-commit  — cargo fmt --check + cargo clippy (fast, on every commit)
+#                 Mirrors each repo's `.github/workflows/ci.yml` Check & Lint
+#                 job *exactly*, so a clean local commit means a clean remote
+#                 Check & Lint. Update the per-repo cargo command lists below
+#                 when a repo's CI matrix changes, and re-run this script.
 #   pre-push    — Docker test suite via run-tests.sh (slow, on every push)
 #
 # Usage:  ./tools/install-hooks.sh          # from libviprs-tests/
@@ -24,7 +28,123 @@ REPOS=(
     "$WORKSPACE_ROOT/libviprs-tests"
 )
 
+# ---------------------------------------------------------------------------
+# Per-repo cargo lint/check commands. Keep these in lockstep with the
+# `cargo` lines under the Check & Lint / lint-and-build jobs in each repo's
+# `.github/workflows/ci.yml`. They run in order; the first failure aborts.
+#
+# `cargo clippy` already runs `cargo check`'s work, so we don't repeat the
+# explicit `cargo check --all-targets` lines that CI also has — clippy
+# covers them.
+# ---------------------------------------------------------------------------
+
+# libviprs has both default-features and `--features pdfium` clippy passes.
+LIBVIPRS_CARGO_STEPS=(
+    "cargo clippy --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features pdfium -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+)
+
+# libviprs-cli has no `pdfium` feature; one clippy pass.
+LIBVIPRS_CLI_CARGO_STEPS=(
+    "cargo clippy --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+)
+
+# libviprs-tests CI is plainer — no incompatible_msrv / deprecated lints.
+LIBVIPRS_TESTS_CARGO_STEPS=(
+    "cargo clippy --all-targets -- -D warnings"
+)
+
+cargo_steps_for_repo() {
+    case "$1" in
+        libviprs)        printf '%s\n' "${LIBVIPRS_CARGO_STEPS[@]}" ;;
+        libviprs-cli)    printf '%s\n' "${LIBVIPRS_CLI_CARGO_STEPS[@]}" ;;
+        libviprs-tests)  printf '%s\n' "${LIBVIPRS_TESTS_CARGO_STEPS[@]}" ;;
+        *)               printf '%s\n' "cargo clippy --all-targets -- -D warnings" ;;
+    esac
+}
+
+write_pre_commit() {
+    local hooks_dir="$1"
+    local repo_name="$2"
+    local pre_commit="$hooks_dir/pre-commit"
+
+    {
+        cat << 'HEAD'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-commit hook: mirrors this repo's CI Check & Lint job exactly.
+# Installed by libviprs-tests/tools/install-hooks.sh — to update, edit
+# the script and re-run it. To skip (emergency only):
+#   git commit --no-verify
+
+echo "Running pre-commit checks (mirrors CI)..."
+
+# Format check (fast — no compilation needed).
+echo "  cargo fmt --check..."
+if ! cargo fmt -- --check; then
+    echo ""
+    echo "Formatting check failed. Run 'cargo fmt' and re-stage."
+    exit 1
+fi
+
+HEAD
+        # Emit one cargo command per CI step so a failure prints exactly
+        # which CI line it would have flunked.
+        while IFS= read -r cmd; do
+            [ -z "$cmd" ] && continue
+            cat <<HOOK
+echo "  $cmd"
+if ! $cmd; then
+    echo ""
+    echo "Failed: $cmd"
+    echo "Fix and re-stage. (This command mirrors a CI step; if it"
+    echo "passes locally the matching CI step will too.)"
+    exit 1
+fi
+
+HOOK
+        done < <(cargo_steps_for_repo "$repo_name")
+
+        echo 'echo "Pre-commit checks passed."'
+    } > "$pre_commit"
+    chmod +x "$pre_commit"
+}
+
+write_pre_push() {
+    local hooks_dir="$1"
+    local pre_push="$hooks_dir/pre-push"
+    cat > "$pre_push" << 'HOOK'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-push hook: run Docker test suite before pushing.
+# Installed by libviprs-tests/tools/install-hooks.sh
+# To skip (emergency only): git push --no-verify
+
+REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+WORKSPACE_ROOT="$(cd "$REPO_DIR/.." && pwd)"
 RUN_TESTS="$WORKSPACE_ROOT/libviprs-tests/tools/run-tests.sh"
+
+if [ ! -f "$RUN_TESTS" ]; then
+    echo "Warning: run-tests.sh not found at $RUN_TESTS"
+    echo "Skipping pre-push tests. Install libviprs-tests as a sibling directory."
+    exit 0
+fi
+
+echo "Running pre-push test suite..."
+"$RUN_TESTS"
+
+EXIT_CODE=$?
+if [ $EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo "Pre-push tests failed. Push aborted."
+    echo "Fix the failures or use: git push --no-verify"
+    exit 1
+fi
+HOOK
+    chmod +x "$pre_push"
+}
 
 installed=0
 skipped=0
@@ -39,73 +159,8 @@ for REPO_DIR in "${REPOS[@]}"; do
         continue
     fi
 
-    # --- pre-commit hook ---
-    PRE_COMMIT="$HOOKS_DIR/pre-commit"
-    cat > "$PRE_COMMIT" << 'HOOK'
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Pre-commit hook: check formatting and lint before allowing commits.
-# Installed by libviprs-tests/tools/install-hooks.sh
-# To skip (emergency only): git commit --no-verify
-
-echo "Running pre-commit checks..."
-
-# Format check (fast — no compilation needed)
-echo "  cargo fmt --check..."
-if ! cargo fmt -- --check 2>/dev/null; then
-    echo ""
-    echo "Formatting check failed. Run 'cargo fmt' and re-stage."
-    exit 1
-fi
-
-# Clippy (uses cached build artifacts, usually fast on incremental changes)
-# -D warnings: treat all warnings as errors
-# -W clippy::incompatible_msrv: flag APIs newer than the declared rust-version
-# -W deprecated: flag usage of deprecated APIs
-echo "  cargo clippy..."
-if ! cargo clippy --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated 2>/dev/null; then
-    echo ""
-    echo "Clippy check failed. Fix warnings and re-stage."
-    exit 1
-fi
-
-echo "Pre-commit checks passed."
-HOOK
-    chmod +x "$PRE_COMMIT"
-
-    # --- pre-push hook ---
-    PRE_PUSH="$HOOKS_DIR/pre-push"
-    cat > "$PRE_PUSH" << HOOK
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Pre-push hook: run Docker test suite before pushing.
-# Installed by libviprs-tests/tools/install-hooks.sh
-# To skip (emergency only): git push --no-verify
-
-REPO_DIR="\$(cd "\$(dirname "\$0")/../.." && pwd)"
-WORKSPACE_ROOT="\$(cd "\$REPO_DIR/.." && pwd)"
-RUN_TESTS="\$WORKSPACE_ROOT/libviprs-tests/tools/run-tests.sh"
-
-if [ ! -f "\$RUN_TESTS" ]; then
-    echo "Warning: run-tests.sh not found at \$RUN_TESTS"
-    echo "Skipping pre-push tests. Install libviprs-tests as a sibling directory."
-    exit 0
-fi
-
-echo "Running pre-push test suite..."
-"\$RUN_TESTS"
-
-EXIT_CODE=\$?
-if [ \$EXIT_CODE -ne 0 ]; then
-    echo ""
-    echo "Pre-push tests failed. Push aborted."
-    echo "Fix the failures or use: git push --no-verify"
-    exit 1
-fi
-HOOK
-    chmod +x "$PRE_PUSH"
+    write_pre_commit "$HOOKS_DIR" "$REPO_NAME"
+    write_pre_push "$HOOKS_DIR"
 
     echo "  done: $REPO_NAME (pre-commit + pre-push)"
     installed=$((installed + 1))
