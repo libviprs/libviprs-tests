@@ -42,6 +42,11 @@ pdfium-render = { version = "0.8", optional = true }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
 flate2 = "1"
 tempfile = "3"
+# Used by `tests/pdfium_streaming_synthetic_rotations.rs` to mutate a
+# fixture's `/Rotate` entry into a temp PDF so we can exercise rotation
+# values not present in any of our checked-in fixtures (90, 180). Keep
+# the version in lockstep with the libviprs core dep at libviprs/Cargo.toml.
+lopdf = "0.36"
 
 [dev-dependencies]
 serde_json = "1"
