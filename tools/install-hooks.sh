@@ -26,6 +26,7 @@ REPOS=(
     "$WORKSPACE_ROOT/libviprs"
     "$WORKSPACE_ROOT/libviprs-cli"
     "$WORKSPACE_ROOT/libviprs-tests"
+    "$WORKSPACE_ROOT/pdfium-render"
 )
 
 # ---------------------------------------------------------------------------
@@ -146,6 +147,144 @@ HOOK
     chmod +x "$pre_push"
 }
 
+# pdfium-render gets a different pre-commit hook because we run it as a
+# fork: upstream pdfium-render carries hundreds of pre-existing clippy
+# lints (~470 missing-safety-doc, ~22 doc-nested-refdefs, etc.), so a
+# blanket `cargo clippy -- -D warnings` would block every commit including
+# merges from upstream. The scoped variant runs clippy on the whole tree
+# but filters to lints whose primary span sits on a line *this fork has
+# actually changed* relative to its base on `upstream/master`. Net: strict
+# on lints we introduce, silent on the ambient debt we don't own.
+write_pdfium_pre_commit() {
+    local hooks_dir="$1"
+    local pre_commit="$hooks_dir/pre-commit"
+
+    cat > "$pre_commit" << 'HOOK'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-commit hook for the libviprs/pdfium-render fork.
+# Installed by libviprs-tests/tools/install-hooks.sh — to update, edit
+# the script and re-run it. To skip (emergency only):
+#   git commit --no-verify
+
+echo "Running pre-commit checks (fork-scoped)..."
+
+echo "  cargo fmt --check..."
+if ! cargo fmt -- --check; then
+    echo ""
+    echo "Formatting check failed. Run 'cargo fmt' and re-stage."
+    exit 1
+fi
+
+# Determine fork base.
+git fetch -q upstream master 2>/dev/null || true
+if git rev-parse upstream/master >/dev/null 2>&1; then
+    BASE_REF="upstream/master"
+elif git rev-parse origin/master >/dev/null 2>&1; then
+    BASE_REF="origin/master"
+else
+    echo "  warn: no upstream/master or origin/master found; skipping scoped clippy"
+    echo "Pre-commit checks passed."
+    exit 0
+fi
+BASE=$(git merge-base HEAD "$BASE_REF")
+
+echo "  cargo clippy --all-targets (scoped to fork-changed lines)..."
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  warn: python3 not on PATH; skipping scoped clippy"
+    echo "Pre-commit checks passed."
+    exit 0
+fi
+
+python3 - "$BASE" <<'PY'
+import json
+import re
+import subprocess
+import sys
+
+base = sys.argv[1]
+
+# Build {file: set(line_numbers)} for lines our branch added or changed
+# vs the fork base. `--unified=0` makes the hunk headers line up exactly
+# with added lines (no surrounding context to confuse the math).
+diff_proc = subprocess.run(
+    ["git", "diff", "--unified=0", base, "HEAD", "--", "*.rs"],
+    check=True,
+    capture_output=True,
+    text=True,
+)
+
+file_lines = {}
+current_file = None
+hunk_re = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+for line in diff_proc.stdout.splitlines():
+    if line.startswith("+++ b/"):
+        current_file = line[6:]
+    elif current_file:
+        m = hunk_re.match(line)
+        if m:
+            start = int(m.group(1))
+            cnt = int(m.group(2)) if m.group(2) is not None else 1
+            if cnt > 0:
+                file_lines.setdefault(current_file, set()).update(
+                    range(start, start + cnt)
+                )
+
+if not file_lines:
+    print("  no Rust line additions/changes vs " + base[:8] + "; skipping clippy scope check")
+    sys.exit(0)
+
+# Run clippy; consume its JSON line-stream.
+clippy_proc = subprocess.run(
+    ["cargo", "clippy", "--all-targets", "--message-format=json"],
+    capture_output=True,
+    text=True,
+)
+
+hits = []
+for line in clippy_proc.stdout.splitlines():
+    try:
+        rec = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if rec.get("reason") != "compiler-message":
+        continue
+    msg = rec.get("message") or {}
+    level = msg.get("level")
+    if level not in ("warning", "error"):
+        continue
+    for span in msg.get("spans") or []:
+        if not span.get("is_primary"):
+            continue
+        f = span.get("file_name")
+        ls = span.get("line_start")
+        le = span.get("line_end") or ls
+        owned = file_lines.get(f)
+        if owned and any(i in owned for i in range(ls, le + 1)):
+            hits.append(
+                f"  {level}: {msg.get('message','')}\n"
+                f"    --> {f}:{ls}:{span.get('column_start','?')}"
+            )
+            break
+
+if hits:
+    print("")
+    print("Clippy lints on fork-changed lines:")
+    print("\n".join(hits))
+    print("")
+    print("Fix and re-stage. (Pre-existing upstream lints on lines our fork")
+    print("hasn't touched are ignored; this hook only blocks on lints whose")
+    print("primary span sits on a line we added or changed.)")
+    sys.exit(1)
+PY
+
+echo "Pre-commit checks passed."
+HOOK
+    chmod +x "$pre_commit"
+}
+
 installed=0
 skipped=0
 
@@ -159,10 +298,19 @@ for REPO_DIR in "${REPOS[@]}"; do
         continue
     fi
 
-    write_pre_commit "$HOOKS_DIR" "$REPO_NAME"
-    write_pre_push "$HOOKS_DIR"
-
-    echo "  done: $REPO_NAME (pre-commit + pre-push)"
+    case "$REPO_NAME" in
+        pdfium-render)
+            # Heavily-rotted upstream → fork-scoped pre-commit only; no Docker
+            # pre-push (no `run-tests.sh` integration on this repo).
+            write_pdfium_pre_commit "$HOOKS_DIR"
+            echo "  done: $REPO_NAME (scoped pre-commit)"
+            ;;
+        *)
+            write_pre_commit "$HOOKS_DIR" "$REPO_NAME"
+            write_pre_push "$HOOKS_DIR"
+            echo "  done: $REPO_NAME (pre-commit + pre-push)"
+            ;;
+    esac
     installed=$((installed + 1))
 done
 
