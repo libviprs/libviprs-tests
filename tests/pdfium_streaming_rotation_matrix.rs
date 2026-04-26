@@ -22,55 +22,12 @@
 
 #![cfg(feature = "pdfium")]
 
-use libviprs::pdf::page_rotate;
+mod common;
+
+use common::{FIXTURE_BLUEPRINT, FIXTURE_MIX, FIXTURE_PORTRAIT, assert_same_region};
+use libviprs::pdf::{PageRotation, page_rotate};
 use libviprs::streaming::StripSource;
 use libviprs::{PdfiumStripSource, Raster};
-
-const FIXTURE_BLUEPRINT: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blueprint.pdf");
-const FIXTURE_PORTRAIT: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/blueprint-portrait.pdf"
-);
-const FIXTURE_MIX: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/blueprint-mix.pdf"
-);
-
-const REGION_MEAN_TOLERANCE: f64 = 2.0;
-
-fn channel_means(data: &[u8]) -> [f64; 4] {
-    let mut sums = [0u64; 4];
-    let pixels = data.len() / 4;
-    for chunk in data.chunks_exact(4) {
-        for i in 0..4 {
-            sums[i] += chunk[i] as u64;
-        }
-    }
-    let n = pixels.max(1) as f64;
-    [
-        sums[0] as f64 / n,
-        sums[1] as f64 / n,
-        sums[2] as f64 / n,
-        sums[3] as f64 / n,
-    ]
-}
-
-fn assert_same_region(label: &str, actual: &[u8], reference: &[u8]) {
-    assert_eq!(
-        actual.len(),
-        reference.len(),
-        "{label}: byte-length mismatch"
-    );
-    let a = channel_means(actual);
-    let b = channel_means(reference);
-    let max = (0..4).map(|i| (a[i] - b[i]).abs()).fold(0.0_f64, f64::max);
-    assert!(
-        max <= REGION_MEAN_TOLERANCE,
-        "{label}: per-channel mean drift {max:.3} > {REGION_MEAN_TOLERANCE:.3} \
-         (actual={a:?}, reference={b:?})"
-    );
-}
 
 fn full_render(fixture: &str, dpi: u32) -> Raster {
     let source = PdfiumStripSource::new_streaming(fixture, 1, dpi).unwrap();
@@ -101,17 +58,17 @@ fn case(label: &str, fixture: &str, dpi: u32, y: u32, h: u32) {
 fn fixtures_have_expected_rotations() {
     assert_eq!(
         page_rotate(std::path::Path::new(FIXTURE_PORTRAIT), 1).unwrap(),
-        0,
+        PageRotation::Zero,
         "blueprint-portrait should be /Rotate 0"
     );
     assert_eq!(
         page_rotate(std::path::Path::new(FIXTURE_BLUEPRINT), 1).unwrap(),
-        270,
+        PageRotation::ThreeQuarter,
         "blueprint should be /Rotate 270"
     );
     assert_eq!(
         page_rotate(std::path::Path::new(FIXTURE_MIX), 1).unwrap(),
-        270,
+        PageRotation::ThreeQuarter,
         "blueprint-mix page 1 should be /Rotate 270"
     );
 }
