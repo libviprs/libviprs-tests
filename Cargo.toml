@@ -43,8 +43,11 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 flate2 = "1"
 tempfile = "3"
 # Used by `tests/gen_canonicals.rs` (the offline canonical-fixture
-# generator) and by tests that introspect PDF object graphs. Keep the
-# version in lockstep with the libviprs core dep at libviprs/Cargo.toml.
+# generator), by tests that introspect PDF object graphs, and by
+# `tests/pdfium_streaming_synthetic_rotations.rs` to mutate a fixture's
+# `/Rotate` entry into a temp PDF for rotation values not in our
+# checked-in fixtures. Keep the version in lockstep with the libviprs
+# core dep at libviprs/Cargo.toml.
 lopdf = "0.36"
 
 [dev-dependencies]
