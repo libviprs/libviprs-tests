@@ -113,9 +113,10 @@ fn synth_rotated_fixture(source: &str, rotation: i64) -> tempfile::TempPath {
     let path = tmp.into_temp_path();
     doc.save(&path).expect("save mutated pdf");
     let actual_rotate = page_rotate(Path::new(&*path), 1).expect("re-read /Rotate");
+    let actual_degrees = actual_rotate.as_degrees();
     assert_eq!(
-        actual_rotate, rotation,
-        "synth fixture round-trip /Rotate mismatch: wrote {rotation}, read {actual_rotate}"
+        actual_degrees, rotation,
+        "synth fixture round-trip /Rotate mismatch: wrote {rotation}, read {actual_degrees}"
     );
     path
 }

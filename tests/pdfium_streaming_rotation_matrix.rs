@@ -22,7 +22,7 @@
 
 #![cfg(feature = "pdfium")]
 
-use libviprs::pdf::page_rotate;
+use libviprs::pdf::{PageRotation, page_rotate};
 use libviprs::streaming::StripSource;
 use libviprs::{PdfiumStripSource, Raster};
 
@@ -101,17 +101,17 @@ fn case(label: &str, fixture: &str, dpi: u32, y: u32, h: u32) {
 fn fixtures_have_expected_rotations() {
     assert_eq!(
         page_rotate(std::path::Path::new(FIXTURE_PORTRAIT), 1).unwrap(),
-        0,
+        PageRotation::Zero,
         "blueprint-portrait should be /Rotate 0"
     );
     assert_eq!(
         page_rotate(std::path::Path::new(FIXTURE_BLUEPRINT), 1).unwrap(),
-        270,
+        PageRotation::ThreeQuarter,
         "blueprint should be /Rotate 270"
     );
     assert_eq!(
         page_rotate(std::path::Path::new(FIXTURE_MIX), 1).unwrap(),
-        270,
+        PageRotation::ThreeQuarter,
         "blueprint-mix page 1 should be /Rotate 270"
     );
 }
