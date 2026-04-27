@@ -38,32 +38,12 @@ use libviprs::{
     Layout, MemorySink, PixelFormat, PyramidPlanner, Raster, RasterStripSource,
 };
 
+mod common;
+use common::fixtures::{canonical_raster_scaled, canonical_solid};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Create a synthetic gradient raster with unique pixel values that exercise
-/// the downscale averaging. The R channel varies with x, G with y, and B
-/// with a prime-weighted combination that avoids repetitive patterns.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8; // R: horizontal gradient
-            data[off + 1] = (y % 256) as u8; // G: vertical gradient
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8; // B: mixed
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
-
-/// Create a uniform solid-colour raster for blank-tile testing.
-fn solid_raster(w: u32, h: u32, val: u8) -> Raster {
-    let data = vec![val; w as usize * h as usize * 3];
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
 
 /// Run monolithic engine and return sorted tiles.
 fn monolithic_tiles(
@@ -156,7 +136,7 @@ fn assert_tiles_match(
 
 #[test]
 fn streaming_parity_deepzoom_512x384() {
-    let src = gradient_raster(512, 384);
+    let src = canonical_raster_scaled(512, 384);
     let planner = PyramidPlanner::new(512, 384, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -167,7 +147,7 @@ fn streaming_parity_deepzoom_512x384() {
 
 #[test]
 fn streaming_parity_deepzoom_300x200() {
-    let src = gradient_raster(300, 200);
+    let src = canonical_raster_scaled(300, 200);
     let planner = PyramidPlanner::new(300, 200, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -181,7 +161,7 @@ fn streaming_parity_deepzoom_300x200() {
 fn streaming_parity_deepzoom_odd_dimensions() {
     // Non-power-of-2 sizes that stress edge handling
     for (w, h) in [(500, 300), (1023, 769), (257, 129)] {
-        let src = gradient_raster(w, h);
+        let src = canonical_raster_scaled(w, h);
         let planner = PyramidPlanner::new(w, h, 256, 0, Layout::DeepZoom).unwrap();
         let plan = planner.plan();
 
@@ -203,7 +183,7 @@ fn streaming_parity_deepzoom_odd_dimensions() {
 
 #[test]
 fn auto_selects_monolithic_for_large_budget() {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let planner = PyramidPlanner::new(256, 256, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -223,7 +203,7 @@ fn auto_selects_monolithic_for_large_budget() {
 
 #[test]
 fn auto_selects_streaming_for_tiny_budget() {
-    let src = gradient_raster(512, 512);
+    let src = canonical_raster_scaled(512, 512);
     let planner = PyramidPlanner::new(512, 512, 256, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -239,7 +219,7 @@ fn auto_selects_streaming_for_tiny_budget() {
 
 #[test]
 fn streaming_deterministic_across_tile_sizes() {
-    let src = gradient_raster(300, 200);
+    let src = canonical_raster_scaled(300, 200);
 
     for tile_size in [64, 128, 256] {
         let planner = PyramidPlanner::new(300, 200, tile_size, 0, Layout::DeepZoom).unwrap();
@@ -259,7 +239,7 @@ fn streaming_deterministic_across_tile_sizes() {
 
 #[test]
 fn streaming_parity_google_centre_small() {
-    let src = gradient_raster(400, 300);
+    let src = canonical_raster_scaled(400, 300);
     let planner = PyramidPlanner::new(400, 300, 256, 0, Layout::Google)
         .unwrap()
         .with_centre(true);
@@ -274,7 +254,7 @@ fn streaming_parity_google_centre_small() {
 
 #[test]
 fn streaming_parity_google_no_centre() {
-    let src = gradient_raster(500, 300);
+    let src = canonical_raster_scaled(500, 300);
     let planner = PyramidPlanner::new(500, 300, 256, 0, Layout::Google).unwrap();
     let plan = planner.plan();
 
@@ -291,7 +271,7 @@ fn streaming_parity_google_no_centre() {
 
 #[test]
 fn streaming_observer_events() {
-    let src = gradient_raster(512, 384);
+    let src = canonical_raster_scaled(512, 384);
     let planner = PyramidPlanner::new(512, 384, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let sink = MemorySink::new();
@@ -334,7 +314,7 @@ fn streaming_observer_events() {
 
 #[test]
 fn streaming_blank_tile_placeholder_solid_white() {
-    let src = solid_raster(128, 128, 255);
+    let src = canonical_solid(128, 128, 255);
     let planner = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -367,7 +347,7 @@ fn streaming_blank_tile_placeholder_solid_white() {
 
 #[test]
 fn streaming_blank_tile_placeholder_gradient() {
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let planner = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -394,7 +374,7 @@ fn streaming_blank_tile_placeholder_gradient() {
 
 #[test]
 fn streaming_peak_memory_lower_than_monolithic() {
-    let src = gradient_raster(2048, 2048);
+    let src = canonical_raster_scaled(2048, 2048);
     let planner = PyramidPlanner::new(2048, 2048, 256, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -466,7 +446,7 @@ fn streaming_memory_savings_scale_with_image_size() {
     let mut results: Vec<(u32, u32, u64, u64)> = Vec::new();
 
     for &(w, h) in cases {
-        let src = gradient_raster(w, h);
+        let src = canonical_raster_scaled(w, h);
         let planner = PyramidPlanner::new(w, h, 256, 0, Layout::DeepZoom).unwrap();
         let plan = planner.plan();
 

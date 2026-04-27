@@ -52,25 +52,12 @@ use libviprs::{
     PixelFormat, PyramidPlan, PyramidPlanner, Raster, RasterStripSource, TileFormat,
 };
 
+mod common;
+use common::fixtures::canonical_raster_scaled;
+
 // ---------------------------------------------------------------------------
 // Fixture helpers
 // ---------------------------------------------------------------------------
-
-/// Deterministic RGB gradient raster. Same generator used throughout the
-/// existing Phase 3 test suite so fixtures are directly comparable.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + y) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
 
 /// Uniform white raster — exercises the `DedupeStrategy::Blanks` path because
 /// every level of the pyramid collapses to a single repeated blank tile.
@@ -177,7 +164,7 @@ fn make_packfile(
 fn tar_sink_produces_valid_archive() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("output.tar");
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let plan = make_plan(256, 256, 128);
 
     let sink = make_packfile(
@@ -211,7 +198,7 @@ fn tar_sink_produces_valid_archive() {
 fn tarball_contains_manifest_json() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("output.tar");
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = make_plan(128, 128, 64);
 
     let sink = make_packfile(
@@ -240,7 +227,7 @@ fn tarball_contains_manifest_json() {
 fn tarball_contains_dzi_xml_for_deepzoom_layout() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("pyramid.tar");
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = make_plan(128, 128, 64);
 
     let sink = make_packfile(
@@ -269,7 +256,7 @@ fn tarball_contains_dzi_xml_for_deepzoom_layout() {
 fn targz_is_valid_gzip() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("output.tar.gz");
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = make_plan(128, 128, 64);
 
     let sink = make_packfile(
@@ -301,7 +288,7 @@ fn targz_is_valid_gzip() {
 fn zip_sink_produces_valid_archive() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("output.zip");
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = make_plan(128, 128, 64);
 
     let sink = make_packfile(
@@ -351,7 +338,7 @@ fn zip_sink_produces_valid_archive() {
 fn archive_tile_paths_match_layout() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("layout.tar");
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = make_plan(256, 192, 64);
 
     let sink = make_packfile(
@@ -394,7 +381,7 @@ fn archive_tile_paths_match_layout() {
 ///    the same inputs (same plan, same `TileFormat`, same engine config).
 #[test]
 fn archive_extraction_produces_identical_fs_output() {
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = make_plan(256, 192, 64);
 
     // Run 1: FsSink directly.
@@ -518,7 +505,7 @@ fn packfile_streaming_memory_bounded() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("big.tar");
 
-    let src = gradient_raster(2048, 2048);
+    let src = canonical_raster_scaled(2048, 2048);
     let plan = make_plan(2048, 2048, 256);
 
     let budget: u64 = 2_000_000; // 2 MB

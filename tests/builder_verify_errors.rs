@@ -26,9 +26,12 @@ use libviprs::manifest::ManifestBuilder;
 use libviprs::resume::JobMetadata;
 use libviprs::sink::{FsSink, MemorySink, TileFormat};
 use libviprs::{
-    EngineBuilder, EngineError, EngineKind, Layout, PixelFormat, PyramidPlan, PyramidPlanner,
-    Raster, ResumePolicy, SinkError, TileCoord,
+    EngineBuilder, EngineError, EngineKind, Layout, PyramidPlan, PyramidPlanner, Raster,
+    ResumePolicy, SinkError, TileCoord,
 };
+
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -47,22 +50,6 @@ const VERIFY_KINDS: &[EngineKind] = &[
     EngineKind::Streaming,
     EngineKind::MapReduce,
 ];
-
-/// Deterministic synthetic raster so regenerated tiles are byte-identical
-/// between the seeding run and the Verify re-run.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
 
 /// Small plan: enough tiles to matter, but the tests are cheap to run.
 fn small_plan(w: u32, h: u32, tile_size: u32) -> PyramidPlan {
@@ -150,7 +137,7 @@ fn verify_missing_tile_returns_sink_other_error() {
     for kind in VERIFY_KINDS.iter().copied() {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path().join("tiles");
-        let src = gradient_raster(128, 128);
+        let src = canonical_raster_scaled(128, 128);
         let plan = small_plan(128, 128, 64);
 
         seed_raw_pyramid(&base, &src, &plan);
@@ -194,7 +181,7 @@ fn verify_corrupt_raw_tile_returns_checksum_mismatch() {
     for kind in VERIFY_KINDS.iter().copied() {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path().join("tiles");
-        let src = gradient_raster(128, 128);
+        let src = canonical_raster_scaled(128, 128);
         let plan = small_plan(128, 128, 64);
 
         seed_raw_pyramid(&base, &src, &plan);
@@ -241,7 +228,7 @@ fn verify_plan_hash_mismatch_returns_typed_error() {
     for kind in VERIFY_KINDS.iter().copied() {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path().join("tiles");
-        let src = gradient_raster(128, 128);
+        let src = canonical_raster_scaled(128, 128);
         let plan = small_plan(128, 128, 64);
 
         seed_raw_pyramid(&base, &src, &plan);
@@ -277,7 +264,7 @@ fn verify_manifest_checksum_mismatch_returns_typed_error() {
     for kind in VERIFY_KINDS.iter().copied() {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path().join("pyramid");
-        let src = gradient_raster(128, 128);
+        let src = canonical_raster_scaled(128, 128);
         let plan = small_plan(128, 128, 64);
 
         seed_raw_pyramid_with_checksums(&base, &src, &plan);
@@ -320,7 +307,7 @@ fn verify_manifest_checksum_mismatch_returns_typed_error() {
 #[test]
 fn verify_no_checkpoint_root_returns_typed_error() {
     for kind in VERIFY_KINDS.iter().copied() {
-        let src = gradient_raster(64, 64);
+        let src = canonical_raster_scaled(64, 64);
         let plan = small_plan(64, 64, 32);
 
         // MemorySink returns `None` from `checkpoint_root`, and we pass no
@@ -351,7 +338,7 @@ fn verify_empty_directory_returns_missing_tile() {
         let base = dir.path().join("tiles");
         std::fs::create_dir_all(&base).unwrap();
 
-        let src = gradient_raster(128, 128);
+        let src = canonical_raster_scaled(128, 128);
         let plan = small_plan(128, 128, 64);
 
         // No seeding — the directory exists but is empty.

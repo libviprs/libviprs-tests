@@ -1,27 +1,15 @@
 use std::sync::Arc;
 
 use libviprs::{
-    CollectingObserver, EngineBuilder, EngineEvent, EngineKind, Layout, MemorySink, PixelFormat,
-    PyramidPlanner, Raster,
+    CollectingObserver, EngineBuilder, EngineEvent, EngineKind, Layout, MemorySink, PyramidPlanner,
 };
 
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + y) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 #[test]
 fn progress_events_match_tile_count() {
-    let src = gradient_raster(512, 384);
+    let src = canonical_raster_scaled(512, 384);
     let planner = PyramidPlanner::new(512, 384, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let obs = Arc::new(CollectingObserver::new());
@@ -62,7 +50,7 @@ fn progress_events_match_tile_count() {
 
 #[test]
 fn level_started_before_tile_completed() {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let planner = PyramidPlanner::new(256, 256, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let obs = Arc::new(CollectingObserver::new());
@@ -101,7 +89,7 @@ fn level_started_before_tile_completed() {
 
 #[test]
 fn level_completed_tiles_match_actual() {
-    let src = gradient_raster(300, 200);
+    let src = canonical_raster_scaled(300, 200);
     let planner = PyramidPlanner::new(300, 200, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
     let obs = Arc::new(CollectingObserver::new());
@@ -135,7 +123,7 @@ fn level_completed_tiles_match_actual() {
 
 #[test]
 fn peak_memory_bounded_for_medium_image() {
-    let src = gradient_raster(2048, 2048);
+    let src = canonical_raster_scaled(2048, 2048);
     let planner = PyramidPlanner::new(2048, 2048, 256, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
