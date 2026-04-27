@@ -31,30 +31,16 @@ use std::path::PathBuf;
 use libviprs::sink::{FsSink, TileFormat};
 use libviprs::streaming::RasterStripSource;
 use libviprs::{
-    EngineBuilder, EngineError, EngineKind, Layout, PixelFormat, PyramidPlan, PyramidPlanner,
-    Raster, ResumePolicy,
+    EngineBuilder, EngineError, EngineKind, Layout, PyramidPlan, PyramidPlanner, Raster,
+    ResumePolicy,
 };
+
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
 // ---------------------------------------------------------------------------
-
-/// A small 128x96 RGB8 gradient. Kept deliberately small so the 18-cell
-/// matrix stays fast; every Verify cell has to seed a pyramid first, so the
-/// test binary effectively runs each Overwrite case twice.
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
 
 /// Default plan used by every cell. 128x96 at 64-tile size under DeepZoom
 /// layout yields a multi-level pyramid with a non-trivial tile count.
@@ -93,7 +79,7 @@ fn seed_pyramid(base: &PathBuf, plan: &PyramidPlan, src: &Raster) {
 #[test]
 fn monolithic_overwrite_with_raster_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
     let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
 
     let result = EngineBuilder::new(&src, plan.clone(), &sink)
@@ -109,7 +95,7 @@ fn monolithic_overwrite_with_raster_source() {
 #[test]
 fn monolithic_resume_with_raster_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
 
     // Seed a checkpoint with a fresh Overwrite run so Resume has something
     // to pick up from.
@@ -133,7 +119,7 @@ fn monolithic_resume_with_raster_source() {
 #[test]
 fn monolithic_verify_with_raster_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
 
     seed_pyramid(&base, &plan, &src);
 
@@ -152,7 +138,7 @@ fn monolithic_verify_with_raster_source() {
 #[test]
 fn monolithic_overwrite_with_strip_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
     let strip = RasterStripSource::new(&src);
     let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
 
@@ -172,7 +158,7 @@ fn monolithic_overwrite_with_strip_source() {
 #[test]
 fn monolithic_resume_with_strip_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
     let strip = RasterStripSource::new(&src);
     let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
 
@@ -190,7 +176,7 @@ fn monolithic_resume_with_strip_source() {
 #[test]
 fn monolithic_verify_with_strip_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
     let strip = RasterStripSource::new(&src);
     let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
 
@@ -212,7 +198,7 @@ fn monolithic_verify_with_strip_source() {
 #[test]
 fn streaming_overwrite_with_raster_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
     let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
 
     let result = EngineBuilder::new(&src, plan.clone(), &sink)
@@ -228,7 +214,7 @@ fn streaming_overwrite_with_raster_source() {
 #[test]
 fn streaming_resume_with_raster_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
 
     seed_pyramid(&base, &plan, &src);
 
@@ -246,7 +232,7 @@ fn streaming_resume_with_raster_source() {
 fn streaming_verify_with_raster_source() {
     // New cell — unlocks once the stream-verify implementation lands.
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
 
     seed_pyramid(&base, &plan, &src);
 
@@ -263,7 +249,7 @@ fn streaming_verify_with_raster_source() {
 #[test]
 fn streaming_overwrite_with_strip_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
     let strip = RasterStripSource::new(&src);
     let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
 
@@ -280,7 +266,7 @@ fn streaming_overwrite_with_strip_source() {
 #[test]
 fn streaming_resume_with_strip_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
 
     seed_pyramid(&base, &plan, &src);
 
@@ -299,7 +285,7 @@ fn streaming_resume_with_strip_source() {
 fn streaming_verify_with_strip_source() {
     // New cell — unlocks once the stream-verify implementation lands.
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
 
     seed_pyramid(&base, &plan, &src);
 
@@ -321,7 +307,7 @@ fn streaming_verify_with_strip_source() {
 #[test]
 fn mapreduce_overwrite_with_raster_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
     let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
 
     let result = EngineBuilder::new(&src, plan.clone(), &sink)
@@ -337,7 +323,7 @@ fn mapreduce_overwrite_with_raster_source() {
 #[test]
 fn mapreduce_resume_with_raster_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
 
     seed_pyramid(&base, &plan, &src);
 
@@ -355,7 +341,7 @@ fn mapreduce_resume_with_raster_source() {
 fn mapreduce_verify_with_raster_source() {
     // New cell — unlocks once the stream-verify implementation lands.
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
 
     seed_pyramid(&base, &plan, &src);
 
@@ -372,7 +358,7 @@ fn mapreduce_verify_with_raster_source() {
 #[test]
 fn mapreduce_overwrite_with_strip_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
     let strip = RasterStripSource::new(&src);
     let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
 
@@ -389,7 +375,7 @@ fn mapreduce_overwrite_with_strip_source() {
 #[test]
 fn mapreduce_resume_with_strip_source() {
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
 
     seed_pyramid(&base, &plan, &src);
 
@@ -408,7 +394,7 @@ fn mapreduce_resume_with_strip_source() {
 fn mapreduce_verify_with_strip_source() {
     // New cell — unlocks once the stream-verify implementation lands.
     let (_dir, base, plan) = fresh_directory();
-    let src = gradient_raster(128, 96);
+    let src = canonical_raster_scaled(128, 96);
 
     seed_pyramid(&base, &plan, &src);
 

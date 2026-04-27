@@ -17,23 +17,10 @@
 
 use libviprs::sink::{CollectedTile, MemorySink, TileSink};
 use libviprs::streaming::RasterStripSource;
-use libviprs::{
-    EngineBuilder, EngineError, EngineKind, Layout, PixelFormat, PyramidPlanner, Raster,
-};
+use libviprs::{EngineBuilder, EngineError, EngineKind, Layout, PyramidPlanner, Raster};
 
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + 2 * y) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 fn sorted(sink: &MemorySink) -> Vec<CollectedTile> {
     let mut t = sink.tiles();
@@ -55,7 +42,7 @@ fn assert_same_tiles(a: &[CollectedTile], b: &[CollectedTile]) {
 
 #[test]
 fn auto_engine_with_raster_source_runs() {
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -70,7 +57,7 @@ fn auto_engine_with_raster_source_runs() {
 
 #[test]
 fn auto_engine_with_strip_source_runs() {
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let strip = RasterStripSource::new(&src);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
@@ -86,7 +73,7 @@ fn auto_engine_with_strip_source_runs() {
 
 #[test]
 fn monolithic_engine_with_raster_source_runs() {
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -104,7 +91,7 @@ fn monolithic_engine_with_strip_source_errors() {
     // Monolithic requires the full raster in memory. A strip source doesn't
     // provide that — builder surfaces an error instead of silently pulling
     // the whole source into a raster.
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let strip = RasterStripSource::new(&src);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
@@ -122,7 +109,7 @@ fn monolithic_engine_with_strip_source_errors() {
 
 #[test]
 fn streaming_engine_with_raster_source_auto_wraps() {
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -137,7 +124,7 @@ fn streaming_engine_with_raster_source_auto_wraps() {
 
 #[test]
 fn mapreduce_engine_with_raster_source_auto_wraps() {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let plan = PyramidPlanner::new(256, 256, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -152,7 +139,7 @@ fn mapreduce_engine_with_raster_source_auto_wraps() {
 
 #[test]
 fn mapreduce_engine_with_strip_source_runs() {
-    let src = gradient_raster(256, 256);
+    let src = canonical_raster_scaled(256, 256);
     let strip = RasterStripSource::new(&src);
     let plan = PyramidPlanner::new(256, 256, 64, 0, Layout::DeepZoom)
         .unwrap()
@@ -175,7 +162,7 @@ fn mapreduce_engine_with_strip_source_runs() {
 
 #[test]
 fn mapreduce_strip_agrees_with_streaming_strip() {
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -199,7 +186,7 @@ fn mapreduce_strip_agrees_with_streaming_strip() {
 
 #[test]
 fn mapreduce_raster_agrees_with_monolithic_raster() {
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();

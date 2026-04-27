@@ -19,21 +19,10 @@
 #![allow(unused_imports)]
 
 use libviprs::sink::{CollectedTile, MemorySink, TileFormat, TileSink};
-use libviprs::{EngineBuilder, EngineConfig, Layout, PixelFormat, PyramidPlanner, Raster};
+use libviprs::{EngineBuilder, EngineConfig, Layout, PyramidPlanner, Raster};
 
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 fn sorted_tiles(sink: &MemorySink) -> Vec<CollectedTile> {
     let mut t = sink.tiles();
@@ -57,7 +46,7 @@ fn same_tiles(a: &[CollectedTile], b: &[CollectedTile]) {
 
 #[test]
 fn builder_new_accepts_raster_plan_sink() {
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -68,7 +57,7 @@ fn builder_new_accepts_raster_plan_sink() {
 
 #[test]
 fn builder_run_produces_expected_tile_count() {
-    let src = gradient_raster(256, 192);
+    let src = canonical_raster_scaled(256, 192);
     let plan = PyramidPlanner::new(256, 192, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -83,7 +72,7 @@ fn builder_run_produces_expected_tile_count() {
 
 #[test]
 fn builder_run_returns_sink_or_result_handle() {
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -98,7 +87,7 @@ fn builder_run_returns_sink_or_result_handle() {
 
 #[test]
 fn builder_honours_with_concurrency() {
-    let src = gradient_raster(200, 200);
+    let src = canonical_raster_scaled(200, 200);
     let plan = PyramidPlanner::new(200, 200, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -117,7 +106,7 @@ fn builder_honours_with_concurrency() {
 
 #[test]
 fn builder_honours_with_buffer_size() {
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -134,7 +123,7 @@ fn builder_honours_with_buffer_size() {
 #[test]
 fn builder_honours_with_background_rgb() {
     // Smaller-than-tile image forces padding; background_rgb colours the pad.
-    let src = gradient_raster(50, 50);
+    let src = canonical_raster_scaled(50, 50);
     let plan = PyramidPlanner::new(50, 50, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -160,7 +149,7 @@ fn builder_honours_with_background_rgb() {
 #[test]
 fn builder_produces_expected_count_across_layouts() {
     for layout in [Layout::DeepZoom, Layout::Xyz, Layout::Google] {
-        let src = gradient_raster(128, 96);
+        let src = canonical_raster_scaled(128, 96);
         let plan = PyramidPlanner::new(128, 96, 64, 0, layout).unwrap().plan();
         let expected = plan.total_tile_count();
 
@@ -175,7 +164,7 @@ fn builder_produces_expected_count_across_layouts() {
 fn builder_produces_expected_count_with_centre() {
     // --centre changes canvas shape; builder must route the plan through
     // unchanged. Assert tile count matches plan, not the un-centered count.
-    let src = gradient_raster(100, 70);
+    let src = canonical_raster_scaled(100, 70);
     let plan = PyramidPlanner::new(100, 70, 64, 0, Layout::Google)
         .unwrap()
         .with_centre(true)
@@ -193,7 +182,7 @@ fn builder_produces_expected_count_with_centre() {
 fn builder_boxed_sink_is_usable() {
     // Supports `EngineBuilder<Box<dyn TileSink>>` so match-arms returning
     // different concrete sinks can be unified at the call site.
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -205,7 +194,7 @@ fn builder_boxed_sink_is_usable() {
 
 #[test]
 fn builder_implements_debug() {
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();

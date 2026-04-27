@@ -12,21 +12,10 @@ use libviprs::checksum::{ChecksumAlgo, ChecksumMode};
 use libviprs::dedupe::DedupeStrategy;
 use libviprs::manifest::ManifestBuilder;
 use libviprs::sink::{FsSink, TileFormat, TileSink};
-use libviprs::{EngineBuilder, EngineConfig, Layout, PixelFormat, PyramidPlanner, Raster};
+use libviprs::{EngineBuilder, EngineConfig, Layout, PyramidPlanner};
 
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + y) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 fn count_files(dir: &std::path::Path, ext: &str) -> usize {
     let mut n = 0;
@@ -46,7 +35,7 @@ fn count_files(dir: &std::path::Path, ext: &str) -> usize {
 #[test]
 fn two_arg_new_defaults_to_png() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -61,7 +50,7 @@ fn two_arg_new_defaults_to_png() {
 #[test]
 fn with_format_overrides_default() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -79,7 +68,7 @@ fn with_format_overrides_default() {
 #[test]
 fn raw_format_via_builder() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -96,7 +85,7 @@ fn raw_format_via_builder() {
 #[test]
 fn compose_format_and_dedupe() {
     let dir = tempfile::tempdir().unwrap();
-    let _src = gradient_raster(128, 128);
+    let _src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -123,7 +112,7 @@ fn compose_format_checksums_manifest_resume() {
 #[test]
 fn builder_methods_are_order_insensitive_for_orthogonal_knobs() {
     let dir = tempfile::tempdir().unwrap();
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();

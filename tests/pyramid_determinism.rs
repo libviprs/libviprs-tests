@@ -1,26 +1,12 @@
-use libviprs::{
-    EngineBuilder, EngineConfig, EngineKind, Layout, MemorySink, PixelFormat, PyramidPlanner,
-    Raster,
-};
+use libviprs::{EngineBuilder, EngineConfig, EngineKind, Layout, MemorySink, PyramidPlanner};
 
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x * 7 + y * 13) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 /// Mirrors libvips' test_threading.sh: verify output is identical at concurrency 1..N.
 #[test]
 fn deterministic_across_concurrency_levels() {
-    let src = gradient_raster(512, 384);
+    let src = canonical_raster_scaled(512, 384);
     let planner = PyramidPlanner::new(512, 384, 128, 0, Layout::DeepZoom).unwrap();
     let plan = planner.plan();
 
@@ -66,7 +52,7 @@ fn deterministic_across_concurrency_levels() {
 /// Verify different tile sizes produce correct tile counts.
 #[test]
 fn deterministic_across_tile_sizes() {
-    let src = gradient_raster(300, 200);
+    let src = canonical_raster_scaled(300, 200);
 
     for tile_size in [64, 128, 256] {
         let planner = PyramidPlanner::new(300, 200, tile_size, 0, Layout::DeepZoom).unwrap();

@@ -23,21 +23,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use libviprs::planner::TileCoord;
 use libviprs::sink::{SinkError, Tile, TileSink};
-use libviprs::{EngineBuilder, Layout, PixelFormat, PyramidPlanner, Raster};
+use libviprs::{EngineBuilder, Layout, PyramidPlanner};
 
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + y) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 /// Absolute-minimum third-party sink — the goal is to prove the trait
 /// surface an external implementer must supply is just `write_tile`.
@@ -75,7 +64,7 @@ impl TileSink for ToySink {
 
 #[test]
 fn toy_sink_accepted_by_builder() {
-    let src = gradient_raster(128, 128);
+    let src = canonical_raster_scaled(128, 128);
     let plan = PyramidPlanner::new(128, 128, 64, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -96,7 +85,7 @@ fn toy_sink_accepted_by_builder() {
 fn boxed_third_party_sink_is_usable() {
     // A Box<dyn TileSink> holding any external sink must round-trip through
     // the builder the same way MemorySink does.
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -118,7 +107,7 @@ fn match_returning_different_sinks_works_through_box() {
         _ => unreachable!(),
     };
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();

@@ -15,23 +15,10 @@ use libviprs::engine::BlankTileStrategy;
 use libviprs::manifest::ChecksumAlgo;
 use libviprs::retry::{FailurePolicy, RetryPolicy};
 use libviprs::sink::{FsSink, MemorySink, TileFormat};
-use libviprs::{
-    EngineBuilder, EngineKind, Layout, PixelFormat, PyramidPlanner, Raster, ResumePolicy,
-};
+use libviprs::{EngineBuilder, EngineKind, Layout, PyramidPlanner, ResumePolicy};
 
-fn gradient_raster(w: u32, h: u32) -> Raster {
-    let bpp = PixelFormat::Rgb8.bytes_per_pixel();
-    let mut data = vec![0u8; w as usize * h as usize * bpp];
-    for y in 0..h {
-        for x in 0..w {
-            let off = (y as usize * w as usize + x as usize) * bpp;
-            data[off] = (x % 256) as u8;
-            data[off + 1] = (y % 256) as u8;
-            data[off + 2] = ((x + y) % 256) as u8;
-        }
-    }
-    Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
-}
+mod common;
+use common::fixtures::canonical_raster_scaled;
 
 enum Mode {
     Fast,
@@ -48,7 +35,7 @@ fn retry_through_match() {
         Mode::Audit => RetryPolicy::default().with_max(10).with_jitter(false),
     };
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -67,7 +54,7 @@ fn resume_through_match() {
         Mode::Audit => ResumePolicy::verify(),
     };
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -86,7 +73,7 @@ fn failure_policy_through_match() {
         Mode::Audit => FailurePolicy::RetryThenSkip(RetryPolicy::default().with_max(10)),
     };
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -104,7 +91,7 @@ fn engine_kind_through_match() {
         false => EngineKind::Streaming,
     };
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -121,7 +108,7 @@ fn dedupe_through_match() {
         None => DedupeStrategy::Blanks,
     };
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -141,7 +128,7 @@ fn blank_strategy_through_match() {
         },
     };
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
@@ -169,6 +156,6 @@ fn boxed_sink_through_match() {
         _ => unreachable!(),
     };
 
-    let src = gradient_raster(64, 64);
+    let src = canonical_raster_scaled(64, 64);
     EngineBuilder::new(&src, plan, sink).run().unwrap();
 }
