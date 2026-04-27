@@ -42,8 +42,11 @@
 //! this first pass when the existing canonical set already covers
 //! the highest-traffic invariant tests.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use flate2::Compression;
+use flate2::write::ZlibEncoder;
 use lopdf::{Document, Object, ObjectId, Stream, dictionary};
 
 const A4_W_PT: f32 = 595.0;
@@ -62,6 +65,28 @@ fn generate_canonical_fixtures() {
     write_canonical_pdf(&dir.join("canonical_rotated_90.pdf"), Rotate::Quarter);
     write_canonical_pdf(&dir.join("canonical_rotated_180.pdf"), Rotate::Half);
     write_solid_white_pdf(&dir.join("canonical_solid_white.pdf"));
+
+    // CMYK fixtures consumed by `tests/pdf_cmyk.rs`. Each PDF embeds a
+    // single DeviceCMYK FlateDecode image XObject of the requested dims;
+    // the test extracts the image and asserts the CMYK→RGB conversion.
+    write_cmyk_pdf(
+        &dir.join("canonical_cmyk.pdf"),
+        16,
+        16,
+        cmyk_gradient_bytes(16, 16),
+    );
+    write_cmyk_pdf(
+        &dir.join("canonical_cmyk_black_1x1.pdf"),
+        1,
+        1,
+        vec![0, 0, 0, 255],
+    );
+    write_cmyk_pdf(
+        &dir.join("canonical_cmyk_cyan_1x1.pdf"),
+        1,
+        1,
+        vec![255, 0, 0, 0],
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -254,4 +279,155 @@ fn resolve<'a>(doc: &'a Document, obj: &'a Object) -> Result<&'a Object, lopdf::
         Object::Reference(id) => doc.get_object(*id),
         other => Ok(other),
     }
+}
+
+// ---------------------------------------------------------------------------
+// CMYK image fixtures — drive the libviprs CMYK → RGB extraction path
+// (`extract_page_image`) tested in `tests/pdf_cmyk.rs`. Each file is a
+// single-page PDF containing one DeviceCMYK FlateDecode image XObject in
+// `/Resources/XObject/Im0`; there is no `/Contents` stream because
+// `extract_page_image` pulls the embedded image directly rather than
+// rendering the page.
+// ---------------------------------------------------------------------------
+
+/// Reproduce the gradient pattern that `pdf_cmyk.rs` historically built
+/// inline, so the migrated test sees the same bytes coming out the other
+/// end of the CMYK → RGB conversion: C ramps with x, M ramps with y, Y
+/// ramps with x+y, K stays zero.
+fn cmyk_gradient_bytes(width: u32, height: u32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(width as usize * height as usize * 4);
+    for y in 0..height {
+        for x in 0..width {
+            let c = ((x * 255) / width.max(1)) as u8;
+            let m = ((y * 255) / height.max(1)) as u8;
+            let y_val = (((x + y) * 127) / (width + height).max(1)) as u8;
+            out.extend_from_slice(&[c, m, y_val, 0]);
+        }
+    }
+    out
+}
+
+fn write_cmyk_pdf(path: &Path, width: u32, height: u32, cmyk_bytes: Vec<u8>) {
+    assert_eq!(
+        cmyk_bytes.len(),
+        width as usize * height as usize * 4,
+        "{}: expected {} CMYK bytes for {}x{}, got {}",
+        path.display(),
+        width as usize * height as usize * 4,
+        width,
+        height,
+        cmyk_bytes.len(),
+    );
+
+    let mut doc = Document::with_version("1.7");
+    let pages_id = doc.new_object_id();
+
+    // Pre-compress with flate2 and set `/Filter /FlateDecode` on the
+    // stream dict ourselves rather than relying on `Document::compress()`
+    // — that whole-doc pass skips small streams (the 1×1 fixtures end up
+    // uncompressed otherwise), and libviprs's CMYK extraction path keys
+    // on the FlateDecode filter being present.
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&cmyk_bytes).expect("zlib write");
+    let compressed = encoder.finish().expect("zlib finish");
+
+    let image_stream = Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Image",
+            "Width" => width as i64,
+            "Height" => height as i64,
+            "ColorSpace" => "DeviceCMYK",
+            "BitsPerComponent" => 8,
+            "Filter" => "FlateDecode",
+        },
+        compressed,
+    );
+    let image_id = doc.add_object(image_stream);
+
+    // Page MediaBox matches the image dims so pdfium / libviprs see a 1:1
+    // page-to-image mapping (the existing pdf_cmyk.rs test relied on this
+    // — it asserted raster.width()/height() equal the image dims).
+    let page_dict = dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![
+            Object::Real(0.0),
+            Object::Real(0.0),
+            Object::Real(width as f32),
+            Object::Real(height as f32),
+        ],
+        "Resources" => dictionary! {
+            "XObject" => dictionary! {
+                "Im0" => Object::Reference(image_id),
+            },
+        },
+    };
+    let page_id = doc.add_object(page_dict);
+
+    let pages = dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![Object::Reference(page_id)],
+        "Count" => 1,
+    };
+    doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+
+    doc.compress();
+    doc.save(path)
+        .unwrap_or_else(|e| panic!("save {}: {e}", path.display()));
+
+    // Sanity: reload and confirm an image XObject of the right dims is
+    // actually present. Cheap drift detection — if lopdf changes how
+    // image XObjects round-trip, this fails at generation time rather
+    // than confusing pdf_cmyk.rs with a malformed fixture.
+    let reloaded = Document::load(path)
+        .unwrap_or_else(|e| panic!("reload {} for self-check: {e}", path.display()));
+    let (got_w, got_h) = first_image_xobject_dims(&reloaded).unwrap_or_else(|| {
+        panic!(
+            "{}: no image XObject found after round-trip",
+            path.display()
+        )
+    });
+    assert_eq!(
+        (got_w, got_h),
+        (width as i64, height as i64),
+        "{}: round-trip image dims diverged",
+        path.display()
+    );
+}
+
+/// Find the first image XObject in `doc` and return its (width, height).
+/// Walks every object looking for a Stream whose dict has /Subtype /Image.
+fn first_image_xobject_dims(doc: &Document) -> Option<(i64, i64)> {
+    for obj in doc.objects.values() {
+        let Object::Stream(stream) = obj else {
+            continue;
+        };
+        let dict = &stream.dict;
+        let Ok(subtype) = dict.get(b"Subtype") else {
+            continue;
+        };
+        let Object::Name(name) = subtype else {
+            continue;
+        };
+        if name != b"Image" {
+            continue;
+        }
+        let w = dict.get(b"Width").ok().and_then(|o| match o {
+            Object::Integer(v) => Some(*v),
+            _ => None,
+        })?;
+        let h = dict.get(b"Height").ok().and_then(|o| match o {
+            Object::Integer(v) => Some(*v),
+            _ => None,
+        })?;
+        return Some((w, h));
+    }
+    None
 }

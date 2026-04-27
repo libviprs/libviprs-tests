@@ -44,17 +44,20 @@ crate). Total disk footprint is under 5 KB.
 | `canonical_rotated_90.pdf` | `canonical.pdf` with `/Rotate 90`. Replaces the runtime `lopdf::save` round-trip in `pdfium_streaming_synthetic_rotations.rs`. |
 | `canonical_rotated_180.pdf` | `canonical.pdf` with `/Rotate 180`. |
 | `canonical_input.png` | 256 × 256 RGBA8 four-quadrant gradient. The standard *raster* input for tests that operate on a `Raster` directly without going through pdfium. |
+| `canonical_cmyk.pdf` | A4-pt-sized page (16 × 16) embedding a 16 × 16 DeviceCMYK FlateDecode image XObject (gradient: C ramps with x, M ramps with y, Y ramps with x+y, K = 0). Drives `pdf_cmyk::extract_cmyk_image_from_canonical_pdf`. |
+| `canonical_cmyk_black_1x1.pdf` | 1 × 1 DeviceCMYK FlateDecode image with K = 255. Asserts CMYK → RGB full-black conversion. |
+| `canonical_cmyk_cyan_1x1.pdf` | 1 × 1 DeviceCMYK FlateDecode image with C = 255. Asserts CMYK → RGB pure-cyan conversion. |
 
-The generator self-checks the `/Rotate` round-trip on each PDF before
+The generator self-checks the `/Rotate` round-trip on each non-CMYK
+PDF and the image-XObject dimensions on each CMYK PDF before
 writing, so a regen that produces malformed output fails loudly at
 generation time rather than at test time.
 
-Three additional canonicals (`canonical_blank.pdf`,
-`canonical_identical_halves.pdf`, `canonical_cmyk.pdf`) are tracked
-as follow-up work for tests that need shape-specific input
-(`phase3_blank_tolerance`, `phase3_dedupe_blanks`, `pdf_cmyk`); they
-need PDF colour-space and drawing-primitive plumbing not worth
-adding here.
+Two additional canonicals (`canonical_blank.pdf`,
+`canonical_identical_halves.pdf`) are tracked as follow-up work for
+tests that need shape-specific input (`phase3_blank_tolerance`,
+`phase3_dedupe_blanks`); they need PDF colour-space and
+drawing-primitive plumbing not worth adding here.
 
 ## Extracted source rasters
 
