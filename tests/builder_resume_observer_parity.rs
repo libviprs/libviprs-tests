@@ -26,7 +26,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use libviprs::resume::JobMetadata;
+use libviprs::resume::{JobCheckpoint, JobMetadata};
 use libviprs::sink::{FsSink, SinkError, Tile, TileFormat, TileSink};
 use libviprs::{
     CollectingObserver, EngineBuilder, EngineConfig, EngineEvent, EngineKind, Layout, PyramidPlan,
@@ -166,15 +166,18 @@ impl TileSink for PanickingSink {
     }
 }
 
-/// Read the persisted checkpoint as raw `JobMetadata`. Panics loudly if
-/// the file is missing or unparsable — the test that uses this needs a
+/// Load the persisted checkpoint as `JobMetadata`. Panics loudly if the
+/// checkpoint is missing or unparsable, the test that uses this needs a
 /// partial checkpoint to exist, so absence is a real bug.
+///
+/// Routes through `JobCheckpoint::load` because the completed-tile
+/// coordinates now live in an append-only segment log alongside the JSON
+/// header (libviprs issue #127); `load` merges the two into one coherent
+/// `JobMetadata`.
 fn read_job_metadata(dir: &Path) -> JobMetadata {
-    let path = dir.join(".libviprs-job.json");
-    let bytes =
-        std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
-    serde_json::from_slice::<JobMetadata>(&bytes)
-        .unwrap_or_else(|e| panic!("failed to parse {}: {e}", path.display()))
+    JobCheckpoint::load(dir)
+        .unwrap_or_else(|e| panic!("failed to load checkpoint in {}: {e}", dir.display()))
+        .unwrap_or_else(|| panic!("no checkpoint found in {}", dir.display()))
 }
 
 // ---------------------------------------------------------------------------
