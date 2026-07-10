@@ -190,18 +190,20 @@ See the [libviprs-dep pdfium README](https://github.com/libviprs/libviprs-dep/tr
 
 ### macOS
 
-Third-party prebuilt binaries:
+Pre-compiled binaries built from source are available from [libviprs-dep](https://github.com/libviprs/libviprs-dep/releases):
 
 ```bash
 # Apple Silicon
-curl -L -o pdfium.tgz https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz
-tar xzf pdfium.tgz
-sudo cp lib/libpdfium.dylib /usr/local/lib/
+curl -L -o pdfium.tgz \
+  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-7881/pdfium-mac-arm64.tgz
 
 # Intel
-curl -L -o pdfium.tgz https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-x64.tgz
+curl -L -o pdfium.tgz \
+  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-7881/pdfium-mac-x64.tgz
+
+# Extract and install
 tar xzf pdfium.tgz
-sudo cp lib/libpdfium.dylib /usr/local/lib/
+sudo cp pdfium-mac-*/lib/libpdfium.dylib /usr/local/lib/
 ```
 
 ### Verify Installation

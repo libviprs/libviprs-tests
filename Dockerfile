@@ -7,16 +7,24 @@ FROM debian:bookworm-slim AS pdfium
 
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
+# PDFium provenance: consume the pinned, checksum-verified binaries published by
+# libviprs-dep (the branch-pinned builder that runs real ABI/symbol
+# verification) rather than the floating upstream `releases/latest`. This is the
+# single provenance source shared with CI. Keep PDFIUM_RELEASE and the per-arch
+# SHA-256 digests in lockstep with the release consumed by
+# .github/workflows/ci.yml.
+ARG PDFIUM_RELEASE=pdfium-7881
 ARG TARGETARCH
 RUN case "${TARGETARCH}" in \
-        amd64) PDFIUM_ARCH="linux-x64" ;; \
-        arm64) PDFIUM_ARCH="linux-arm64" ;; \
+        amd64) PDFIUM_ARCH="linux-x64";   PDFIUM_SHA256="653f24f074afe6c868f634ae0cc954a1a89821f33bc7795f16065a14022b662b" ;; \
+        arm64) PDFIUM_ARCH="linux-arm64"; PDFIUM_SHA256="3a8940ae414a54601f6bc0b25fb3d589025320ee91fff378e12708259da5702d" ;; \
         *)     echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
     esac && \
-    curl -L -o /tmp/pdfium.tgz \
-        "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-${PDFIUM_ARCH}.tgz" && \
+    curl -fsSL -o /tmp/pdfium.tgz \
+        "https://github.com/libviprs/libviprs-dep/releases/download/${PDFIUM_RELEASE}/pdfium-${PDFIUM_ARCH}.tgz" && \
+    echo "${PDFIUM_SHA256}  /tmp/pdfium.tgz" | sha256sum -c - && \
     mkdir -p /opt/pdfium && \
-    tar xzf /tmp/pdfium.tgz -C /opt/pdfium && \
+    tar xzf /tmp/pdfium.tgz -C /opt/pdfium --strip-components=1 && \
     rm /tmp/pdfium.tgz
 
 # Stage 2: Build and test
