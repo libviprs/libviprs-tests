@@ -39,9 +39,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install PDFium
         run: |
-          curl -L -o pdfium.tgz https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7725/pdfium-linux-x64.tgz
+          curl -L -o pdfium.tgz https://github.com/libviprs/libviprs-dep/releases/download/pdfium-7881/pdfium-linux-x64.tgz
           mkdir -p pdfium
-          tar xzf pdfium.tgz -C pdfium
+          tar xzf pdfium.tgz -C pdfium --strip-components=1
           sudo cp pdfium/lib/libpdfium.so /usr/local/lib/
           sudo cp -r pdfium/include/* /usr/local/include/
           sudo ldconfig

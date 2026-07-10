@@ -174,11 +174,11 @@ Pre-compiled binaries built from source are available from [libviprs-dep](https:
 ```bash
 # x86_64
 curl -L -o pdfium.tgz \
-  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-7725/pdfium-linux-x64.tgz
+  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-7881/pdfium-linux-x64.tgz
 
 # arm64
 curl -L -o pdfium.tgz \
-  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-7725/pdfium-linux-arm64.tgz
+  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-7881/pdfium-linux-arm64.tgz
 
 # Extract and install
 tar xzf pdfium.tgz
