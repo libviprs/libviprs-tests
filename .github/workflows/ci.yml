@@ -38,8 +38,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install PDFium
+        # Provenance: pinned, checksum-verified binary from libviprs-dep — the
+        # single source shared with the Dockerfile. Keep PDFIUM_RELEASE and the
+        # SHA-256 digest in lockstep with the Dockerfile.
+        env:
+          PDFIUM_RELEASE: pdfium-7881
+          PDFIUM_SHA256: 653f24f074afe6c868f634ae0cc954a1a89821f33bc7795f16065a14022b662b
         run: |
-          curl -L -o pdfium.tgz https://github.com/libviprs/libviprs-dep/releases/download/pdfium-7881/pdfium-linux-x64.tgz
+          curl -fsSL -o pdfium.tgz "https://github.com/libviprs/libviprs-dep/releases/download/${PDFIUM_RELEASE}/pdfium-linux-x64.tgz"
+          echo "${PDFIUM_SHA256}  pdfium.tgz" | sha256sum -c -
           mkdir -p pdfium
           tar xzf pdfium.tgz -C pdfium --strip-components=1
           sudo cp pdfium/lib/libpdfium.so /usr/local/lib/
