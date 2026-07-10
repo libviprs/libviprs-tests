@@ -338,8 +338,16 @@ fn byte_diff_dirs(a: &Path, b: &Path) -> Option<PathBuf> {
     // crash+resume (or simply appear only in one of the two), yet have no
     // bearing on output correctness. Filter them out so the comparison
     // focuses on actual tile content.
-    let is_bookkeeping =
-        |p: &Path| -> bool { p.file_name().and_then(|n| n.to_str()) == Some(".libviprs-job.json") };
+    let is_bookkeeping = |p: &Path| -> bool {
+        matches!(
+            p.file_name().and_then(|n| n.to_str()),
+            // The JSON header and its append-only completed-coordinate segment
+            // log (libviprs issue #127) are both resume bookkeeping: they
+            // legitimately differ between a clean run and a crash+resume and
+            // have no bearing on output tile content.
+            Some(".libviprs-job.json") | Some(".libviprs-job.segments")
+        )
+    };
     let list_a: Vec<PathBuf> = list_files_relative(a)
         .into_iter()
         .filter(|p| !is_bookkeeping(p))
