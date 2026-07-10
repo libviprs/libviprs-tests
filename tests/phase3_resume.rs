@@ -48,7 +48,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use libviprs::resume::{JobMetadata, ResumeMode};
+use libviprs::resume::{JobCheckpoint, JobMetadata, ResumeMode};
 use libviprs::{
     EngineBuilder, EngineConfig, EngineError, EngineResult, FsSink, Layout, PyramidPlan,
     PyramidPlanner, Raster, ResumePolicy, SinkError, Tile, TileCoord, TileFormat, TileSink,
@@ -105,17 +105,19 @@ fn small_plan(w: u32, h: u32, tile_size: u32) -> PyramidPlan {
         .plan()
 }
 
-/// Deserialise the job checkpoint from disk. Panics with a descriptive
-/// message if missing or malformed — tests want loud failures here.
+/// Load the job checkpoint from disk. Panics with a descriptive message if
+/// missing or malformed, tests want loud failures here.
+///
+/// Routes through `JobCheckpoint::load` rather than raw-parsing the JSON
+/// header: the completed-tile coordinates now live in an append-only segment
+/// log (`.libviprs-job.segments`) alongside the header so that per-flush
+/// checkpoint I/O stays bounded (libviprs issue #127). `load` merges the
+/// segment log with any inline header coordinates and hands back one coherent
+/// `JobMetadata`, which is exactly what these assertions want.
 fn read_job_metadata(dir: &Path) -> JobMetadata {
-    let path = dir.join(JOB_FILE);
-    let bytes =
-        std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
-    // The production type is expected to `impl Serialize + Deserialize`.
-    // If it does not, this test file fails to compile — which is correct
-    // TDD behaviour.
-    serde_json::from_slice::<JobMetadata>(&bytes)
-        .unwrap_or_else(|e| panic!("failed to parse {}: {e}", path.display()))
+    JobCheckpoint::load(dir)
+        .unwrap_or_else(|e| panic!("failed to load checkpoint in {}: {e}", dir.display()))
+        .unwrap_or_else(|| panic!("no checkpoint found in {}", dir.display()))
 }
 
 /// Recursively list every regular file under `dir`, returning paths relative
@@ -343,7 +345,13 @@ fn resume_mode_continues_after_partial_run() {
     let remaining: Vec<TileCoord> = remaining_idx.into_iter().map(|(_, c)| *c).collect();
 
     // Hand-crafted partial checkpoint. Keep the same plan_hash so the engine
-    // accepts it.
+    // accepts it. Completed coordinates now live in an append-only segment log
+    // beside the header (libviprs issue #127), so the first full run left a
+    // `.libviprs-job.segments` recording every tile. Remove it before writing
+    // the doctored header, otherwise the resumed run would merge that stale log
+    // and believe the whole plan is already complete. The hand-crafted header
+    // carries `done` inline, which `JobCheckpoint::load` honours on its own.
+    let _ = std::fs::remove_file(JobCheckpoint::segments_path(&base));
     let mut partial = JobMetadata::new(meta_full.plan_hash.clone(), "1970-01-01T00:00:00Z".into());
     partial.completed_tiles = done.clone();
     partial.last_checkpoint_at = "1970-01-01T00:00:00Z".into();
