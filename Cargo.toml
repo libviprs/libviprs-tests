@@ -38,7 +38,7 @@ tracing = ["libviprs/tracing"]
 
 [dependencies]
 libviprs = { path = "../libviprs" }
-pdfium-render = { version = "0.8", optional = true }
+pdfium-render = { version = "0.9", optional = true }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
 flate2 = "1"
 tempfile = "3"
@@ -67,11 +67,11 @@ proptest = "1"
 # Mirror the core crate's `pdfium-render` thread-safety fork. `[patch]`
 # tables apply only from the build-root manifest, so the pin in
 # `../libviprs/Cargo.toml` does not reach this crate when it is the
-# build root — this crate resolves the unpatched `pdfium-render 0.8.37`
+# build root — this crate resolves the unpatched `pdfium-render 0.9.x`
 # from crates.io, whose `ThreadSafePdfiumBindings` acquires the pdfium
 # global mutex only once on `FPDF_InitLibrary` and bypasses it for
 # every other call, segfaulting under concurrent access to a shared
 # `Pdfium`. Keep this pin in lockstep with `../libviprs/Cargo.toml`;
 # drop both once the fork is upstreamed and released.
 [patch.crates-io]
-pdfium-render = { git = "https://github.com/libviprs/pdfium-render.git", branch = "libviprs/per-call-thread-safety" }
+pdfium-render = { git = "https://github.com/libviprs/pdfium-render.git", branch = "libviprs/integration" }
