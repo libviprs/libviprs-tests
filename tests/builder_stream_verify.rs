@@ -18,12 +18,9 @@
 //!   7. `streaming_verify_honours_manifest_checksums`
 //!   8. `streaming_verify_emits_observer_events`
 //!
-//! These are deliberately written against an API surface that does not yet
-//! compile; they must fail (at compile time or at runtime) until the
-//! implementation lands on the crate side. Gated behind `builder_v1` to
-//! match the other builder-level integration tests.
-
-#![cfg(feature = "builder_v1")]
+//! The Streaming+Verify surface is implemented on the crate side, so these
+//! run in the default harness alongside the other builder-level integration
+//! tests.
 
 use std::io::{Read, Seek, Write};
 use std::path::Path;

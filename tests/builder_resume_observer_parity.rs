@@ -20,8 +20,6 @@
 //! their bodies express the final contract so the implementer has a
 //! concrete assertion target.
 
-#![cfg(feature = "builder_v1")]
-
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

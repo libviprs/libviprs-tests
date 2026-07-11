@@ -24,13 +24,11 @@
 //! 5. Plan-hash mismatch on Resume surfaces `EngineError::PlanHashMismatch`
 //!    the same way it does for Monolithic.
 
-#![cfg(feature = "builder_v1")]
-
 use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use libviprs::resume::{JobCheckpoint, JobMetadata, ResumeMode};
+use libviprs::resume::{JobCheckpoint, JobMetadata};
 use libviprs::sink::{FsSink, SinkError, Tile, TileFormat, TileSink};
 use libviprs::{
     EngineBuilder, EngineConfig, EngineError, EngineKind, Layout, PyramidPlanner, ResumePolicy,

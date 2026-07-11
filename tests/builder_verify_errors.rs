@@ -16,8 +16,6 @@
 //! `IncompatibleSource` — the test still runs on Monolithic, and flips to
 //! full coverage automatically.
 
-#![cfg(feature = "builder_v1")]
-
 use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 

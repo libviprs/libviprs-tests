@@ -66,6 +66,31 @@ jobs:
       # Prove the pinned fetch populated every fixture the ported suite needs.
       - run: cargo test --features ported_tests --test fixture_audit
 
+  feature-cells:
+    name: Feature Cell (${{ matrix.feature }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # One cell per non-default feature so a build/lint regression under a
+        # feature-gated module (the `s3` object-store sink, the `packfile`
+        # archive sink, the `tracing` span instrumentation) can no longer ship
+        # green just because the default harness never compiled that code.
+        # `-Dwarnings` (via RUSTFLAGS) means every gated test target is fully
+        # type-checked and linted here, not merely conditionally excluded.
+        # `pdfium` has its own job above; `ported_tests` is exercised by the
+        # reference-fixtures job (its full suite targets a libviprs op API that
+        # is not yet on the crate).
+        feature: [s3, packfile, tracing]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/clone-counterpart
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --features ${{ matrix.feature }} -- -D warnings
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

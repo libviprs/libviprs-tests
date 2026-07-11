@@ -34,8 +34,6 @@
 //!    emitted a Blake3 manifest, corrupting a tile is caught via the
 //!    checksum branch rather than the byte-exact branch.
 
-#![cfg(feature = "builder_v1")]
-
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::Arc;

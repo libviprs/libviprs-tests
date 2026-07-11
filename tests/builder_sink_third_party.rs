@@ -15,7 +15,6 @@
 //! - `Box<dyn TileSink>` works for the match-arms-return-different-sinks
 //!   case.
 
-#![cfg(feature = "builder_v1")]
 #![allow(unused_imports)]
 
 use std::sync::Mutex;

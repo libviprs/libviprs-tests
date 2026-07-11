@@ -7,7 +7,6 @@
 //! on `EngineBuilder` itself for those knobs — each `.with_*` must keep
 //! the builder type unchanged.
 
-#![cfg(feature = "builder_v1")]
 #![allow(unused_imports)]
 
 use libviprs::dedupe::DedupeStrategy;
@@ -20,6 +19,11 @@ use libviprs::{EngineBuilder, EngineKind, Layout, PyramidPlanner, ResumePolicy};
 mod common;
 use common::fixtures::canonical_raster_scaled;
 
+// These variants model the runtime modes a caller would pick before feeding a
+// matched policy into the builder. Not every variant is constructed in-test
+// (each test fixes one mode), but all appear as `match` arms, which is the
+// composition surface under test.
+#[allow(dead_code)]
 enum Mode {
     Fast,
     Safe,
@@ -58,7 +62,21 @@ fn resume_through_match() {
     let plan = PyramidPlanner::new(64, 64, 32, 0, Layout::DeepZoom)
         .unwrap()
         .plan();
-    EngineBuilder::new(&src, plan, MemorySink::new())
+
+    // The `Audit` arm selects `verify()`, which is read-only and requires an
+    // on-disk sink to audit (a `MemorySink` yields `VerifyRequiresOnDiskSink`).
+    // Seed a full pyramid on disk with an overwrite run first, then compose the
+    // match-produced policy through `.with_resume`. The point of this test is
+    // that the owned policy composes through a `match` arm and runs; seeding
+    // just gives the read-only verify arm something to audit.
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("tiles");
+    let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_resume(ResumePolicy::overwrite())
+        .run()
+        .unwrap();
+    EngineBuilder::new(&src, plan, &sink)
         .with_resume(resume)
         .run()
         .unwrap();

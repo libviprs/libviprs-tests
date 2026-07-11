@@ -14,7 +14,6 @@
 //! `generate_pyramid_streaming` free function. That function has been
 //! deleted; these tests now assert on builder-only observables.
 
-#![cfg(feature = "builder_v1")]
 #![allow(unused_imports)]
 
 use libviprs::sink::{CollectedTile, MemorySink, TileSink};
