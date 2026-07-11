@@ -70,6 +70,32 @@ fn run_resumable<S: TileSink>(
         .run()
 }
 
+/// Recursively count files under `dir` whose length is exactly one byte.
+///
+/// A `DedupeStrategy::Blanks` run canonicalises entirely-blank tiles: the
+/// promoted first copy holds the full raster while every later duplicate is
+/// written as a 1-byte reference (the `0x00` sentinel). Counting those
+/// references lets a test assert the dedupe path actually fired before it
+/// checks the checksum contract that depends on it.
+#[allow(dead_code)]
+fn count_one_byte_files(dir: &Path) -> usize {
+    let mut count = 0;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                count += count_one_byte_files(&path);
+            } else if std::fs::metadata(&path)
+                .map(|m| m.len() == 1)
+                .unwrap_or(false)
+            {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
 // =============================================================================
 // Shared helpers
 // =============================================================================
@@ -891,8 +917,17 @@ fn full_phase3_pipeline_integration() {
 // =============================================================================
 
 /// Re-run the full-pipeline scenario from test 7, then call `verify_output()`
-/// on the resulting directory and assert it returns Ok. Proves the
-/// emitted artefacts are internally consistent end-to-end.
+/// on the resulting directory and assert the returned `VerifyReport` is clean:
+/// no mismatched tiles, no missing tiles, and at least one tile checked.
+///
+/// Merely asserting `verify_output` returned `Ok` is not enough: `Ok` only
+/// says the manifest parsed and every referenced file was readable. A
+/// dedupe-plus-checksum inconsistency (a per-tile digest recorded for the
+/// full blank raster while the tile path on disk holds a 1-byte placeholder /
+/// dedupe reference) surfaces as a populated `tiles_mismatched`, not as an
+/// `Err`. Discarding the report therefore masked exactly the bug this
+/// capstone is supposed to catch (issue #57). We now inspect the fields so a
+/// core regression on the dedupe x checksum path turns this test RED.
 #[test]
 fn verify_mode_on_output_of_full_pipeline() {
     let root = tempfile::tempdir().unwrap();
@@ -919,7 +954,96 @@ fn verify_mode_on_output_of_full_pipeline() {
 
     run_resumable(&src, &plan, &sink, &cfg, ResumeMode::Resume).unwrap();
 
-    verify_output(&base).expect("verify_output must pass on full-pipeline output");
+    let report = verify_output(&base).expect("verify_output must pass on full-pipeline output");
+    assert!(
+        report.tiles_mismatched.is_empty(),
+        "dedupe + checksum pipeline produced mismatched tiles: {:?}",
+        report.tiles_mismatched
+    );
+    assert!(
+        report.tiles_missing.is_empty(),
+        "dedupe + checksum pipeline produced missing tiles: {:?}",
+        report.tiles_missing
+    );
+    assert!(
+        report.tiles_checked > 0,
+        "verify_output checked zero tiles; the manifest recorded no per-tile digests"
+    );
+}
+
+// =============================================================================
+// 8b. verify_mode_on_dedupe_blanks_with_default_emit_strategy
+// =============================================================================
+
+/// Companion to test 8 that pins the dedupe x checksum contract with the
+/// *default* blank-tile strategy (`BlankTileStrategy::Emit`) rather than the
+/// placeholder-with-tolerance strategy test 8 uses.
+///
+/// This is the case called out in issue #57: `DedupeStrategy::Blanks` still
+/// canonicalises entirely-blank tiles (the promoted first copy holds the full
+/// raster, later duplicates become 1-byte references), while `Emit` means the
+/// engine never substitutes its own placeholder for a tile. Under
+/// `ChecksumMode::Verify` the per-tile digest recorded for each reference path
+/// must describe what is actually on disk (the 1-byte sentinel), not the full
+/// blank raster. If a regression records the full-raster digest for a
+/// reference path, `verify_output` reports it in `tiles_mismatched` and this
+/// test fails.
+#[test]
+fn verify_mode_on_dedupe_blanks_with_default_emit_strategy() {
+    let root = tempfile::tempdir().unwrap();
+    // A whitespace-heavy raster yields many identical blank tiles for the
+    // dedupe index to canonicalise.
+    let src = whitespace_heavy_raster(1024, 768);
+    let plan = standard_planner(1024, 768, 256);
+
+    let base = root.path().join("pyramid");
+    let sink = FsSink::new(base.clone(), plan.clone())
+        .with_manifest(ManifestBuilder::new().with_checksums(ChecksumAlgo::Blake3))
+        .with_dedupe(DedupeStrategy::Blanks)
+        .with_checksum_mode(ChecksumMode::Verify);
+
+    // No `.with_blank_tile_strategy(..)`: EngineConfig::default() leaves the
+    // strategy at `BlankTileStrategy::Emit`. Assert that so the coverage this
+    // test claims cannot silently drift if the default ever changes.
+    let cfg = EngineConfig::default().with_concurrency(4);
+    assert!(
+        matches!(cfg.blank_tile_strategy, BlankTileStrategy::Emit),
+        "expected default EngineConfig blank strategy to be Emit, got {:?}",
+        cfg.blank_tile_strategy
+    );
+
+    run_resumable(&src, &plan, &sink, &cfg, ResumeMode::Resume).unwrap();
+
+    // Non-vacuity guard: the whole point of this case is the dedupe-reference
+    // path, so at least one 1-byte reference file must exist on disk. Without
+    // it, `verify_output` would only be checking full-raster tiles and the
+    // assertions below could pass while never exercising the placeholder
+    // digest contract this test exists to pin.
+    let one_byte_refs = count_one_byte_files(&base);
+    assert!(
+        one_byte_refs > 0,
+        "expected dedupe(Blanks) to canonicalise blank tiles into >=1 one-byte \
+         reference file on disk, found none; the checksum contract this test \
+         pins would not be exercised"
+    );
+
+    let report = verify_output(&base)
+        .expect("verify_output must pass on dedupe + default-Emit + Verify output");
+    assert!(
+        report.tiles_mismatched.is_empty(),
+        "dedupe(Blanks) + Emit + Verify produced mismatched tiles \
+         (digest recorded for full raster while path holds a 1-byte reference?): {:?}",
+        report.tiles_mismatched
+    );
+    assert!(
+        report.tiles_missing.is_empty(),
+        "dedupe(Blanks) + Emit + Verify produced missing tiles: {:?}",
+        report.tiles_missing
+    );
+    assert!(
+        report.tiles_checked > 0,
+        "verify_output checked zero tiles; the manifest recorded no per-tile digests"
+    );
 }
 
 // =============================================================================
