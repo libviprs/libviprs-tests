@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use libviprs::{PixelFormat, Raster, decode_file};
+use libviprs::{Interpretation, PixelFormat, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
