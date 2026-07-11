@@ -44,10 +44,14 @@ jobs:
           sudo cp pdfium/lib/libpdfium.so /usr/local/lib/
           sudo cp -r pdfium/include/* /usr/local/include/
           sudo ldconfig
-      # Pdfium FFI calls are not safe to invoke concurrently against the
-      # shared process-wide Pdfium instance — parallel cargo-test workers
-      # race FPDF state. Force serial execution within each test binary.
-      - run: cargo test --features pdfium -- --test-threads=1
+      # Run the pdfium suite multi-threaded. The pdfium-render fork on the
+      # `libviprs/integration` branch takes the pdfium global mutex per call in
+      # `ThreadSafePdfiumBindings`, so concurrent FPDF access across cargo-test
+      # worker threads is safe. Dropping `--test-threads=1` makes the suite
+      # itself exercise that cross-test concurrency. The wall-clock perf-ratio
+      # smoke is `#[ignore]`d and runs in nightly.yml, so it never gates this
+      # job on shared runner timing noise.
+      - run: cargo test --features pdfium
 
   reference-fixtures:
     name: Reference Fixtures (pinned fetch)
