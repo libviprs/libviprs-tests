@@ -7,7 +7,7 @@
 //! `tile_format` defaults to `Png` so the minimum-viable call is
 //! `PackfileSink::builder(path).build()`.
 
-#![cfg(all(feature = "builder_v1", feature = "packfile"))]
+#![cfg(feature = "packfile")]
 #![allow(unused_imports)]
 
 use libviprs::sink::{PackfileFormat, PackfileSink, TileFormat, TileSink};

@@ -18,7 +18,6 @@
 //! Generators are kept small: the matrix is bounded, so proptest mostly
 //! picks combinations rather than generating unbounded value spaces.
 
-#![cfg(feature = "builder_v1")]
 #![allow(unused_imports)]
 
 use proptest::prelude::*;
