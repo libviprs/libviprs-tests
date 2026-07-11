@@ -29,11 +29,13 @@
 //!   stream, defaulting to the bitmap clear colour. Drives the
 //!   blank-tile and solid-white tolerance paths from a checked-in
 //!   PDF rather than a synthetic `Raster::new(.., vec![255; …])`.
-//! - **`canonical_rotated_90.pdf`** / **`canonical_rotated_180.pdf`**
-//!   — `canonical.pdf` with the page's `/Rotate` value flipped.
-//!   Replaces the runtime-`lopdf::save` round-trip in
-//!   `pdfium_streaming_synthetic_rotations.rs` with checked-in
-//!   inputs that don't depend on `lopdf`'s save format being stable.
+//! - **`canonical_rotated_90.pdf`** / **`canonical_rotated_180.pdf`** /
+//!   **`canonical_rotated_270.pdf`** — `canonical.pdf` with the page's
+//!   `/Rotate` value flipped. Replaces the runtime-`lopdf::save`
+//!   round-trip in `pdfium_streaming_synthetic_rotations.rs` with
+//!   checked-in inputs that don't depend on `lopdf`'s save format being
+//!   stable. The four fixtures (`canonical.pdf` at `/Rotate 0` plus the
+//!   three rotated variants) cover every branch of the rotation matrix.
 //!
 //! Three additional canonicals (`canonical_blank.pdf`,
 //! `canonical_identical_halves.pdf`, `canonical_cmyk.pdf`) are
@@ -64,6 +66,10 @@ fn generate_canonical_fixtures() {
     write_canonical_pdf(&dir.join("canonical.pdf"), Rotate::None);
     write_canonical_pdf(&dir.join("canonical_rotated_90.pdf"), Rotate::Quarter);
     write_canonical_pdf(&dir.join("canonical_rotated_180.pdf"), Rotate::Half);
+    write_canonical_pdf(
+        &dir.join("canonical_rotated_270.pdf"),
+        Rotate::ThreeQuarter,
+    );
     write_solid_white_pdf(&dir.join("canonical_solid_white.pdf"));
 
     // CMYK fixtures consumed by `tests/pdf_cmyk.rs`. Each PDF embeds a
@@ -137,6 +143,7 @@ enum Rotate {
     None,
     Quarter,
     Half,
+    ThreeQuarter,
 }
 
 impl Rotate {
@@ -145,6 +152,7 @@ impl Rotate {
             Rotate::None => 0,
             Rotate::Quarter => 90,
             Rotate::Half => 180,
+            Rotate::ThreeQuarter => 270,
         }
     }
 }
