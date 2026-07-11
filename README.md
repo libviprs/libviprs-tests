@@ -52,6 +52,39 @@ cargo test -- --ignored stress
 
 # PDFium system check (manual diagnostic)
 cargo test --features pdfium -- --ignored pdfium_system
+
+# Ported libvips reference suite (fetch the fixtures first, see below)
+cargo test --features ported_tests
+```
+
+## Cross-repo Pinning
+
+This suite depends on the `libviprs` core crate as a sibling checkout
+(`{ path = "../libviprs" }`). CI checks the counterpart out at the exact commit
+pinned in [`COUNTERPART_REV`](./COUNTERPART_REV) via the reusable
+[`clone-counterpart`](./.github/actions/clone-counterpart/action.yml) action,
+so a PR is always tested against the revision it declares, never a branch-name
+guess that silently falls back to `main`. To point at a newer core, set the SHA
+in `COUNTERPART_REV`, run the suite against that sibling checkout, and update the
+label comment. The `counterpart_pinning` test guards these invariants.
+
+## Reference Fixtures
+
+The `ported_*` suites (feature `ported_tests`) compare libviprs output against
+the real libvips reference images. Those fixtures are fetched, not vendored, by
+a pinned script:
+
+```bash
+./tools/fetch_reference_suite.sh          # populate tmp/ from the pinned libvips rev
+./tools/fetch_reference_suite.sh --force  # refetch even if already present
+```
+
+The script sparse-clones only `test/test-suite` from a single pinned libvips
+commit into `tmp/libvips-reference-tests/` (git-ignored). Verify it populated
+everything the suites need:
+
+```bash
+cargo test --features ported_tests --test fixture_audit
 ```
 
 ### Docker (via run-tests.sh)
