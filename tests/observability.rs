@@ -70,7 +70,7 @@ fn level_started_before_tile_completed() {
             EngineEvent::LevelStarted { level, .. } => {
                 current_level = Some(*level);
             }
-            EngineEvent::TileCompleted { coord } => {
+            EngineEvent::TileCompleted { coord, .. } => {
                 assert_eq!(
                     current_level,
                     Some(coord.level),
