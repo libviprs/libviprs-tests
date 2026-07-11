@@ -15,7 +15,6 @@
 //! builder-only observables (tile counts, produced tiles, background
 //! padding) instead.
 
-#![cfg(feature = "builder_v1")]
 #![allow(unused_imports)]
 
 use libviprs::sink::{CollectedTile, MemorySink, TileFormat, TileSink};
@@ -135,11 +134,8 @@ fn builder_honours_with_background_rgb() {
 
     // One edge tile at the top level must include the padding colour.
     let tiles = sink.tiles();
-    let top = tiles
-        .iter()
-        .filter(|t| t.coord.level == tiles.iter().map(|t| t.coord.level).max().unwrap())
-        .next()
-        .unwrap();
+    let top_level = tiles.iter().map(|t| t.coord.level).max().unwrap();
+    let top = tiles.iter().find(|t| t.coord.level == top_level).unwrap();
     assert!(
         top.data.windows(3).any(|w| w == [10, 20, 30]),
         "background rgb not present in padded tile data"

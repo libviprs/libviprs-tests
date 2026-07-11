@@ -5,7 +5,6 @@
 //! checksums, resume, manifest, blank strategy) is reachable through
 //! `with_*` methods that can be composed in any order.
 
-#![cfg(feature = "builder_v1")]
 #![allow(unused_imports)]
 
 use libviprs::checksum::{ChecksumAlgo, ChecksumMode};

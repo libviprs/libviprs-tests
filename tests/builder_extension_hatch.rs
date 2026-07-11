@@ -12,7 +12,6 @@
 //!   `TypeId`.
 //! - Values are not required to be `Clone` or `Debug` — only `Send + Sync`.
 
-#![cfg(feature = "builder_v1")]
 #![allow(unused_imports)]
 
 use std::sync::Arc;
