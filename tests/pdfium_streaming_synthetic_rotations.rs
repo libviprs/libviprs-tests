@@ -1,11 +1,13 @@
 //! Closes the rotation coverage gap left by
-//! `pdfium_streaming_rotation_matrix.rs` — no checked-in fixture carries
-//! `/Rotate 90` or `/Rotate 180`, so the matrix branches for those values
-//! are otherwise unexercised by integration tests. We synthesise rotated
-//! variants of `blueprint-portrait.pdf` at test time by mutating its
-//! `/Rotate` entry through `lopdf` and writing a tempfile, then assert
-//! the streaming-mode invariants that distinguish a correct matrix from
-//! a wrong one.
+//! `pdfium_streaming_rotation_matrix.rs` — the scanned-blueprint
+//! fixtures don't carry `/Rotate 90`, `/Rotate 180` or `/Rotate 270`,
+//! so those matrix branches are otherwise unexercised by integration
+//! tests. We drive each branch from a checked-in canonical fixture:
+//! `canonical.pdf` at `/Rotate 0` plus `canonical_rotated_{90,180,270}.pdf`,
+//! all produced offline by `tests/gen_canonicals.rs`. The fixtures are
+//! byte-stable inputs, so this test no longer depends on `lopdf`'s save
+//! format staying constant across versions, and it never mutates a PDF
+//! at test time.
 //!
 //! # What this test asserts
 //!
@@ -13,10 +15,10 @@
 //!
 //! 1. **Construction succeeds.** No panic, no error. Catches catastrophic
 //!    matrix or dimension errors at the boundary.
-//! 2. **Orientation matches the rotation.** Synth /Rotate 90 and 270 of
-//!    a portrait original must report landscape display dimensions; 0
-//!    and 180 stay portrait. A wrong matrix that, e.g., swaps W and H
-//!    on the wrong rotations would fail here.
+//! 2. **Orientation matches the rotation.** `canonical.pdf` is A4 portrait
+//!    (595 × 842 pt) at `/Rotate 0`, so 90 and 270 must report landscape
+//!    display dimensions; 0 and 180 stay portrait. A wrong matrix that,
+//!    e.g., swaps W and H on the wrong rotations would fail here.
 //! 3. **Strip self-consistency.** Stitched strips produced via the
 //!    matrix render path equal a single-shot streaming render of the
 //!    same page within the existing `REGION_MEAN_TOLERANCE`. This is
@@ -42,47 +44,32 @@
 
 mod common;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use common::{FIXTURE_PORTRAIT, assert_same_region};
-use libviprs::pdf::{PageRotation, page_rotate};
+use common::assert_same_region;
 use libviprs::streaming::StripSource;
 use libviprs::{PdfiumStripSource, Raster};
 
 const DPI: u32 = 72;
 
-/// Load `source`, mutate its first page's `/Rotate` to `rotation`, and
-/// save into a fresh tempfile. Returns the temp path; the `TempPath`
-/// keeps the file alive for the caller's scope. Asserts that we can
-/// re-read the rotation back via `page_rotate` so a parser-level
-/// mismatch surfaces here, not as a render mystery.
-fn synth_rotated_fixture(source: &str, rotation: i64) -> tempfile::TempPath {
-    let mut doc = lopdf::Document::load(source).expect("load source pdf");
-    let pages = doc.get_pages();
-    let &page_id = pages.get(&1).expect("source must have a page 1");
-    {
-        let page = doc
-            .get_object_mut(page_id)
-            .expect("get page object")
-            .as_dict_mut()
-            .expect("page must be a dict");
-        page.set("Rotate", lopdf::Object::Integer(rotation));
+/// Path to a checked-in fixture under `tests/fixtures/`.
+fn fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+/// The checked-in canonical PDF whose page carries `/Rotate rotation`.
+/// `/Rotate 0` is the base `canonical.pdf`; the other three are its
+/// pre-rotated variants generated offline by `gen_canonicals.rs`.
+fn canonical_rotated(rotation: i64) -> PathBuf {
+    match rotation {
+        0 => fixture("canonical.pdf"),
+        90 => fixture("canonical_rotated_90.pdf"),
+        180 => fixture("canonical_rotated_180.pdf"),
+        270 => fixture("canonical_rotated_270.pdf"),
+        other => panic!("no checked-in canonical fixture for /Rotate {other}"),
     }
-    let tmp = tempfile::Builder::new()
-        .prefix("libviprs-rotated-")
-        .suffix(".pdf")
-        .tempfile()
-        .expect("tempfile create");
-    let path = tmp.into_temp_path();
-    doc.save(&path).expect("save mutated pdf");
-    let actual_rotate = page_rotate(Path::new(&*path), 1).expect("re-read /Rotate");
-    let expected_rotate =
-        PageRotation::try_from_degrees(rotation).expect("test fixture rotation must be valid");
-    assert_eq!(
-        actual_rotate, expected_rotate,
-        "synth fixture round-trip /Rotate mismatch: wrote {rotation} (-> {expected_rotate:?}), read {actual_rotate:?}"
-    );
-    path
 }
 
 fn streaming_full(path: &Path) -> Raster {
@@ -109,15 +96,15 @@ fn stitch_streaming(source: &PdfiumStripSource, strip_h: u32) -> Vec<u8> {
 /// Per-rotation matrix correctness — the four invariants documented at
 /// the top of this file.
 fn run_for_rotation(rotation: i64) {
-    let synth = synth_rotated_fixture(FIXTURE_PORTRAIT, rotation);
-    let path: &Path = &synth;
+    let fixture_path = canonical_rotated(rotation);
+    let path: &Path = &fixture_path;
 
     // (1) Construction succeeds.
     let source = PdfiumStripSource::new_streaming(path, 1, DPI)
         .unwrap_or_else(|e| panic!("/Rotate {rotation}: streaming construction failed: {e:?}"));
 
-    // (2) Orientation matches the rotation. blueprint-portrait is portrait
-    // at /Rotate 0 (taller than wide). 90 and 270 must rotate it to
+    // (2) Orientation matches the rotation. canonical.pdf is portrait at
+    // /Rotate 0 (taller than wide). 90 and 270 must rotate it to
     // landscape; 0 and 180 keep portrait.
     let observed_landscape = source.width() > source.height();
     let expected_landscape = matches!(rotation, 90 | 270);

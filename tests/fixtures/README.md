@@ -32,17 +32,18 @@ bash tools/gen_fixtures.sh
 
 Small, deterministic, self-contained PDFs and rasters intended to
 replace the per-file `gradient_raster` / `solid_raster` synthesisers
-that ~30 invariant tests in this crate use as ad-hoc input today. All
-five files are produced by `cargo test --test gen_canonicals --
+that ~30 invariant tests in this crate use as ad-hoc input today. Every
+file below is produced by `cargo test --test gen_canonicals --
 --ignored` (no Docker, no external tools — just `lopdf` + the `image`
-crate). Total disk footprint is under 5 KB.
+crate). Total disk footprint is under 10 KB.
 
 | File | Description |
 |---|---|
 | `canonical.pdf` | A4 (595 × 842 pt) page with a fixed four-quadrant fill (blue / green / red / yellow). The standard PDF input for invariant tests that need *some* content but don't care about the specific bytes. |
 | `canonical_solid_white.pdf` | A4 page with an empty content stream — clear-colour-only output. Drives the blank-tile and solid-white tolerance paths from a checked-in PDF rather than a synthetic `Raster::new(.., vec![255; …])`. |
-| `canonical_rotated_90.pdf` | `canonical.pdf` with `/Rotate 90`. Replaces the runtime `lopdf::save` round-trip in `pdfium_streaming_synthetic_rotations.rs`. |
+| `canonical_rotated_90.pdf` | `canonical.pdf` with `/Rotate 90`. Feeds `pdfium_streaming_synthetic_rotations.rs`, which loads these checked-in fixtures instead of mutating a PDF at test time. |
 | `canonical_rotated_180.pdf` | `canonical.pdf` with `/Rotate 180`. |
+| `canonical_rotated_270.pdf` | `canonical.pdf` with `/Rotate 270`. Completes the `{0, 90, 180, 270}` rotation-matrix coverage in `pdfium_streaming_synthetic_rotations.rs`. |
 | `canonical_input.png` | 256 × 256 RGBA8 four-quadrant gradient. The standard *raster* input for tests that operate on a `Raster` directly without going through pdfium. |
 | `canonical_cmyk.pdf` | A4-pt-sized page (16 × 16) embedding a 16 × 16 DeviceCMYK FlateDecode image XObject (gradient: C ramps with x, M ramps with y, Y ramps with x+y, K = 0). Drives `pdf_cmyk::extract_cmyk_image_from_canonical_pdf`. |
 | `canonical_cmyk_black_1x1.pdf` | 1 × 1 DeviceCMYK FlateDecode image with K = 255. Asserts CMYK → RGB full-black conversion. |
