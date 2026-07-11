@@ -53,12 +53,19 @@ RUN cargo fetch
 # Each integration test is a separate binary; full debuginfo exhausts disk space.
 ENV CARGO_PROFILE_DEV_DEBUG=0
 
-# Default: run libviprs tests first, then libviprs-tests with pdfium
+# The pdfium test suites run multi-threaded. The pdfium-render fork on the
+# `libviprs/integration` branch (a direct dep of libviprs, mirrored into
+# libviprs-tests via `[patch.crates-io]`) rewrites `ThreadSafePdfiumBindings`
+# to take the pdfium global mutex per call, so concurrent FPDF access across
+# cargo-test worker threads is safe. Running the default thread pool exercises
+# that cross-test concurrency instead of hiding it behind `--test-threads=1`.
+# The wall-clock perf-ratio smoke is `#[ignore]`d here and runs in the nightly
+# workflow, so it never gates this container run.
 CMD sh -c '\
     echo "================================================================" && \
     echo "Running libviprs unit tests (with pdfium)..." && \
     echo "================================================================" && \
-    cd /src/libviprs && cargo test --features pdfium -- --test-threads=1 && \
+    cd /src/libviprs && cargo test --features pdfium && \
     echo "" && \
     echo "Cleaning libviprs build artifacts to free disk space..." && \
     cargo clean && \
@@ -66,4 +73,4 @@ CMD sh -c '\
     echo "================================================================" && \
     echo "Running libviprs-tests integration tests (with pdfium)..." && \
     echo "================================================================" && \
-    cd /src/libviprs-tests && cargo test --features pdfium -- --test-threads=1'
+    cd /src/libviprs-tests && cargo test --features pdfium'

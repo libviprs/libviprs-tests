@@ -24,12 +24,19 @@
 //! memory reasons must not get blindsided by a 10× wall-time penalty.
 //! That contract belongs in tests, not in benches.
 //!
-//! # Why a wall-time test isn't flaky
+//! # Why this is `#[ignore]`d out of normal CI
 //!
-//! Pdfium is deterministic and the threshold is 5×. The fastest CI
-//! machine and the slowest CI machine both produce the same ratio,
-//! modulo ±10 % noise. We warm up pdfium before timing to avoid
-//! the lazy init cost.
+//! Pdfium is deterministic and the threshold is coarse, but the two
+//! timings are taken back to back on a shared CI runner. A scheduling
+//! hiccup on the cached run (the denominator) inflates the ratio and
+//! turns this into a spurious red on an unrelated PR. Wall-clock ratios
+//! are a nightly-quality signal, not a per-PR gate: both tests carry
+//! `#[ignore]` so the normal `cargo test` run never blocks on them, and
+//! `.github/workflows/nightly.yml` runs them on a schedule via
+//! `cargo test --features pdfium -- --ignored`, where a transient blip
+//! is a retryable nightly, not a merge blocker. Removing `#[ignore]`
+//! from either test re-arms the flake and is guarded by
+//! `pdfium_ci_policy.rs`.
 
 #![cfg(feature = "pdfium")]
 
@@ -118,6 +125,7 @@ fn warmup(fixture: &str) -> u32 {
 }
 
 #[test]
+#[ignore = "wall-clock perf-ratio smoke: nightly-only, runs via `cargo test --features pdfium -- --ignored` in nightly.yml"]
 fn streaming_within_constant_factor_of_cached_blueprint() {
     let _ = warmup(FIXTURE_BLUEPRINT);
     // Run cached first, then streaming. Either order is fine — both
@@ -134,6 +142,7 @@ fn streaming_within_constant_factor_of_cached_blueprint() {
 }
 
 #[test]
+#[ignore = "wall-clock perf-ratio smoke: nightly-only, runs via `cargo test --features pdfium -- --ignored` in nightly.yml"]
 fn streaming_within_constant_factor_of_cached_portrait() {
     let _ = warmup(FIXTURE_PORTRAIT);
     let cached = time_cached_n_strips(FIXTURE_PORTRAIT, STRIPS);
