@@ -10,5 +10,5 @@
 # To bump: set this to a libviprs commit SHA, run the suite against the sibling
 # checkout, and update the label comment below.
 #
-# libviprs main @ 2026-07-11
-0c1caf702a4f2bbc336852f835b6c30a167033e1
+# libviprs main @ 2026-07-11 (8 op batches + RgbaF32/FloatF32 float formats)
+54261ce2d3af2cb17e36875e37d8ec6309a643bd
