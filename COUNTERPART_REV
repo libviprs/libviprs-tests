@@ -1,0 +1,14 @@
+# Pinned revision of the cross-repo counterpart: libviprs/libviprs (the core
+# crate this test suite depends on via `{ path = "../libviprs" }`).
+#
+# CI checks the counterpart out at exactly this commit instead of guessing a
+# matching branch name and silently falling back to `main`. That fallback let a
+# PR go green against the wrong revision of its counterpart (issue #58). The
+# first non-comment, non-blank line below is the authoritative 40-char SHA; the
+# trailing comment is a human label only.
+#
+# To bump: set this to a libviprs commit SHA, run the suite against the sibling
+# checkout, and update the label comment below.
+#
+# libviprs main @ 2026-07-10
+1e30e238417ef10c79377ed118eb343409cc1165
