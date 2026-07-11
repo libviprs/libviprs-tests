@@ -16,11 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Clone libviprs (matching branch or main)
-        run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          git clone --depth 1 --branch "$BRANCH" https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs 2>/dev/null \
-            || git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
+      - uses: ./.github/actions/clone-counterpart
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
@@ -30,11 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Clone libviprs (matching branch or main)
-        run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          git clone --depth 1 --branch "$BRANCH" https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs 2>/dev/null \
-            || git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
+      - uses: ./.github/actions/clone-counterpart
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install PDFium
@@ -57,16 +49,25 @@ jobs:
       # race FPDF state. Force serial execution within each test binary.
       - run: cargo test --features pdfium -- --test-threads=1
 
+  reference-fixtures:
+    name: Reference Fixtures (pinned fetch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/clone-counterpart
+      - name: Fetch libvips reference suite at pinned revision
+        run: ./tools/fetch_reference_suite.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Prove the pinned fetch populated every fixture the ported suite needs.
+      - run: cargo test --features ported_tests --test fixture_audit
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Clone libviprs (matching branch or main)
-        run: |
-          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          git clone --depth 1 --branch "$BRANCH" https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs 2>/dev/null \
-            || git clone --depth 1 https://github.com/${{ github.repository_owner }}/libviprs.git ../libviprs
+      - uses: ./.github/actions/clone-counterpart
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt

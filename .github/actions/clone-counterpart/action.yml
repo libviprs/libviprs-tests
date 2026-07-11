@@ -1,0 +1,30 @@
+name: Clone counterpart libviprs at pinned SHA
+description: >
+  Clone the cross-repo counterpart (libviprs core) into ../libviprs at the exact
+  commit pinned in COUNTERPART_REV. There is no branch-name guessing and no
+  silent fallback to the default branch, so a PR is always tested against the
+  revision it declares (issue #58). Requires the calling repo to be checked out
+  first (actions/checkout@v4) so COUNTERPART_REV is present.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        rev_file="${GITHUB_WORKSPACE}/COUNTERPART_REV"
+        REV="$(grep -Eom1 '[0-9a-f]{40}' "$rev_file" || true)"
+        if [ -z "$REV" ]; then
+          echo "::error file=COUNTERPART_REV::no 40-char commit SHA found; refusing to guess a branch"
+          exit 1
+        fi
+        echo "Pinned libviprs revision: $REV"
+        dest="${GITHUB_WORKSPACE}/../libviprs"
+        mkdir -p "$dest"
+        git -C "$dest" init -q
+        git -C "$dest" remote add origin \
+          "https://github.com/${{ github.repository_owner }}/libviprs.git" 2>/dev/null || true
+        # Fetch exactly the pinned commit (GitHub allows fetching reachable SHAs).
+        git -C "$dest" fetch --depth 1 origin "$REV"
+        git -C "$dest" checkout -q FETCH_HEAD
+        echo "Checked out libviprs at $(git -C "$dest" rev-parse HEAD)"
