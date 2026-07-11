@@ -12,7 +12,6 @@
 //!   engine because that would defeat the streaming memory budget.
 //! - `Streaming` and `MapReduce` accept `&Raster` by auto-wrapping.
 
-#![cfg(feature = "builder_v1")]
 #![allow(unused_imports)]
 
 use libviprs::sink::{CollectedTile, MemorySink, TileSink};

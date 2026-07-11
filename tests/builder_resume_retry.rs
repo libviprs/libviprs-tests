@@ -10,7 +10,6 @@
 //! the short-form alias `with_max` as a synonym for `with_max_retries`
 //! (requested in the design doc) and pins the default constants.
 
-#![cfg(feature = "builder_v1")]
 #![allow(unused_imports)]
 
 use std::path::PathBuf;

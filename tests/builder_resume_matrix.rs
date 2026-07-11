@@ -18,15 +18,15 @@
 //! | StripSource  Verify     | IncompatibleSource     | ok            | ok            |
 //!
 //! Rejection cells assert the typed error. Success cells assert `Ok(_)` with
-//! the expected `tiles_produced` count: non-zero for Overwrite and Resume
-//! (resumed runs are idempotent — `tiles_produced` still counts every tile
-//! the engine visited), and zero for Verify (Verify is read-only and does
-//! not produce tiles). For Verify cells the pyramid is first seeded via an
-//! Overwrite run against the same directory.
+//! the expected `tiles_produced` count. Overwrite writes the whole plan, so it
+//! reports `plan.total_tile_count()`. Resume and Verify cells first seed a full
+//! pyramid via an Overwrite run against the same directory, so both report `0`:
+//! Resume is idempotent and skips every already-recorded tile (it accounts only
+//! the tiles it actually wrote, which is none once the checkpoint is complete),
+//! and Verify is read-only and never produces tiles. The idempotent-resume
+//! contract is pinned independently in `phase3_resume::idempotent_resume_of_completed_job`.
 
-#![cfg(feature = "builder_v1")]
-
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use libviprs::sink::{FsSink, TileFormat};
 use libviprs::streaming::RasterStripSource;
@@ -63,8 +63,8 @@ fn fresh_directory() -> (tempfile::TempDir, PathBuf, PyramidPlan) {
 /// Seed a fully-written pyramid at `base` so a subsequent Verify run has
 /// something to audit. Uses Monolithic + Overwrite — the one engine × mode
 /// pair that is supported for every Verify seed scenario.
-fn seed_pyramid(base: &PathBuf, plan: &PyramidPlan, src: &Raster) {
-    let sink = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
+fn seed_pyramid(base: &Path, plan: &PyramidPlan, src: &Raster) {
+    let sink = FsSink::new(base.to_path_buf(), plan.clone()).with_format(TileFormat::Raw);
     EngineBuilder::new(src, plan.clone(), &sink)
         .with_engine(EngineKind::Monolithic)
         .with_resume(ResumePolicy::overwrite())
@@ -108,12 +108,11 @@ fn monolithic_resume_with_raster_source() {
         .run()
         .unwrap();
 
-    // `tiles_produced` counts every tile the engine visits, including ones
-    // short-circuited by the skip set. With a full checkpoint the count
-    // still equals the plan's total — the short-circuit happens at the sink
-    // layer, not in the engine's accounting.
-    assert_eq!(result.tiles_produced, plan.total_tile_count());
-    assert!(result.tiles_produced > 0);
+    // `tiles_produced` counts only the tiles the resumed run actually wrote.
+    // With a full checkpoint every tile is skipped, so the resumed run is a
+    // no-op and produces zero tiles. This is the idempotent-resume contract
+    // pinned in `phase3_resume::idempotent_resume_of_completed_job`.
+    assert_eq!(result.tiles_produced, 0);
 }
 
 #[test]
@@ -225,7 +224,10 @@ fn streaming_resume_with_raster_source() {
         .run()
         .unwrap();
 
-    assert!(result.tiles_produced > 0);
+    // Idempotent resume over a full checkpoint writes nothing: `tiles_produced`
+    // counts only tiles actually written, which is zero once every tile is
+    // already recorded (see `phase3_resume::idempotent_resume_of_completed_job`).
+    assert_eq!(result.tiles_produced, 0);
 }
 
 #[test]
@@ -278,7 +280,10 @@ fn streaming_resume_with_strip_source() {
         .run()
         .unwrap();
 
-    assert!(result.tiles_produced > 0);
+    // Idempotent resume over a full checkpoint writes nothing: `tiles_produced`
+    // counts only tiles actually written, which is zero once every tile is
+    // already recorded (see `phase3_resume::idempotent_resume_of_completed_job`).
+    assert_eq!(result.tiles_produced, 0);
 }
 
 #[test]
@@ -334,7 +339,10 @@ fn mapreduce_resume_with_raster_source() {
         .run()
         .unwrap();
 
-    assert!(result.tiles_produced > 0);
+    // Idempotent resume over a full checkpoint writes nothing: `tiles_produced`
+    // counts only tiles actually written, which is zero once every tile is
+    // already recorded (see `phase3_resume::idempotent_resume_of_completed_job`).
+    assert_eq!(result.tiles_produced, 0);
 }
 
 #[test]
@@ -387,7 +395,10 @@ fn mapreduce_resume_with_strip_source() {
         .run()
         .unwrap();
 
-    assert!(result.tiles_produced > 0);
+    // Idempotent resume over a full checkpoint writes nothing: `tiles_produced`
+    // counts only tiles actually written, which is zero once every tile is
+    // already recorded (see `phase3_resume::idempotent_resume_of_completed_job`).
+    assert_eq!(result.tiles_produced, 0);
 }
 
 #[test]

@@ -25,14 +25,13 @@
 
 #![cfg(feature = "s3")]
 
-use libviprs::sink::{ObjectStore, ObjectStoreConfig, ObjectStoreSink, RetryPolicy};
+use libviprs::sink::{ObjectStore, ObjectStoreConfig, ObjectStoreSink};
 use libviprs::{
     EngineBuilder, EngineConfig, EngineKind, Layout, PyramidPlanner, SinkError, TileFormat,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 mod common;
 use common::fixtures::canonical_raster_scaled;
@@ -118,6 +117,10 @@ impl RecordingObjectStore {
         self.writes.lock().unwrap().len()
     }
 
+    // Read-back accessor on the recording double, kept for the retry tests
+    // deferred below (they need `ObjectStoreConfig::with_retry`, not yet on
+    // the crate). Retained so the double's capability is documented in place.
+    #[allow(dead_code)]
     fn bytes_for(&self, key: &str) -> Option<Vec<u8>> {
         self.writes
             .lock()
@@ -157,6 +160,7 @@ impl InMemoryObjectStore {
         Arc::new(Self::default())
     }
 
+    #[allow(dead_code)]
     fn get(&self, key: &str) -> Option<Vec<u8>> {
         self.objects.lock().unwrap().get(key).cloned()
     }
