@@ -9,8 +9,8 @@
 use std::path::Path;
 
 use libviprs::{
-    EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, PixelFormat, PyramidPlanner, Raster,
-    TileFormat, decode_file,
+    EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, MetadataValue, PixelFormat,
+    PyramidPlanner, Raster, TileFormat, decode_file,
 };
 
 /// Path to the libvips reference test images directory.
@@ -321,7 +321,7 @@ mod sequential {
     /// Reference: test_seq.sh
     fn test_seq_no_temps() {
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("TMPDIR", dir.path());
+        unsafe { std::env::set_var("TMPDIR", dir.path()) };
 
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
         let _thumb = im.thumbnail(im.width() / 4);
@@ -356,7 +356,7 @@ mod sequential {
     /// Reference: test_seq.sh
     fn test_seq_shrink_no_temps() {
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("TMPDIR", dir.path());
+        unsafe { std::env::set_var("TMPDIR", dir.path()) };
 
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
         let _shrunk = im.shrink(4.0, 4.0);
@@ -755,7 +755,7 @@ mod cli {
         // (Depending on API design, this might panic, return Err, or silently succeed)
 
         // A small image should succeed
-        let result = Raster::zeroed(500, 500, PixelFormat::Gray8);
+        let result = Raster::zeroed(500, 500, PixelFormat::Gray8).unwrap();
         assert_eq!(result.width(), 500);
     }
 
@@ -780,11 +780,11 @@ mod cli {
     fn test_cli_max_coord_env() {
         use libviprs::{get_max_coord, init_from_env};
 
-        std::env::set_var("VIPS_MAX_COORD", "500");
+        unsafe { std::env::set_var("VIPS_MAX_COORD", "500") };
         init_from_env();
         assert_eq!(get_max_coord(), 500);
 
         // Clean up
-        std::env::remove_var("VIPS_MAX_COORD");
+        unsafe { std::env::remove_var("VIPS_MAX_COORD") };
     }
 }
