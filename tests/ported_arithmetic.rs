@@ -744,7 +744,7 @@ mod statistics {
     ///
     /// Reference: test_arithmetic.py::test_avg
     fn test_avg() {
-        let left = Raster::zeroed(50, 100, PixelFormat::Gray8);
+        let left = Raster::zeroed(50, 100, PixelFormat::Gray8).unwrap();
         let right_data = vec![100u8; 50 * 100];
         let right = Raster::new(50, 100, PixelFormat::Gray8, right_data).unwrap();
         let combined = left.insert(&right, 50, 0, true);
@@ -774,7 +774,7 @@ mod statistics {
     ///
     /// Reference: test_arithmetic.py::test_deviate
     fn test_deviate() {
-        let left = Raster::zeroed(50, 100, PixelFormat::Gray8);
+        let left = Raster::zeroed(50, 100, PixelFormat::Gray8).unwrap();
         let right_data = vec![100u8; 50 * 100];
         let right = Raster::new(50, 100, PixelFormat::Gray8, right_data).unwrap();
         let combined = left.insert(&right, 50, 0, true);
@@ -808,7 +808,7 @@ mod statistics {
     ///
     /// Reference: test_arithmetic.py::test_max
     fn test_max() {
-        let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8);
+        let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8).unwrap();
         im.draw_rect_filled(100, 40, 50, 1, 1);
 
         assert!((im.max() - 100.0).abs() < 1.0);
@@ -875,7 +875,7 @@ mod statistics {
     ///
     /// Reference: test_arithmetic.py::test_stats
     fn test_stats() {
-        let left = Raster::zeroed(50, 50, PixelFormat::Gray8);
+        let left = Raster::zeroed(50, 50, PixelFormat::Gray8).unwrap();
         let right_data = vec![10u8; 50 * 50];
         let right = Raster::new(50, 50, PixelFormat::Gray8, right_data).unwrap();
         let im = left.insert(&right, 50, 0, true);
@@ -912,7 +912,7 @@ mod statistics {
     ///
     /// Reference: test_arithmetic.py::test_measure
     fn test_measure() {
-        let left = Raster::zeroed(50, 50, PixelFormat::Gray8);
+        let left = Raster::zeroed(50, 50, PixelFormat::Gray8).unwrap();
         let right_data = vec![10u8; 50 * 50];
         let right = Raster::new(50, 50, PixelFormat::Gray8, right_data).unwrap();
         let im = left.insert(&right, 50, 0, true);
@@ -976,7 +976,7 @@ mod statistics {
     ///
     /// Reference: test_arithmetic.py::test_profile
     fn test_profile() {
-        let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8);
+        let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8).unwrap();
         im.draw_rect_filled(100, 40, 50, 1, 1);
 
         let (columns, rows) = im.profile();
@@ -1015,7 +1015,7 @@ mod statistics {
     ///
     /// Reference: test_arithmetic.py::test_project
     fn test_project() {
-        let left = Raster::zeroed(50, 50, PixelFormat::Gray8);
+        let left = Raster::zeroed(50, 50, PixelFormat::Gray8).unwrap();
         let right_data = vec![10u8; 50 * 50];
         let right = Raster::new(50, 50, PixelFormat::Gray8, right_data).unwrap();
         let im = left.insert(&right, 50, 0, true);
@@ -1773,7 +1773,7 @@ mod complex_histogram {
     ///
     /// Reference: test_arithmetic.py::test_histfind
     fn test_histfind() {
-        let left = Raster::zeroed(50, 100, PixelFormat::Gray8);
+        let left = Raster::zeroed(50, 100, PixelFormat::Gray8).unwrap();
         let right_data = vec![10u8; 50 * 100];
         let right = Raster::new(50, 100, PixelFormat::Gray8, right_data).unwrap();
         let im = left.insert(&right, 50, 0, true);
@@ -1810,7 +1810,7 @@ mod complex_histogram {
     ///
     /// Reference: test_arithmetic.py::test_histfind_indexed
     fn test_histfind_indexed() {
-        let left = Raster::zeroed(50, 100, PixelFormat::Gray8);
+        let left = Raster::zeroed(50, 100, PixelFormat::Gray8).unwrap();
         let right_data = vec![10u8; 50 * 100];
         let right = Raster::new(50, 100, PixelFormat::Gray8, right_data).unwrap();
         let im = left.insert(&right, 50, 0, true);
@@ -1882,7 +1882,7 @@ mod complex_histogram {
     ///
     /// Reference: test_arithmetic.py::test_hough_circle
     fn test_hough_circle() {
-        let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8);
+        let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8).unwrap();
         im.draw_circle(100, 50, 50, 40, false);
 
         let hough = im.hough_circle(35, 45);
@@ -1930,7 +1930,7 @@ mod complex_histogram {
     ///
     /// Reference: test_arithmetic.py::test_hough_line
     fn test_hough_line() {
-        let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8);
+        let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8).unwrap();
         im.draw_line(100, 10, 90, 90, 10);
 
         let hough = im.hough_line();
