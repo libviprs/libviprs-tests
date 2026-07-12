@@ -1081,15 +1081,14 @@ fn test_grid() {
 ///
 /// Reference: test_conversion.py::test_ifthenelse
 ///
-/// RESIDUAL RED (core defect): `add_const` promotes Rgb8 to Rgb16, and the
-/// core's `ifthenelse` only checks that the then/else CHANNEL counts match,
-/// then reads the Rgb8 else branch with the then branch's 2-byte samples,
-/// garbling the output (result(10,10) reads [770, 516, 1027], the
-/// little-endian byte pairs of [2,3,4]). Real libvips harmonises the branch
-/// formats first. Needs a core fix (format harmonisation or a typed
-/// format-mismatch error) and is out of scope for the tests repo. The old
-/// centre-origin fixture masked this by making the probe branch vacuous.
-#[ignore = "core defect: ifthenelse does not harmonise then/else pixel formats (Rgb16 vs Rgb8)"]
+/// Format harmonisation: `add_const` promotes Rgb8 to Rgb16, so the then/else
+/// branches arrive in different pixel formats. Core `ifthenelse` now casts both
+/// branches to a common format before the per-pixel select (matching libvips
+/// `vips__formatalike`), fixed in core PR #269. Before that fix it checked only
+/// channel counts and read the Rgb8 else branch at the then branch's 2-byte
+/// stride, garbling result(10,10) to [770, 516, 1027] (the little-endian byte
+/// pairs of [2,3,4]). This test pins the harmonised result and requires the
+/// counterpart at or past that fix (see COUNTERPART_REV).
 fn test_ifthenelse() {
     let mono = make_test_mono();
     let colour = make_test_colour();
