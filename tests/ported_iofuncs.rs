@@ -7,8 +7,7 @@
 
 use std::path::Path;
 
-use libviprs::source::decode_bytes;
-use libviprs::{PixelFormat, Raster, decode_file};
+use libviprs::{Raster, decode_file, decode_file_with_options};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -25,7 +24,6 @@ fn ref_image(name: &str) -> std::path::PathBuf {
 // ===========================================================================
 
 #[test]
-#[ignore]
 /// Create a constant image from an existing image, preserving geometry and metadata.
 ///
 /// ## Required API
@@ -61,7 +59,17 @@ fn test_new_from_image() {
     assert_eq!(im2.width(), im.width());
     assert_eq!(im2.height(), im.height());
     assert_eq!(im2.interpretation(), im.interpretation());
-    assert_eq!(im2.format(), im.format());
+    // libvips `format` is the sample type (BandFormat: uchar/ushort/float)
+    // alone, independent of band count, so its `im2.format == im.format`
+    // holds. libviprs `PixelFormat` instead couples band count with sample
+    // depth: sample.jpg is 3-band `Rgb8`, but the 1-band constant from
+    // `new_from_image(&[12.0])` is `Gray8`, so `im2.format() == im.format()`
+    // is unsatisfiable and mis-transliterates the source. The faithful
+    // BandFormat check is on sample depth alone, which the core preserves.
+    assert_eq!(
+        im2.format().bytes_per_channel(),
+        im.format().bytes_per_channel()
+    );
     assert!((im2.xres() - im.xres()).abs() < 0.001);
     assert!((im2.yres() - im.yres()).abs() < 0.001);
     assert_eq!(im2.xoffset(), im.xoffset());
@@ -84,7 +92,6 @@ fn test_new_from_image() {
 // ===========================================================================
 
 #[test]
-#[ignore]
 /// Construct an image from a raw memory buffer.
 ///
 /// ## Required API
@@ -121,7 +128,6 @@ fn test_new_from_memory() {
 // ===========================================================================
 
 #[test]
-#[ignore]
 /// Read image metadata fields (e.g. EXIF, ICC, XMP).
 ///
 /// ## Required API
@@ -154,7 +160,6 @@ fn test_get_fields() {
 // ===========================================================================
 
 #[test]
-#[ignore]
 /// Write image pixel data back to a memory buffer.
 ///
 /// ## Required API
@@ -185,7 +190,6 @@ fn test_write_to_memory() {
 // ===========================================================================
 
 #[test]
-#[ignore]
 /// Invalidate and revalidate a cached image after the file changes on disk.
 ///
 /// ## Required API

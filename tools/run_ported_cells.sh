@@ -5,16 +5,21 @@ set -euo pipefail
 # run_ported_cells.sh — Run the green subset of the ported_* test cells.
 #
 # The ported_* integration tests (feature = "ported_tests") are ports of the
-# libvips reference test suite. Eleven cells compile and run green against
-# the current core (219 tests, no per-test `#[ignore]` reds remaining).
-# Three codec cells (ported_foreign, ported_connection, ported_iofuncs)
-# target an external-decoder surface the core does not expose yet and do not
-# compile, so a blanket `cargo test --features ported_tests` build of every
-# test target fails. This script is the single source of truth for the
-# green-cell list: the Docker mirror (Dockerfile CMD via run-tests.sh), the
-# pre-commit hooks (install-hooks.sh), and .github/workflows/ci.yml all call
-# it, so promoting a cell to green is a one-file change. The deferred
-# remainder (the three codec cells) is tracked in issue #77.
+# libvips reference test suite. Twelve cells compile and run green against
+# the current core (224 tests, no per-test `#[ignore]` reds remaining).
+# Two codec cells (ported_foreign, ported_connection) target an
+# external-decoder surface the core does not expose yet and do not compile,
+# so a blanket `cargo test --features ported_tests` build of every test
+# target fails. This script is the single source of truth for the green-cell
+# list: the Docker mirror (Dockerfile CMD via run-tests.sh), the pre-commit
+# hooks (install-hooks.sh), and .github/workflows/ci.yml all call it, so
+# promoting a cell to green is a one-file change. The deferred remainder (the
+# two codec cells) is tracked in issue #77.
+#
+# After the ported cells this script also runs phase3_tracing under the
+# `tracing` feature so the per-tile span tests (core PR #308, issue #83) are
+# exercised in the mirror; the default no-tracing `cargo test` build cfg's
+# those span tests out.
 #
 # ported_infrastructure runs single-threaded: its tests mutate process-global
 # state (TMPDIR, the max-coord limit) that individual tests save and restore
@@ -44,6 +49,7 @@ PARALLEL_CELLS=(
     ported_create
     ported_draw
     ported_histogram
+    ported_iofuncs
     ported_morphology
     ported_mosaicing
     ported_resample
@@ -111,6 +117,17 @@ cargo test --features ported_tests "${PARALLEL_TARGETS[@]}"
 echo ""
 echo "Running $SERIAL_CELL with --test-threads=1 (mutates process-global state)..."
 cargo test --features ported_tests --test "$SERIAL_CELL" -- --test-threads=1
+
+# Exercise the per-tile tracing spans under the `tracing` feature. The default
+# `cargo test` build compiles phase3_tracing WITHOUT `tracing`, so its span
+# tests (emits_span_per_tile, tile_span_carries_coords) are cfg'd out and never
+# run; only its no-tracing counter tests do. Run the whole cell under the
+# feature here so the per-tile `libviprs::tile` span wired in core PR #308
+# actually gates the mirror (issue #83). phase3_tracing reads only the
+# checked-in canonical PNG, not the reference suite fetched above.
+echo ""
+echo "Running phase3_tracing under --features tracing (per-tile span tests)..."
+cargo test --features "ported_tests tracing" --test phase3_tracing
 
 echo ""
 echo "Green ported cells passed."
