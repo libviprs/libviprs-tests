@@ -6,16 +6,15 @@ set -euo pipefail
 #
 # The ported_* integration tests (feature = "ported_tests") are ports of the
 # libvips reference test suite. Eleven cells compile and run green against
-# the current core (210 tests). Three codec cells (ported_foreign,
-# ported_connection, ported_iofuncs) target an external-decoder surface the
-# core does not expose yet and do not compile, so a blanket
-# `cargo test --features ported_tests` build of every test target fails.
-# This script is the single source of truth for the green-cell list: the
-# Docker mirror (Dockerfile CMD via run-tests.sh), the pre-commit hooks
-# (install-hooks.sh), and .github/workflows/ci.yml all call it, so promoting
-# a cell to green is a one-file change. The deferred remainder (codec cells
-# plus the per-test `#[ignore]` reds inside green cells) is tracked in
-# issue #77.
+# the current core (219 tests, no per-test `#[ignore]` reds remaining).
+# Three codec cells (ported_foreign, ported_connection, ported_iofuncs)
+# target an external-decoder surface the core does not expose yet and do not
+# compile, so a blanket `cargo test --features ported_tests` build of every
+# test target fails. This script is the single source of truth for the
+# green-cell list: the Docker mirror (Dockerfile CMD via run-tests.sh), the
+# pre-commit hooks (install-hooks.sh), and .github/workflows/ci.yml all call
+# it, so promoting a cell to green is a one-file change. The deferred
+# remainder (the three codec cells) is tracked in issue #77.
 #
 # ported_infrastructure runs single-threaded: its tests mutate process-global
 # state (TMPDIR, the max-coord limit) that individual tests save and restore
