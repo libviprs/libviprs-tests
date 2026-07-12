@@ -92,7 +92,11 @@ fn pdfium_system_check() {
 
     match page.render_with_config(&config) {
         Ok(bitmap) => {
-            let img = bitmap.as_image();
+            // The pdfium-render 0.9 line returns Result from as_image(); a
+            // conversion failure is a system-check failure like any other.
+            let img = bitmap
+                .as_image()
+                .expect("FAILED: rendered bitmap could not be converted to an image");
             let rgba = img.to_rgba8();
             println!(
                 "Render test (100px): OK ({}x{} RGBA)",

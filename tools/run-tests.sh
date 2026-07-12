@@ -115,6 +115,35 @@ if [ ! -f "$TESTS_DIR/Dockerfile" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Reference fixtures for the ported_tests cells (idempotent, offline-tolerant)
+# ---------------------------------------------------------------------------
+# The green ported_* cells (tools/run_ported_cells.sh) compare against the
+# pinned libvips reference suite under tmp/, which is git- and docker-ignored.
+# Fetch it here on the host (the fetch script is a no-op when the pinned
+# revision is already present) and hand it to the container as a read-only
+# mount. Offline is not fatal: with a previously fetched copy the mount still
+# happens, and with no copy at all the ported step inside the container skips
+# with a clear message instead of failing, matching how the repo treats
+# optional fixtures. gen_fixtures.sh is not needed for the ported cells; they
+# use only the reference suite plus in-test synthetics.
+
+FIXTURES_DIR="$TESTS_DIR/tmp/libvips-reference-tests"
+echo "Fetching libvips reference suite (pinned, idempotent)..."
+if ! "$TESTS_DIR/tools/fetch_reference_suite.sh"; then
+    if [ -d "$FIXTURES_DIR/test-suite/images" ]; then
+        echo "Warning: reference-suite fetch failed (offline?); using the existing copy."
+    else
+        echo "Warning: reference-suite fetch failed and no local copy exists."
+        echo "The ported_tests step will be skipped inside the container."
+    fi
+fi
+
+DOCKER_RUN_MOUNTS=()
+if [ -d "$FIXTURES_DIR/test-suite/images" ]; then
+    DOCKER_RUN_MOUNTS+=( -v "$FIXTURES_DIR:/src/libviprs-tests/tmp/libvips-reference-tests:ro" )
+fi
+
+# ---------------------------------------------------------------------------
 # Stop any previous instance
 # ---------------------------------------------------------------------------
 
@@ -147,6 +176,7 @@ docker run \
     --platform "$PLATFORM" \
     --name "$CONTAINER_NAME" \
     --memory=4g \
+    ${DOCKER_RUN_MOUNTS[@]+"${DOCKER_RUN_MOUNTS[@]}"} \
     "$IMAGE_NAME"
 
 EXIT_CODE=$?

@@ -51,8 +51,13 @@ LIBVIPRS_CLI_CARGO_STEPS=(
 )
 
 # libviprs-tests CI is plainer — no incompatible_msrv / deprecated lints.
+# The second step mirrors the ci.yml ported-tests clippy line: it lints the
+# green ported_* cells under `--features ported_tests`, scoped through
+# tools/run_ported_cells.sh because the three deferred codec cells do not
+# compile yet (issue #77), so `--all-targets` cannot carry that feature.
 LIBVIPRS_TESTS_CARGO_STEPS=(
     "cargo clippy --all-targets -- -D warnings"
+    "./tools/run_ported_cells.sh --clippy"
 )
 
 cargo_steps_for_repo() {

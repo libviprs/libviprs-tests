@@ -7,8 +7,6 @@
 //! The libvips test suite uses a synthetic `mask_ideal` image; we use
 //! a similar generated test image (100×100, 3-band) plus sample.jpg.
 
-use std::path::Path;
-
 use libviprs::{PixelFormat, Raster};
 
 /// Create a synthetic 100×100 single-band (Gray8) test image with recognisable

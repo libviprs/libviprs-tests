@@ -53,8 +53,8 @@ jobs:
       # job on shared runner timing noise.
       - run: cargo test --features pdfium
 
-  reference-fixtures:
-    name: Reference Fixtures (pinned fetch)
+  ported-tests:
+    name: Ported Cells (green subset)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,9 +62,18 @@ jobs:
       - name: Fetch libvips reference suite at pinned revision
         run: ./tools/fetch_reference_suite.sh
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
-      # Prove the pinned fetch populated every fixture the ported suite needs.
-      - run: cargo test --features ported_tests --test fixture_audit
+      # tools/run_ported_cells.sh is the single source of truth for the green
+      # ported_* cells (eleven cells, 210 tests; ported_infrastructure runs
+      # with --test-threads=1 per its header). The test pass runs
+      # fixture_audit first, proving the pinned fetch populated every fixture
+      # the suite needs. Clippy is scoped to the same green targets because
+      # the three deferred codec cells (ported_foreign, ported_connection,
+      # ported_iofuncs) do not compile yet; issue #77 tracks that remainder.
+      - run: ./tools/run_ported_cells.sh --clippy
+      - run: ./tools/run_ported_cells.sh --require-fixtures
 
   feature-cells:
     name: Feature Cell (${{ matrix.feature }})
@@ -78,9 +87,10 @@ jobs:
         # green just because the default harness never compiled that code.
         # `-Dwarnings` (via RUSTFLAGS) means every gated test target is fully
         # type-checked and linted here, not merely conditionally excluded.
-        # `pdfium` has its own job above; `ported_tests` is exercised by the
-        # reference-fixtures job (its full suite targets a libviprs op API that
-        # is not yet on the crate).
+        # `pdfium` has its own job above; `ported_tests` has the ported-tests
+        # job above (it cannot join this `--all-targets` matrix because the
+        # three deferred codec cells do not compile yet, so its clippy pass is
+        # scoped to the green cells via tools/run_ported_cells.sh; issue #77).
         feature: [s3, packfile, tracing]
     steps:
       - uses: actions/checkout@v4
