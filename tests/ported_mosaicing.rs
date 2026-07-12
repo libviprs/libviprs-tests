@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use libviprs::{Raster, decode_file};
+use libviprs::{MergeDirection, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -54,7 +54,6 @@ const MOSAIC_VERTICAL_MARKS: [(i32, i32); 6] = [
 ];
 
 #[test]
-#[ignore]
 /// Left-right merge of two overlapping images.
 ///
 /// ## Required API
@@ -89,7 +88,6 @@ fn test_lrmerge() {
 }
 
 #[test]
-#[ignore]
 /// Top-bottom merge of two overlapping images.
 ///
 /// ## Required API
@@ -116,7 +114,6 @@ fn test_tbmerge() {
 }
 
 #[test]
-#[ignore]
 /// Left-right mosaic with feature-point matching.
 ///
 /// ## Required API
@@ -155,7 +152,6 @@ fn test_lrmosaic() {
 }
 
 #[test]
-#[ignore]
 /// Top-bottom mosaic with feature-point matching.
 ///
 /// ## Required API
@@ -181,7 +177,6 @@ fn test_tbmosaic() {
 }
 
 #[test]
-#[ignore]
 /// Full multi-image mosaic construction from 8 images (4 horizontal pairs
 /// joined vertically).
 ///
@@ -243,7 +238,6 @@ fn test_mosaic() {
 }
 
 #[test]
-#[ignore]
 /// Global balance: adjust brightness across a multi-image mosaic to
 /// remove seam artifacts.
 ///

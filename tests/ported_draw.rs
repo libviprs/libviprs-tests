@@ -32,7 +32,6 @@ fn abs_max_diff(a: &Raster, b: &Raster) -> u8 {
 }
 
 #[test]
-#[ignore]
 /// Draw an outline and filled circle.
 ///
 /// ## Required API
@@ -92,7 +91,6 @@ fn test_draw_circle() {
 }
 
 #[test]
-#[ignore]
 /// Flood-fill an outlined circle to match a filled circle.
 ///
 /// ## Required API
@@ -114,7 +112,7 @@ fn test_draw_circle() {
 fn test_draw_flood() {
     let mut im = black_image(100, 100);
     im.draw_circle(&[100], 50, 50, 25);
-    im.draw_flood(&[100], 50, 50);
+    im.draw_flood(&[100], 50, 50).unwrap();
 
     let mut im2 = black_image(100, 100);
     im2.draw_circle_filled(&[100], 50, 50, 25);
@@ -127,7 +125,6 @@ fn test_draw_flood() {
 }
 
 #[test]
-#[ignore]
 /// Flood-fill with out-of-bounds coordinates should return an error.
 ///
 /// ## Required API
@@ -166,7 +163,6 @@ fn test_draw_flood_out_of_bounds() {
 }
 
 #[test]
-#[ignore]
 /// Draw (composite) one image onto another.
 ///
 /// ## Required API
@@ -202,7 +198,6 @@ fn test_draw_image() {
 }
 
 #[test]
-#[ignore]
 /// Draw a line.
 ///
 /// ## Required API
@@ -229,7 +224,6 @@ fn test_draw_line() {
 }
 
 #[test]
-#[ignore]
 /// Draw using a mask (alpha-weighted compositing).
 ///
 /// ## Required API
@@ -265,7 +259,6 @@ fn test_draw_mask() {
 }
 
 #[test]
-#[ignore]
 /// Draw a filled rectangle.
 ///
 /// ## Required API
@@ -300,7 +293,6 @@ fn test_draw_rect() {
 }
 
 #[test]
-#[ignore]
 /// Smudge (blur/average) a rectangular region in-place.
 ///
 /// ## Required API
