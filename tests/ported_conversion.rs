@@ -679,13 +679,10 @@ fn test_smartcrop() {
 ///
 /// Reference: test_conversion.py::test_smartcrop
 ///
-/// RESIDUAL RED (real-libvips-parity remainder): the core's attention
-/// scoring returns attention_x = 54 on sample.jpg where libvips 8.18
-/// returns 199. The core's own pin
-/// (libviprs tests/extract_ported_surface.rs) deliberately asserts only
-/// coordinate bounds, not the libvips values, so attention parity is a
-/// known core divergence. Not weakened; the libvips literals stay.
-#[ignore = "real-libvips-parity remainder: attention coords 54 vs libvips 199 on sample.jpg"]
+/// The core's attention scoring now matches libvips 8.18 on sample.jpg
+/// (core PR #305): it returns attention_x = 199, attention_y = 234, the
+/// same coordinates the conversion oracle captured from real libvips.
+/// The libvips literals below are pinned unweakened.
 fn test_smartcrop_attention() {
     let im = decode_file(&ref_image("sample.jpg")).unwrap();
     let (result, attention_x, attention_y) =

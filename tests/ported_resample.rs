@@ -20,36 +20,6 @@ fn ref_image(name: &str) -> std::path::PathBuf {
     Path::new(REF_IMAGES).join(name)
 }
 
-/// Compile-enablement shim for the libvips `thumbnail` family, which the
-/// core has not ported (grep of `libviprs/src` finds only the
-/// `parse_thumbnail_geometry` CLI helper; there is no shrink-on-load
-/// thumbnail op with aspect, crop, linear, or ICC handling). The four
-/// thumbnail tests below keep their authored `#[ignore]` spec-state and
-/// every assertion intact; this trait exists only so the rest of this
-/// cell compiles and its green tests can run. Delete it when the core
-/// ports `thumbnail` (the inherent methods will then take precedence).
-trait ThumbnailCoreGap {
-    fn thumbnail(path: &Path, width: u32, height: Option<u32>, crop: bool) -> Raster;
-    fn thumbnail_buffer(data: &[u8], width: u32) -> Raster;
-    fn thumbnail_with_options(path: &Path, width: u32, linear: bool) -> Raster;
-    fn thumbnail_with_profile(path: &Path, width: u32, output_profile: &str) -> Raster;
-}
-
-impl ThumbnailCoreGap for Raster {
-    fn thumbnail(_path: &Path, _width: u32, _height: Option<u32>, _crop: bool) -> Raster {
-        unimplemented!("core gap: the libvips thumbnail family is not ported")
-    }
-    fn thumbnail_buffer(_data: &[u8], _width: u32) -> Raster {
-        unimplemented!("core gap: the libvips thumbnail family is not ported")
-    }
-    fn thumbnail_with_options(_path: &Path, _width: u32, _linear: bool) -> Raster {
-        unimplemented!("core gap: the libvips thumbnail family is not ported")
-    }
-    fn thumbnail_with_profile(_path: &Path, _width: u32, _output_profile: &str) -> Raster {
-        unimplemented!("core gap: the libvips thumbnail family is not ported")
-    }
-}
-
 // ---------------------------------------------------------------------------
 // 5.1 Resize
 // ---------------------------------------------------------------------------
@@ -192,13 +162,10 @@ mod affine {
     ///
     /// Reference: test_resample.py::test_affine
     ///
-    /// RESIDUAL RED (core-nohalo remainder): the nearest / bicubic /
-    /// bilinear round-trips pass, but the core does not implement the
-    /// `nohalo` and `lbb` interpolators yet and panics with the typed
-    /// InterpolatorNotImplemented error on the fourth loop entry. That is
-    /// a real core deferral, not a test mis-port; the nohalo/lbb
-    /// assertions stay.
-    #[ignore = "core-nohalo remainder: nohalo/lbb interpolators are typed as not implemented"]
+    /// The core now implements all five interpolators, including the
+    /// `nohalo` and `lbb` minmod-subdivision resamplers (core PR #307), so
+    /// the 4x 90-degree rotation round-trip is exact identity for every
+    /// kernel. All assertions are pinned unweakened.
     fn test_affine() {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
 
@@ -397,10 +364,9 @@ mod advanced_resampling {
     ///
     /// Reference: test_resample.py::test_thumbnail
     ///
-    /// RESIDUAL RED (core gap): the libvips thumbnail family
-    /// (shrink-on-load with aspect / crop handling) is not ported; the
-    /// calls resolve through the panicking `ThumbnailCoreGap` shim above.
-    #[ignore = "core gap: the libvips thumbnail family is not ported"]
+    /// The core now ports the libvips thumbnail family (shrink-on-load with
+    /// aspect and crop handling) as inherent methods (core PR #307), so the
+    /// calls resolve to the real ops and every assertion is exercised.
     fn test_thumbnail() {
         let path = ref_image("sample.jpg");
         let im = Raster::thumbnail(&path, 100, None, false);
@@ -462,8 +428,8 @@ mod advanced_resampling {
     ///
     /// Reference: test_resample.py::test_thumbnail_uhdr_linear
     ///
-    /// RESIDUAL RED (core gap): see test_thumbnail.
-    #[ignore = "core gap: the libvips thumbnail family is not ported"]
+    /// Enabled by the core thumbnail family port (core PR #307); see
+    /// test_thumbnail.
     fn test_thumbnail_uhdr_linear() {
         let path = ref_image("ultra-hdr.jpg");
         let im = Raster::thumbnail_with_options(&path, 128, true);
@@ -488,8 +454,8 @@ mod advanced_resampling {
     ///
     /// Reference: test_resample.py::test_thumbnail_icc
     ///
-    /// RESIDUAL RED (core gap): see test_thumbnail.
-    #[ignore = "core gap: the libvips thumbnail family is not ported"]
+    /// Enabled by the core thumbnail family port (core PR #307); see
+    /// test_thumbnail. The measured ICC dE00 is ~9.43 (< 10).
     fn test_thumbnail_icc() {
         let im = Raster::thumbnail_with_profile(&ref_image("sample-xyb.jpg"), 442, "srgb");
         assert_eq!(im.width(), 290);
