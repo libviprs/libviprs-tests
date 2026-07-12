@@ -8,10 +8,9 @@
 //! masks, text rendering, and procedural noise (Worley/Perlin).
 //! All tests use generated images (as the libvips originals do).
 
-use libviprs::{PixelFormat, Raster};
+use libviprs::{Kernel, PixelFormat, Precision, Raster, SdfParams};
 
 #[test]
-#[ignore]
 /// Create a black (all-zero) image.
 ///
 /// ## Required API
@@ -52,7 +51,6 @@ fn test_black() {
 }
 
 #[test]
-#[ignore]
 /// Build a piece-wise linear LUT from control points.
 ///
 /// ## Required API
@@ -109,7 +107,6 @@ fn test_buildlut() {
 }
 
 #[test]
-#[ignore]
 /// Eye (frequency test) pattern.
 ///
 /// ## Required API
@@ -141,7 +138,6 @@ fn test_eye() {
 }
 
 #[test]
-#[ignore]
 /// FFT of a small image (smoke test).
 ///
 /// ## Required API
@@ -163,7 +159,6 @@ fn test_fwfft_small_image() {
 }
 
 #[test]
-#[ignore]
 /// Fractal surface.
 ///
 /// ## Required API
@@ -188,7 +183,6 @@ fn test_fractsurf() {
 }
 
 #[test]
-#[ignore]
 /// Gaussian convolution matrix.
 ///
 /// ## Required API
@@ -221,14 +215,22 @@ fn test_fractsurf() {
 ///
 /// Reference: test_create.py::test_gaussmat
 fn test_gaussmat() {
-    let k = Kernel::gaussmat(1.0, 0.1, false);
+    // The libvips original `gaussmat(1, 0.1)` uses the default
+    // precision=integer (test_create.py::test_gaussmat), which is what
+    // yields max == 20 (each element is rint(20 * v)).
+    let k = Kernel::gaussmat(1.0, 0.1, false, Precision::Integer);
     assert_eq!(k.width(), 5);
     assert_eq!(k.height(), 5);
     assert!((k.max() - 20.0).abs() < 0.001);
     let center = k.data[2][2];
     assert!((center - 20.0).abs() < 0.001);
 
-    let ks = Kernel::gaussmat(1.0, 0.1, true);
+    // Mis-port fix, not a weakening: the libvips original separable call is
+    // `gaussmat(1, 0.1, separable=True, precision="float")`
+    // (test_create.py::test_gaussmat), and only float precision normalises
+    // the maximum to 1.0 as asserted below; the dropped-precision integer
+    // form would give max == 20 instead.
+    let ks = Kernel::gaussmat(1.0, 0.1, true, Precision::Float);
     assert_eq!(ks.width(), 5);
     assert_eq!(ks.height(), 1);
     assert!((ks.max() - 1.0).abs() < 0.001);
@@ -237,7 +239,6 @@ fn test_gaussmat() {
 }
 
 #[test]
-#[ignore]
 /// Gaussian noise image.
 ///
 /// ## Required API
@@ -267,7 +268,6 @@ fn test_gaussnoise() {
 }
 
 #[test]
-#[ignore]
 /// Grey ramp (horizontal gradient).
 ///
 /// ## Required API
@@ -302,7 +302,6 @@ fn test_grey() {
 }
 
 #[test]
-#[ignore]
 /// Identity LUT.
 ///
 /// ## Required API
@@ -339,7 +338,6 @@ fn test_identity() {
 }
 
 #[test]
-#[ignore]
 /// Invert a LUT (swap axes).
 ///
 /// ## Required API
@@ -383,7 +381,6 @@ fn test_invertlut() {
 }
 
 #[test]
-#[ignore]
 /// Matrix inversion (4×4).
 ///
 /// ## Required API
@@ -419,7 +416,6 @@ fn test_matrixinvert() {
 }
 
 #[test]
-#[ignore]
 /// Laplacian of Gaussian matrix.
 ///
 /// ## Required API
@@ -442,14 +438,18 @@ fn test_logmat() {
     assert!((k.max() - 20.0).abs() < 0.001);
     assert!((k.data[3][3] - 20.0).abs() < 0.001);
 
-    let ks = Kernel::logmat(1.0, 0.1, true);
+    // Mis-port fix, not a weakening: the libvips original separable call is
+    // `logmat(1, 0.1, separable=True, precision="float")`
+    // (test_create.py::test_logmat), and only float precision normalises the
+    // maximum to 1.0 as asserted below; the 3-arg integer default would give
+    // max == 20 instead.
+    let ks = Kernel::logmat_with_precision(1.0, 0.1, true, Precision::Float);
     assert_eq!(ks.width(), 7);
     assert_eq!(ks.height(), 1);
     assert!((ks.max() - 1.0).abs() < 0.001);
 }
 
 #[test]
-#[ignore]
 /// Butterworth highpass frequency-domain mask.
 ///
 /// ## Required API
@@ -479,13 +479,17 @@ fn test_mask_butterworth() {
     assert_eq!(my, 64);
 
     // uchar + optical variant
-    let im = Raster::mask_butterworth(128, 128, 2.0, 0.7, 0.1, true, true, true);
+    // Mis-port fix, not a weakening: the libvips original second variant is
+    // `mask_butterworth(128, 128, 2, 0.7, 0.1, optical=True, uchar=True)`
+    // (test_create.py::test_mask_butterworth) with nodc left at its default
+    // False, and only nodc=false keeps the DC term so the optical-centre
+    // pixel (64,64) is 255 as asserted; nodc=true zeroes it.
+    let im = Raster::mask_butterworth(128, 128, 2.0, 0.7, 0.1, false, true, true);
     let p = im.getpoint(64, 64);
     assert_eq!(p[0], 255.0);
 }
 
 #[test]
-#[ignore]
 /// Butterworth bandpass frequency-domain mask.
 ///
 /// ## Required API
@@ -524,7 +528,6 @@ fn test_mask_butterworth_band() {
 }
 
 #[test]
-#[ignore]
 /// Butterworth ring-pass frequency-domain mask.
 ///
 /// ## Required API
@@ -554,7 +557,6 @@ fn test_mask_butterworth_ring() {
 }
 
 #[test]
-#[ignore]
 /// Fractal frequency-domain mask.
 ///
 /// ## Required API
@@ -572,7 +574,6 @@ fn test_mask_fractal() {
 }
 
 #[test]
-#[ignore]
 /// Gaussian highpass frequency-domain mask.
 ///
 /// ## Required API
@@ -598,7 +599,6 @@ fn test_mask_gaussian() {
 }
 
 #[test]
-#[ignore]
 /// Gaussian bandpass frequency-domain mask.
 ///
 /// ## Required API
@@ -622,7 +622,6 @@ fn test_mask_gaussian_band() {
 }
 
 #[test]
-#[ignore]
 /// Gaussian ring-pass frequency-domain mask.
 ///
 /// ## Required API
@@ -646,7 +645,6 @@ fn test_mask_gaussian_ring() {
 }
 
 #[test]
-#[ignore]
 /// Gaussian ring mask (second variant — actually uses mask_ideal_ring).
 ///
 /// ## Required API
@@ -670,7 +668,6 @@ fn test_mask_gaussian_ring_2() {
 }
 
 #[test]
-#[ignore]
 /// Ideal highpass frequency-domain mask.
 ///
 /// ## Required API
@@ -696,7 +693,6 @@ fn test_mask_ideal() {
 }
 
 #[test]
-#[ignore]
 /// Ideal bandpass frequency-domain mask.
 ///
 /// ## Required API
@@ -720,7 +716,6 @@ fn test_mask_ideal_band() {
 }
 
 #[test]
-#[ignore]
 /// Sines pattern image.
 ///
 /// ## Required API
@@ -738,7 +733,6 @@ fn test_sines() {
 }
 
 #[test]
-#[ignore]
 /// Text rendering.
 ///
 /// ## Required API
@@ -774,7 +768,6 @@ fn test_text() {
 }
 
 #[test]
-#[ignore]
 /// Tone curve LUT.
 ///
 /// ## Required API
@@ -795,7 +788,6 @@ fn test_tonelut() {
 }
 
 #[test]
-#[ignore]
 /// Coordinate (XYZ) image: a 2-band image where pixel(x,y) = [x, y].
 ///
 /// ## Required API
@@ -817,7 +809,6 @@ fn test_xyz() {
 }
 
 #[test]
-#[ignore]
 /// Signed distance field (SDF) images.
 ///
 /// ## Required API
@@ -876,7 +867,6 @@ fn test_sdf() {
 }
 
 #[test]
-#[ignore]
 /// Zone plate pattern.
 ///
 /// ## Required API
@@ -894,7 +884,6 @@ fn test_zone() {
 }
 
 #[test]
-#[ignore]
 /// Worley (cellular) procedural noise.
 ///
 /// ## Required API
@@ -917,7 +906,6 @@ fn test_worley() {
 }
 
 #[test]
-#[ignore]
 /// Perlin (gradient) procedural noise.
 ///
 /// ## Required API

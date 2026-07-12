@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use libviprs::{Interpretation, PixelFormat, Raster, decode_file};
+use libviprs::{Intent, Interpretation, Pcs, Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -22,7 +22,6 @@ fn ref_image(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-#[ignore]
 /// Subset of libvips test_colour.py::test_colourspace.
 /// Colour-space round-trip: convert through a chain of colour spaces and
 /// verify the result comes back to the starting point.
@@ -115,7 +114,6 @@ fn test_colourspace_roundtrip() {
 }
 
 #[test]
-#[ignore]
 /// Subset of libvips test_colour.py::test_colourspace.
 /// Mono colour-space conversions (greyscale → colour → greyscale).
 ///
@@ -173,7 +171,6 @@ fn test_colourspace_mono() {
 }
 
 #[test]
-#[ignore]
 /// Subset of libvips test_colour.py::test_colourspace.
 /// CMYK round-trip through colour spaces.
 ///
@@ -215,7 +212,6 @@ fn test_colourspace_cmyk() {
 }
 
 #[test]
-#[ignore]
 /// Subset of libvips test_colour.py::test_colourspace (Lindbloom validation). No standalone libvips equivalent.
 /// Lab→XYZ conversion verified against Lindbloom reference.
 ///
@@ -245,7 +241,6 @@ fn test_lab_xyz_reference() {
 }
 
 #[test]
-#[ignore]
 /// 1:1 port of libvips test_colour.py::test_dE00 (Rust name uses lowercase).
 /// Delta E 2000 (CIEDE2000) colour difference.
 ///
@@ -286,7 +281,6 @@ fn test_de00() {
 }
 
 #[test]
-#[ignore]
 /// 1:1 port of libvips test_colour.py::test_dE76 (Rust name uses lowercase).
 /// Delta E 76 (CIE76) colour difference.
 ///
@@ -324,7 +318,6 @@ fn test_de76() {
 }
 
 #[test]
-#[ignore]
 /// 1:1 port of libvips test_colour.py::test_dECMC (Rust name uses lowercase).
 /// Delta E CMC colour difference.
 ///
@@ -362,7 +355,6 @@ fn test_decmc() {
 }
 
 #[test]
-#[ignore]
 /// ICC profile import/export/transform.
 ///
 /// ## Required API
@@ -440,7 +432,6 @@ fn test_icc() {
 }
 
 #[test]
-#[ignore]
 /// CMYK→sRGB approximate conversion (without lcms).
 ///
 /// ## Required API

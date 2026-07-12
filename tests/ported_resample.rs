@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use libviprs::{PixelFormat, Raster, decode_file};
+use libviprs::{Raster, decode_file};
 
 /// Path to the libvips reference test images directory.
 const REF_IMAGES: &str = concat!(
@@ -18,6 +18,36 @@ const REF_IMAGES: &str = concat!(
 
 fn ref_image(name: &str) -> std::path::PathBuf {
     Path::new(REF_IMAGES).join(name)
+}
+
+/// Compile-enablement shim for the libvips `thumbnail` family, which the
+/// core has not ported (grep of `libviprs/src` finds only the
+/// `parse_thumbnail_geometry` CLI helper; there is no shrink-on-load
+/// thumbnail op with aspect, crop, linear, or ICC handling). The four
+/// thumbnail tests below keep their authored `#[ignore]` spec-state and
+/// every assertion intact; this trait exists only so the rest of this
+/// cell compiles and its green tests can run. Delete it when the core
+/// ports `thumbnail` (the inherent methods will then take precedence).
+trait ThumbnailCoreGap {
+    fn thumbnail(path: &Path, width: u32, height: Option<u32>, crop: bool) -> Raster;
+    fn thumbnail_buffer(data: &[u8], width: u32) -> Raster;
+    fn thumbnail_with_options(path: &Path, width: u32, linear: bool) -> Raster;
+    fn thumbnail_with_profile(path: &Path, width: u32, output_profile: &str) -> Raster;
+}
+
+impl ThumbnailCoreGap for Raster {
+    fn thumbnail(_path: &Path, _width: u32, _height: Option<u32>, _crop: bool) -> Raster {
+        unimplemented!("core gap: the libvips thumbnail family is not ported")
+    }
+    fn thumbnail_buffer(_data: &[u8], _width: u32) -> Raster {
+        unimplemented!("core gap: the libvips thumbnail family is not ported")
+    }
+    fn thumbnail_with_options(_path: &Path, _width: u32, _linear: bool) -> Raster {
+        unimplemented!("core gap: the libvips thumbnail family is not ported")
+    }
+    fn thumbnail_with_profile(_path: &Path, _width: u32, _output_profile: &str) -> Raster {
+        unimplemented!("core gap: the libvips thumbnail family is not ported")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +69,6 @@ mod resize {
     }
 
     #[test]
-    #[ignore]
     /// Subset of libvips test_resample.py::test_resize.
     /// Verify downscale behaviour with odd-dimension inputs.
     ///
@@ -79,7 +108,6 @@ mod resize {
     }
 
     #[test]
-    #[ignore]
     /// Shrink an image by an integer factor.
     ///
     /// ## Required API
@@ -112,7 +140,6 @@ mod resize {
     }
 
     #[test]
-    #[ignore]
     /// Additional coverage related to libvips test_resample.py::test_shrink. No standalone libvips equivalent.
     /// Shrink using box-average filter and compare quality.
     ///
@@ -146,7 +173,6 @@ mod affine {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Apply an affine rotation then its inverse; verify round-trip fidelity.
     ///
     /// ## Required API
@@ -165,6 +191,14 @@ mod affine {
     ///   2. After 4 rotations, the image should match the original exactly (max diff = 0).
     ///
     /// Reference: test_resample.py::test_affine
+    ///
+    /// RESIDUAL RED (core-nohalo remainder): the nearest / bicubic /
+    /// bilinear round-trips pass, but the core does not implement the
+    /// `nohalo` and `lbb` interpolators yet and panics with the typed
+    /// InterpolatorNotImplemented error on the fourth loop entry. That is
+    /// a real core deferral, not a test mis-port; the nohalo/lbb
+    /// assertions stay.
+    #[ignore = "core-nohalo remainder: nohalo/lbb interpolators are typed as not implemented"]
     fn test_affine() {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
 
@@ -189,7 +223,6 @@ mod affine {
     }
 
     #[test]
-    #[ignore]
     /// Rotate an image using the similarity operator.
     ///
     /// ## Required API
@@ -228,7 +261,6 @@ mod affine {
     }
 
     #[test]
-    #[ignore]
     /// Scale an image using the similarity operator.
     ///
     /// ## Required API
@@ -257,7 +289,6 @@ mod affine {
     }
 
     #[test]
-    #[ignore]
     /// Rotate an image by an arbitrary angle and check dimensions.
     ///
     /// ## Required API
@@ -298,7 +329,6 @@ mod advanced_resampling {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Compare output across different resampling kernels.
     ///
     /// ## Required API
@@ -345,7 +375,6 @@ mod advanced_resampling {
     }
 
     #[test]
-    #[ignore]
     /// Generate a thumbnail respecting aspect ratio.
     ///
     /// ## Required API
@@ -367,6 +396,11 @@ mod advanced_resampling {
     /// 6. Buffer thumbnail should match file thumbnail.
     ///
     /// Reference: test_resample.py::test_thumbnail
+    ///
+    /// RESIDUAL RED (core gap): the libvips thumbnail family
+    /// (shrink-on-load with aspect / crop handling) is not ported; the
+    /// calls resolve through the panicking `ThumbnailCoreGap` shim above.
+    #[ignore = "core gap: the libvips thumbnail family is not ported"]
     fn test_thumbnail() {
         let path = ref_image("sample.jpg");
         let im = Raster::thumbnail(&path, 100, None, false);
@@ -408,7 +442,6 @@ mod advanced_resampling {
     }
 
     #[test]
-    #[ignore]
     /// Thumbnail a UHDR file at 128px with linear processing.
     ///
     /// ## Required API
@@ -428,6 +461,9 @@ mod advanced_resampling {
     /// 3. Assert bands == 3.
     ///
     /// Reference: test_resample.py::test_thumbnail_uhdr_linear
+    ///
+    /// RESIDUAL RED (core gap): see test_thumbnail.
+    #[ignore = "core gap: the libvips thumbnail family is not ported"]
     fn test_thumbnail_uhdr_linear() {
         let path = ref_image("ultra-hdr.jpg");
         let im = Raster::thumbnail_with_options(&path, 128, true);
@@ -436,7 +472,6 @@ mod advanced_resampling {
     }
 
     #[test]
-    #[ignore]
     /// Thumbnail with ICC profile handling.
     ///
     /// ## Required API
@@ -452,6 +487,9 @@ mod advanced_resampling {
     /// 3. dE00 vs original sample.jpg should be < 10.
     ///
     /// Reference: test_resample.py::test_thumbnail_icc
+    ///
+    /// RESIDUAL RED (core gap): see test_thumbnail.
+    #[ignore = "core gap: the libvips thumbnail family is not ported"]
     fn test_thumbnail_icc() {
         let im = Raster::thumbnail_with_profile(&ref_image("sample-xyb.jpg"), 442, "srgb");
         assert_eq!(im.width(), 290);
@@ -464,7 +502,6 @@ mod advanced_resampling {
     }
 
     #[test]
-    #[ignore]
     /// Remap pixels via an index image.
     ///
     /// ## Required API

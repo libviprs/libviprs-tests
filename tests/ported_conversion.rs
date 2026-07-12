@@ -25,16 +25,27 @@ fn ref_image(name: &str) -> std::path::PathBuf {
 
 /// Create a synthetic 100×100, 3-band (Rgb8) test image matching
 /// the libvips test setup: `(mask_ideal * [1,2,3] + [2,3,4]).copy(interpretation="srgb")`.
+///
+/// Mis-port fix, not a weakening: this generator originally measured its
+/// radial gradient from the image CENTRE, putting [255,255,255] at (0,0).
+/// The libvips `mask_ideal(100, 100, 0.5, reject, optical)` fixture has
+/// its zero-valued origin at (0,0): the reference suite itself asserts
+/// `colour(30, 30) == [2, 3, 4]` (test_conversion.py::test_extract) and
+/// `comp(0, 0) == [51.8, 52.8, 53.8]` (test_composite), both of which
+/// require mask(0,0) = mask(10,10) = mask(30,30) = 0. The core's own
+/// passing pin (libviprs tests/composite_ported_surface.rs) reproduces
+/// the fixture the same way: radius measured from the TOP-LEFT with
+/// dx = x/w, dy = y/h, zero inside the 0.5 cutoff, so that
+/// comp(0,0) = colour(0,0)*(128/255) + (colour(0,0)+100)*(1-128/255)
+///           = [2,3,4] + 49.8 = [51.8, 52.8, 53.8].
 fn make_test_colour() -> Raster {
     let w = 100u32;
     let h = 100u32;
-    let cx = w as f64 / 2.0;
-    let cy = h as f64 / 2.0;
     let mut data = vec![0u8; (w * h * 3) as usize];
     for y in 0..h {
         for x in 0..w {
-            let dx = (x as f64 - cx) / cx;
-            let dy = (y as f64 - cy) / cy;
+            let dx = x as f64 / w as f64;
+            let dy = y as f64 / h as f64;
             let r = (dx * dx + dy * dy).sqrt();
             let v = if r > 0.5 { (r * 200.0).min(255.0) } else { 0.0 };
             let off = ((y * w + x) * 3) as usize;
@@ -46,17 +57,19 @@ fn make_test_colour() -> Raster {
     Raster::new(w, h, PixelFormat::Rgb8, data).unwrap()
 }
 
-/// Create a mono (Gray8) version of the test image.
+/// Create a mono (Gray8) version of the test image (`colour[1]`).
+///
+/// Same radial-origin mis-port fix as [`make_test_colour`]: the libvips
+/// fixture's zero-valued origin is at (0,0), so the radius is measured
+/// from the top-left, not the centre.
 fn make_test_mono() -> Raster {
     let w = 100u32;
     let h = 100u32;
-    let cx = w as f64 / 2.0;
-    let cy = h as f64 / 2.0;
     let mut data = vec![0u8; (w * h) as usize];
     for y in 0..h {
         for x in 0..w {
-            let dx = (x as f64 - cx) / cx;
-            let dy = (y as f64 - cy) / cy;
+            let dx = x as f64 / w as f64;
+            let dy = y as f64 / h as f64;
             let r = (dx * dx + dy * dy).sqrt();
             let v = if r > 0.5 { (r * 200.0).min(255.0) } else { 0.0 };
             data[(y * w + x) as usize] = ((v * 2.0 + 3.0) as u16).min(255) as u8;
@@ -66,7 +79,6 @@ fn make_test_mono() -> Raster {
 }
 
 #[test]
-#[ignore]
 /// Format cast with clipping/overflow behaviour.
 ///
 /// ## Required API
@@ -84,7 +96,6 @@ fn make_test_mono() -> Raster {
 /// Reference: test_conversion.py::test_cast
 fn test_cast() {
     // Create image with negative values (using signed representation)
-    let data = vec![0u8; 100]; // placeholder; real test needs signed format
     let im = Raster::new(1, 1, PixelFormat::Gray8, vec![0u8]).unwrap();
     let neg = im.sub_const(10.0); // requires signed format output
 
@@ -101,7 +112,6 @@ fn test_cast() {
 }
 
 #[test]
-#[ignore]
 /// Bitwise AND reduction across bands.
 ///
 /// ## Required API
@@ -127,7 +137,6 @@ fn test_band_and() {
 }
 
 #[test]
-#[ignore]
 /// Bitwise OR reduction across bands.
 ///
 /// ## Required API
@@ -153,7 +162,6 @@ fn test_band_or() {
 }
 
 #[test]
-#[ignore]
 /// Bitwise XOR reduction across bands.
 ///
 /// ## Required API
@@ -179,7 +187,6 @@ fn test_band_eor() {
 }
 
 #[test]
-#[ignore]
 /// Band join (concatenate bands from two images).
 ///
 /// ## Required API
@@ -226,7 +233,6 @@ fn test_bandjoin() {
 }
 
 #[test]
-#[ignore]
 /// Band join with constant values.
 ///
 /// ## Required API
@@ -264,7 +270,6 @@ fn test_bandjoin_const() {
 }
 
 #[test]
-#[ignore]
 /// Add an alpha band (set to max for the format).
 ///
 /// ## Required API
@@ -289,7 +294,6 @@ fn test_addalpha() {
 }
 
 #[test]
-#[ignore]
 /// Band mean: average across bands.
 ///
 /// ## Required API
@@ -315,7 +319,6 @@ fn test_bandmean() {
 }
 
 #[test]
-#[ignore]
 /// Band rank: per-pixel median (or rank) across multiple images.
 ///
 /// ## Required API
@@ -342,7 +345,6 @@ fn test_bandrank() {
 }
 
 #[test]
-#[ignore]
 /// Copy with modified metadata.
 ///
 /// ## Required API
@@ -373,7 +375,6 @@ fn test_copy() {
 }
 
 #[test]
-#[ignore]
 /// Band fold/unfold: reshape width into bands and back.
 ///
 /// ## Required API
@@ -409,7 +410,6 @@ fn test_bandfold() {
 }
 
 #[test]
-#[ignore]
 /// Byte swap (endianness reversal) — double swap is identity.
 ///
 /// ## Required API
@@ -434,7 +434,6 @@ fn test_byteswap() {
 }
 
 #[test]
-#[ignore]
 /// Embed image in a larger canvas.
 ///
 /// ## Required API
@@ -478,7 +477,6 @@ fn test_embed() {
 }
 
 #[test]
-#[ignore]
 /// Gravity positioning: place a small image within a larger canvas.
 ///
 /// ## Required API
@@ -528,7 +526,6 @@ fn test_gravity() {
 }
 
 #[test]
-#[ignore]
 /// Extract area and band.
 ///
 /// ## Required API
@@ -563,7 +560,6 @@ fn test_extract() {
 }
 
 #[test]
-#[ignore]
 /// Band indexing and slicing via extract_band.
 ///
 /// ## Required API
@@ -619,7 +615,6 @@ fn test_slice() {
 }
 
 #[test]
-#[ignore]
 /// Crop (alias for extract_area).
 ///
 /// ## Required API
@@ -641,7 +636,6 @@ fn test_crop() {
 }
 
 #[test]
-#[ignore]
 /// Smart crop: automatically crop to salient region.
 ///
 /// ## Required API
@@ -668,7 +662,6 @@ fn test_smartcrop() {
 }
 
 #[test]
-#[ignore]
 /// Smart crop with attention strategy, returning attention coordinates.
 ///
 /// ## Required API
@@ -685,6 +678,14 @@ fn test_smartcrop() {
 /// 2. Verify attention_x = 199, attention_y = 234.
 ///
 /// Reference: test_conversion.py::test_smartcrop
+///
+/// RESIDUAL RED (real-libvips-parity remainder): the core's attention
+/// scoring returns attention_x = 54 on sample.jpg where libvips 8.18
+/// returns 199. The core's own pin
+/// (libviprs tests/extract_ported_surface.rs) deliberately asserts only
+/// coordinate bounds, not the libvips values, so attention parity is a
+/// known core divergence. Not weakened; the libvips literals stay.
+#[ignore = "real-libvips-parity remainder: attention coords 54 vs libvips 199 on sample.jpg"]
 fn test_smartcrop_attention() {
     let im = decode_file(&ref_image("sample.jpg")).unwrap();
     let (result, attention_x, attention_y) =
@@ -696,7 +697,6 @@ fn test_smartcrop_attention() {
 }
 
 #[test]
-#[ignore]
 /// Smart crop on an RGBA image.
 ///
 /// ## Required API
@@ -723,7 +723,6 @@ fn test_smartcrop_rgba() {
 }
 
 #[test]
-#[ignore]
 /// Smart crop on a premultiplied RGBA image.
 ///
 /// ## Required API
@@ -752,7 +751,6 @@ fn test_smartcrop_rgba_premultiplied() {
 }
 
 #[test]
-#[ignore]
 /// False colour: map a greyscale image to a colour palette.
 ///
 /// ## Required API
@@ -784,7 +782,6 @@ fn test_falsecolour() {
 }
 
 #[test]
-#[ignore]
 /// Alpha flatten: composite RGBA onto a solid background.
 ///
 /// ## Required API
@@ -826,7 +823,6 @@ fn test_flatten() {
 }
 
 #[test]
-#[ignore]
 /// Premultiply and unpremultiply alpha.
 ///
 /// ## Required API
@@ -863,7 +859,6 @@ fn test_premultiply() {
 }
 
 #[test]
-#[ignore]
 /// Unpremultiply alpha: undo premultiplication across formats.
 ///
 /// ## Required API
@@ -903,7 +898,6 @@ fn test_unpremultiply() {
 }
 
 #[test]
-#[ignore]
 /// Porter-Duff composite.
 ///
 /// ## Required API
@@ -935,7 +929,6 @@ fn test_composite() {
 }
 
 #[test]
-#[ignore]
 /// Composite with non-separable blend modes (hue, saturation, colour, luminosity).
 ///
 /// ## Required API
@@ -977,7 +970,6 @@ fn test_composite_non_separable() {
 }
 
 #[test]
-#[ignore]
 /// Flip horizontal and vertical.
 ///
 /// ## Required API
@@ -1008,7 +1000,6 @@ fn test_flip() {
 }
 
 #[test]
-#[ignore]
 /// Gamma correction.
 ///
 /// ## Required API
@@ -1040,7 +1031,6 @@ fn test_gamma() {
 }
 
 #[test]
-#[ignore]
 /// Grid rearrangement: reshape a tall strip into a grid.
 ///
 /// ## Required API
@@ -1067,7 +1057,6 @@ fn test_grid() {
 }
 
 #[test]
-#[ignore]
 /// If-then-else: conditional pixel selection.
 ///
 /// ## Required API
@@ -1091,6 +1080,16 @@ fn test_grid() {
 /// 4. At (50,50) where condition is true: result = colour(50,50) + 10.
 ///
 /// Reference: test_conversion.py::test_ifthenelse
+///
+/// RESIDUAL RED (core defect): `add_const` promotes Rgb8 to Rgb16, and the
+/// core's `ifthenelse` only checks that the then/else CHANNEL counts match,
+/// then reads the Rgb8 else branch with the then branch's 2-byte samples,
+/// garbling the output (result(10,10) reads [770, 516, 1027], the
+/// little-endian byte pairs of [2,3,4]). Real libvips harmonises the branch
+/// formats first. Needs a core fix (format harmonisation or a typed
+/// format-mismatch error) and is out of scope for the tests repo. The old
+/// centre-origin fixture masked this by making the probe branch vacuous.
+#[ignore = "core defect: ifthenelse does not harmonise then/else pixel formats (Rgb16 vs Rgb8)"]
 fn test_ifthenelse() {
     let mono = make_test_mono();
     let colour = make_test_colour();
@@ -1114,7 +1113,6 @@ fn test_ifthenelse() {
 }
 
 #[test]
-#[ignore]
 /// Switch: select from conditions to produce an index image.
 ///
 /// ## Required API
@@ -1142,7 +1140,6 @@ fn test_switch() {
 }
 
 #[test]
-#[ignore]
 /// Insert one image into another.
 ///
 /// ## Required API
@@ -1174,7 +1171,6 @@ fn test_insert() {
 }
 
 #[test]
-#[ignore]
 /// Array join: tile multiple images into a grid.
 ///
 /// ## Required API
@@ -1204,7 +1200,6 @@ fn test_arrayjoin() {
 }
 
 #[test]
-#[ignore]
 /// Extract the most significant byte from a multi-byte image.
 ///
 /// ## Required API
@@ -1234,7 +1229,6 @@ fn test_msb() {
 }
 
 #[test]
-#[ignore]
 /// Matrix recombination of bands.
 ///
 /// ## Required API
@@ -1263,7 +1257,6 @@ fn test_recomb() {
 }
 
 #[test]
-#[ignore]
 /// Replicate (tile) an image.
 ///
 /// ## Required API
@@ -1293,7 +1286,6 @@ fn test_replicate() {
 }
 
 #[test]
-#[ignore]
 /// Rotation by multiples of 90° and 45°.
 ///
 /// ## Required API
@@ -1339,7 +1331,6 @@ fn test_rot() {
 }
 
 #[test]
-#[ignore]
 /// 45-degree rotation and roundtrip identity.
 ///
 /// ## Required API
@@ -1396,7 +1387,6 @@ fn test_rot45() {
 }
 
 #[test]
-#[ignore]
 /// Auto-rotation based on EXIF orientation tag.
 ///
 /// ## Required API
@@ -1423,7 +1413,6 @@ fn test_autorot() {
 }
 
 #[test]
-#[ignore]
 /// Scale image to 0-255 range.
 ///
 /// ## Required API
@@ -1450,7 +1439,6 @@ fn test_scaleimage() {
 }
 
 #[test]
-#[ignore]
 /// Subsample: pick every Nth pixel.
 ///
 /// ## Required API
@@ -1481,7 +1469,6 @@ fn test_subsample() {
 }
 
 #[test]
-#[ignore]
 /// Integer zoom: replicate each pixel N times.
 ///
 /// ## Required API
@@ -1511,7 +1498,6 @@ fn test_zoom() {
 }
 
 #[test]
-#[ignore]
 /// Quadrant wrap: swap quadrants of an image (useful for FFT display).
 ///
 /// ## Required API

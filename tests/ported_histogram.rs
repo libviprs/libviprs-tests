@@ -22,7 +22,6 @@ fn ref_image(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-#[ignore]
 /// Cumulative histogram.
 ///
 /// ## Required API
@@ -65,7 +64,6 @@ fn test_hist_cum() {
 }
 
 #[test]
-#[ignore]
 /// Histogram equalization (global).
 ///
 /// ## Required API
@@ -100,7 +98,6 @@ fn test_hist_equal() {
 }
 
 #[test]
-#[ignore]
 /// Check if a histogram is monotonic.
 ///
 /// ## Required API
@@ -122,7 +119,6 @@ fn test_hist_ismonotonic() {
 }
 
 #[test]
-#[ignore]
 /// Local histogram equalization (CLAHE).
 ///
 /// ## Required API
@@ -162,7 +158,6 @@ fn test_hist_local() {
 }
 
 #[test]
-#[ignore]
 /// Histogram matching (specification).
 ///
 /// ## Required API
@@ -203,7 +198,6 @@ fn test_hist_match() {
 }
 
 #[test]
-#[ignore]
 /// Histogram normalization.
 ///
 /// ## Required API
@@ -234,7 +228,6 @@ fn test_hist_norm() {
 }
 
 #[test]
-#[ignore]
 /// Histogram plot (visualization).
 ///
 /// ## Required API
@@ -262,7 +255,6 @@ fn test_hist_plot() {
 }
 
 #[test]
-#[ignore]
 /// LUT mapping (apply a look-up table to an image).
 ///
 /// ## Required API
@@ -294,7 +286,6 @@ fn test_hist_map() {
 }
 
 #[test]
-#[ignore]
 /// Find the threshold at which a given percentage of pixels fall below.
 ///
 /// ## Required API
@@ -330,7 +321,6 @@ fn test_percent() {
 }
 
 #[test]
-#[ignore]
 /// Histogram entropy (Shannon entropy of pixel distribution).
 ///
 /// ## Required API
@@ -365,7 +355,6 @@ fn test_hist_entropy() {
 }
 
 #[test]
-#[ignore]
 /// Statistical differencing (local contrast normalization).
 ///
 /// ## Required API
@@ -403,7 +392,6 @@ fn test_stdif() {
 }
 
 #[test]
-#[ignore]
 /// Case/switch: select from a list of values based on an index image.
 ///
 /// ## Required API
