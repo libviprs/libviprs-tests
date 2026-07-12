@@ -5,12 +5,18 @@
 //! These tests exercise metadata preservation, threading consistency,
 //! sequential access, file descriptor management, pipeline stalls,
 //! timeout/cancellation, tokenization, and CLI behaviour.
+//!
+//! Run this cell with `--test-threads=1`. The shell originals each ran in
+//! their own process; their ports mutate process-global state (TMPDIR,
+//! VIPS_MAX_COORD, the max-coord limit, and lsof-based fd counting), which
+//! individual tests save and restore but cannot make atomic across
+//! concurrently running tests.
 
 use std::path::Path;
 
 use libviprs::{
-    EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, MetadataValue, PixelFormat,
-    PyramidPlanner, Raster, TileFormat, decode_file,
+    EngineBuilder, EngineConfig, EngineKind, FsSink, Interpolator, Layout, MetadataValue,
+    PixelFormat, Precision, PyramidPlanner, Raster, decode_file,
 };
 
 /// Path to the libvips reference test images directory.
@@ -29,7 +35,6 @@ mod metadata {
     use super::*;
 
     #[test]
-    #[ignore]
     /// ICC profile preservation: load an image with an ICC profile,
     /// save it, reload, and verify the profile is still present.
     ///
@@ -68,7 +73,6 @@ mod metadata {
     }
 
     #[test]
-    #[ignore]
     /// XMP metadata preservation across save/reload.
     ///
     /// ## Required API
@@ -89,7 +93,7 @@ mod metadata {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
 
         // Not all JPEGs have XMP — check if present first
-        if let Some(xmp) = im.get_field("xmp-data") {
+        if let Some(_xmp) = im.get_field("xmp-data") {
             let dir = tempfile::tempdir().unwrap();
             let out = dir.path().join("keep_xmp.jpg");
             im.save(&out).unwrap();
@@ -103,7 +107,6 @@ mod metadata {
     }
 
     #[test]
-    #[ignore]
     /// Strip all metadata from output.
     ///
     /// ## Required API
@@ -142,7 +145,6 @@ mod metadata {
     }
 
     #[test]
-    #[ignore]
     /// Apply a custom ICC profile to output.
     ///
     /// ## Required API
@@ -192,7 +194,6 @@ mod threading {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Multi-threaded consistency: same output regardless of thread count.
     ///
     /// ## Required API
@@ -218,7 +219,10 @@ mod threading {
         let dir1 = tempfile::tempdir().unwrap();
         let base1 = dir1.path().join("t1");
         let sink1 = FsSink::new(base1.clone(), plan.clone());
-        let config1 = EngineConfig::with_threads(1);
+        // The core spells the worker-thread knob `with_concurrency` (builder
+        // on `EngineConfig::default()`), not the aspirational `with_threads`
+        // constructor this port sketched; same semantics (n workers).
+        let config1 = EngineConfig::default().with_concurrency(1);
         EngineBuilder::new(&src, plan.clone(), &sink1)
             .with_engine(EngineKind::Monolithic)
             .with_config(config1)
@@ -228,7 +232,7 @@ mod threading {
         let dir4 = tempfile::tempdir().unwrap();
         let base4 = dir4.path().join("t4");
         let sink4 = FsSink::new(base4.clone(), plan.clone());
-        let config4 = EngineConfig::with_threads(4);
+        let config4 = EngineConfig::default().with_concurrency(4);
         EngineBuilder::new(&src, plan.clone(), &sink4)
             .with_engine(EngineKind::Monolithic)
             .with_config(config4)
@@ -247,7 +251,6 @@ mod threading {
     }
 
     #[test]
-    #[ignore]
     /// Thread pool size control.
     ///
     /// ## Required API
@@ -264,8 +267,11 @@ mod threading {
     ///
     /// Reference: test_threading.sh
     fn test_max_threads() {
-        let config = EngineConfig::with_threads(2);
-        assert_eq!(config.max_threads(), 2);
+        // The core spells this knob `with_concurrency` and exposes it as the
+        // public `concurrency` field; there is no separate `max_threads`
+        // accessor. Same semantics: the configured worker-thread count.
+        let config = EngineConfig::default().with_concurrency(2);
+        assert_eq!(config.concurrency, 2);
     }
 }
 
@@ -275,7 +281,6 @@ mod sequential {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Sequential thumbnail: generate a thumbnail in a streaming manner.
     ///
     /// ## Required API
@@ -297,13 +302,15 @@ mod sequential {
     /// Reference: test_seq.sh
     fn test_seq_thumbnail() {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
-        let thumb = im.thumbnail(im.width() / 2);
+        // The core has no `Raster::thumbnail`; the aspect-preserving
+        // downscale this shell test exercises is `resize` (scale factor
+        // 0.5 = half width), which is the real core surface for it.
+        let thumb = im.resize(0.5);
         assert!(thumb.width() <= im.width() / 2 + 1);
         assert!(thumb.height() > 0);
     }
 
     #[test]
-    #[ignore]
     /// No temp files created in sequential mode.
     ///
     /// ## Required API
@@ -320,16 +327,28 @@ mod sequential {
     ///
     /// Reference: test_seq.sh
     fn test_seq_no_temps() {
+        // The shell original (test_seq.sh) ran in its own process, so its
+        // TMPDIR override died with it. In-process, the override must be
+        // restored or every later `tempfile::tempdir()` resolves into this
+        // test's deleted directory. This cell also requires serial
+        // execution (--test-threads=1): TMPDIR is process-global state.
+        let old_tmpdir = std::env::var_os("TMPDIR");
         let dir = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("TMPDIR", dir.path()) };
 
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
-        let _thumb = im.thumbnail(im.width() / 4);
+        // See test_seq_thumbnail: `resize` is the core's aspect-preserving
+        // downscale (0.25 = quarter width).
+        let _thumb = im.resize(0.25);
 
         let temp_files: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
             .collect();
+        match &old_tmpdir {
+            Some(v) => unsafe { std::env::set_var("TMPDIR", v) },
+            None => unsafe { std::env::remove_var("TMPDIR") },
+        }
         assert!(
             temp_files.is_empty(),
             "Sequential mode should not create temp files, found {}",
@@ -338,7 +357,6 @@ mod sequential {
     }
 
     #[test]
-    #[ignore]
     /// Shrink with no temp files in sequential mode.
     ///
     /// ## Required API
@@ -355,6 +373,8 @@ mod sequential {
     ///
     /// Reference: test_seq.sh
     fn test_seq_shrink_no_temps() {
+        // Save and restore TMPDIR; see test_seq_no_temps.
+        let old_tmpdir = std::env::var_os("TMPDIR");
         let dir = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("TMPDIR", dir.path()) };
 
@@ -365,6 +385,10 @@ mod sequential {
             .unwrap()
             .filter_map(|e| e.ok())
             .collect();
+        match &old_tmpdir {
+            Some(v) => unsafe { std::env::set_var("TMPDIR", v) },
+            None => unsafe { std::env::remove_var("TMPDIR") },
+        }
         assert!(temp_files.is_empty());
     }
 }
@@ -375,7 +399,6 @@ mod descriptors {
     use super::*;
 
     #[test]
-    #[ignore]
     /// JPEG file descriptor leak check.
     ///
     /// ## Required API
@@ -404,7 +427,6 @@ mod descriptors {
     }
 
     #[test]
-    #[ignore]
     /// PNG file descriptor leak check.
     ///
     /// Same as JPEG but with PNG files.
@@ -423,7 +445,6 @@ mod descriptors {
     }
 
     #[test]
-    #[ignore]
     /// TIFF file descriptor leak check.
     ///
     /// Reference: test_descriptors.sh
@@ -471,7 +492,6 @@ mod pipeline {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Pipeline stall detection: verify that a large pipeline completes
     /// without deadlock within a reasonable time.
     ///
@@ -490,8 +510,13 @@ mod pipeline {
     fn test_pipeline_stall() {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
 
-        // Chain multiple operations
-        let result = im.resize(0.5, 0.5).gaussblur(2.0).resize(2.0, 2.0);
+        // Chain multiple operations. Core signatures: `resize` takes a single
+        // scale factor, and `gaussblur` takes (sigma, min_ampl, precision);
+        // 0.2 / integer are the libvips gaussblur defaults.
+        let result = im
+            .resize(0.5)
+            .gaussblur(2.0, 0.2, Precision::Integer)
+            .resize(2.0);
 
         // Force evaluation
         let _px = result.getpoint(0, 0);
@@ -506,7 +531,6 @@ mod timeout {
     use libviprs::CollectingObserver;
 
     #[test]
-    #[ignore]
     /// Verify progress events are emitted during pyramid generation.
     ///
     /// ## Required API
@@ -561,7 +585,6 @@ mod timeout {
     }
 
     #[test]
-    #[ignore]
     /// Timeout during GIF save.
     ///
     /// ## Required API
@@ -581,16 +604,21 @@ mod timeout {
     fn test_timeout_gifsave() {
         let data = vec![128u8; 1000 * 1000 * 3];
         let im = Raster::new(1000, 1000, PixelFormat::Rgb8, data).unwrap();
-        let result = im.encode_gif();
-        // Either it works or returns a clean error — not a panic
-        match result {
-            Ok(bytes) => assert!(!bytes.is_empty()),
-            Err(_) => {} // Expected: GIF encoding not supported
+        // The core has no `encode_gif`; its GIF surface is extension-dispatch
+        // in `Raster::save`, which returns a typed
+        // `SaveError::UnsupportedExtension` (a clean error, never a panic),
+        // exactly the graceful-degradation contract this test checks.
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("timeout.gif");
+        let result = im.save(&out);
+        // Either it works or returns a clean error, not a panic
+        // (Err is the expected path: GIF encoding not supported)
+        if let Ok(()) = result {
+            assert!(std::fs::metadata(&out).unwrap().len() > 0);
         }
     }
 
     #[test]
-    #[ignore]
     /// Timeout during WebP save.
     ///
     /// ## Required API
@@ -609,10 +637,14 @@ mod timeout {
     fn test_timeout_webpsave() {
         let data = vec![128u8; 1000 * 1000 * 3];
         let im = Raster::new(1000, 1000, PixelFormat::Rgb8, data).unwrap();
-        let result = im.encode_webp(80);
-        match result {
-            Ok(bytes) => assert!(!bytes.is_empty()),
-            Err(_) => {} // Expected: WebP encoding not supported
+        // See test_timeout_gifsave: `Raster::save` extension dispatch is the
+        // core's WebP surface and errors cleanly on unsupported formats.
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("timeout.webp");
+        let result = im.save(&out);
+        // (Err is the expected path: WebP encoding not supported)
+        if let Ok(()) = result {
+            assert!(std::fs::metadata(&out).unwrap().len() > 0);
         }
     }
 }
@@ -621,7 +653,6 @@ mod timeout {
 
 mod tokenization {
     #[test]
-    #[ignore]
     /// Token parsing: quoted, unquoted, and escaped tokens.
     ///
     /// ## Required API
@@ -660,7 +691,6 @@ mod cli {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Thumbnail geometry parsing from CLI-style input.
     ///
     /// ## Required API
@@ -693,12 +723,13 @@ mod cli {
         assert_eq!(geom.height, Some(150));
 
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
-        let thumb = im.thumbnail(200);
+        // The core has no `Raster::thumbnail`; `resize` to the equivalent
+        // scale factor is the real core surface for a width-200 downscale.
+        let thumb = im.resize(200.0 / im.width() as f64);
         assert!(thumb.width() <= 200);
     }
 
     #[test]
-    #[ignore]
     /// Affine rotation with various interpolators via CLI-style API.
     ///
     /// ## Required API
@@ -718,13 +749,15 @@ mod cli {
     /// Reference: test_cli.sh
     fn test_cli_rotate() {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
-        let rotated = im.rotate(45.0, Interpolator::Bilinear);
+        // The core spells arbitrary-angle rotation with an explicit
+        // interpolator as `try_rotate_with(angle, interpolator)`; the 2-arg
+        // panicking `rotate` this port sketched does not exist.
+        let rotated = im.try_rotate_with(45.0, Interpolator::Bilinear).unwrap();
         assert!(rotated.width() > 0);
         assert!(rotated.height() > 0);
     }
 
     #[test]
-    #[ignore]
     /// Max coordinate limit via CLI flag.
     ///
     /// ## Required API
@@ -747,20 +780,23 @@ mod cli {
     fn test_cli_max_coord_flag() {
         use libviprs::{get_max_coord, set_max_coord};
 
+        // max_coord is process-global; restore it so other tests in this
+        // cell keep the default limit (the shell original was per-process).
+        let old_max = get_max_coord();
         set_max_coord(1000);
         assert_eq!(get_max_coord(), 1000);
 
         // Attempting to create an oversized image should fail
-        let result = Raster::zeroed(2000, 2000, PixelFormat::Gray8);
+        let _oversized = Raster::zeroed(2000, 2000, PixelFormat::Gray8);
         // (Depending on API design, this might panic, return Err, or silently succeed)
 
         // A small image should succeed
         let result = Raster::zeroed(500, 500, PixelFormat::Gray8).unwrap();
+        set_max_coord(old_max);
         assert_eq!(result.width(), 500);
     }
 
     #[test]
-    #[ignore]
     /// Max coordinate limit via environment variable.
     ///
     /// ## Required API
@@ -778,13 +814,18 @@ mod cli {
     ///
     /// Reference: test_cli.sh
     fn test_cli_max_coord_env() {
-        use libviprs::{get_max_coord, init_from_env};
+        use libviprs::{get_max_coord, init_from_env, set_max_coord};
 
+        // max_coord is process-global; restore it afterwards (the shell
+        // original was per-process, so its override died with it).
+        let old_max = get_max_coord();
         unsafe { std::env::set_var("VIPS_MAX_COORD", "500") };
         init_from_env();
-        assert_eq!(get_max_coord(), 500);
+        let seen = get_max_coord();
 
         // Clean up
         unsafe { std::env::remove_var("VIPS_MAX_COORD") };
+        set_max_coord(old_max);
+        assert_eq!(seen, 500);
     }
 }

@@ -7,19 +7,7 @@
 //! All tests use synthetically created images (as libvips does) —
 //! no external fixture files needed.
 
-use std::path::Path;
-
-use libviprs::{PixelFormat, Raster, decode_file};
-
-/// Path to the libvips reference test images directory.
-const REF_IMAGES: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tmp/libvips-reference-tests/test-suite/images"
-);
-
-fn ref_image(name: &str) -> std::path::PathBuf {
-    Path::new(REF_IMAGES).join(name)
-}
+use libviprs::{Direction, PixelFormat, Raster};
 
 /// Create a black (all-zero) single-band u8 image.
 fn black_image(w: u32, h: u32) -> Raster {
@@ -27,7 +15,6 @@ fn black_image(w: u32, h: u32) -> Raster {
 }
 
 #[test]
-#[ignore]
 /// Count horizontal lines in a binary image.
 ///
 /// ## Required API
@@ -66,7 +53,6 @@ fn test_countlines() {
 }
 
 #[test]
-#[ignore]
 /// Label connected regions in a binary image.
 ///
 /// ## Required API
@@ -105,7 +91,6 @@ fn test_labelregions() {
 }
 
 #[test]
-#[ignore]
 /// Binary erosion with a structuring element.
 ///
 /// ## Required API
@@ -153,7 +138,6 @@ fn test_erode() {
 }
 
 #[test]
-#[ignore]
 /// Binary dilation with a structuring element.
 ///
 /// ## Required API
@@ -193,7 +177,6 @@ fn test_dilate() {
 }
 
 #[test]
-#[ignore]
 /// Rank filter (median / percentile filter in a window).
 ///
 /// ## Required API
