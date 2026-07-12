@@ -10,7 +10,7 @@
 use std::path::Path;
 
 use libviprs::{
-    Angle, CompositeMode, Extend, PixelFormat, Raster, SmartcropInteresting, decode_file,
+    Angle, Angle45, CompositeMode, Extend, PixelFormat, Raster, SmartcropInteresting, decode_file,
 };
 
 /// Path to the libvips reference test images directory.
