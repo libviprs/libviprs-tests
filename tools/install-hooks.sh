@@ -51,12 +51,18 @@ LIBVIPRS_CLI_CARGO_STEPS=(
 )
 
 # libviprs-tests CI is plainer — no incompatible_msrv / deprecated lints.
-# The second step mirrors the ci.yml ported-tests clippy line: it lints the
-# green ported_* cells under `--features ported_tests`, scoped through
+# These mirror the ci.yml jobs one-for-one so the enforced local mirror
+# compiles and lints every feature cell, not just the default one. Without
+# the per-feature passes a regression in the s3 / packfile / tracing gated
+# modules ships green locally because the default harness never compiles that
+# code (the failure #55 targets). The ported step is scoped through
 # tools/run_ported_cells.sh because the three deferred codec cells do not
 # compile yet (issue #77), so `--all-targets` cannot carry that feature.
 LIBVIPRS_TESTS_CARGO_STEPS=(
     "cargo clippy --all-targets -- -D warnings"
+    "cargo clippy --all-targets --features s3 -- -D warnings"
+    "cargo clippy --all-targets --features packfile -- -D warnings"
+    "cargo clippy --all-targets --features tracing -- -D warnings"
     "./tools/run_ported_cells.sh --clippy"
 )
 
