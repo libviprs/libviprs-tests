@@ -20,6 +20,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
+      # The default `cargo test` above builds phase3_tracing WITHOUT the
+      # `tracing` feature, so its per-tile span tests (emits_span_per_tile,
+      # tile_span_carries_coords) are cfg'd out and only the no-tracing counter
+      # tests run. Exercise the span tests explicitly under the feature so the
+      # per-tile `libviprs::tile` span wired in core PR #308 gates CI (issue
+      # #83). This mirrors the run tools/run_ported_cells.sh performs for the
+      # Docker mirror. phase3_tracing reads only the checked-in canonical PNG,
+      # so it needs no reference-suite fixtures.
+      - run: cargo test --features "ported_tests tracing" --test phase3_tracing
 
   test-pdfium:
     name: Integration Tests (pdfium)
@@ -66,12 +75,13 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       # tools/run_ported_cells.sh is the single source of truth for the green
-      # ported_* cells (eleven cells, 210 tests; ported_infrastructure runs
-      # with --test-threads=1 per its header). The test pass runs
-      # fixture_audit first, proving the pinned fetch populated every fixture
-      # the suite needs. Clippy is scoped to the same green targets because
-      # the three deferred codec cells (ported_foreign, ported_connection,
-      # ported_iofuncs) do not compile yet; issue #77 tracks that remainder.
+      # ported_* cells (twelve cells, 224 tests; ported_infrastructure runs
+      # with --test-threads=1 per its header). It also runs phase3_tracing
+      # under the tracing feature so the per-tile span tests gate here too
+      # (issue #83). The test pass runs fixture_audit first, proving the pinned
+      # fetch populated every fixture the suite needs. Clippy is scoped to the
+      # green targets because the two deferred codec cells (ported_foreign,
+      # ported_connection) do not compile yet; issue #77 tracks that remainder.
       - run: ./tools/run_ported_cells.sh --clippy
       - run: ./tools/run_ported_cells.sh --require-fixtures
 
@@ -89,7 +99,7 @@ jobs:
         # type-checked and linted here, not merely conditionally excluded.
         # `pdfium` has its own job above; `ported_tests` has the ported-tests
         # job above (it cannot join this `--all-targets` matrix because the
-        # three deferred codec cells do not compile yet, so its clippy pass is
+        # two deferred codec cells do not compile yet, so its clippy pass is
         # scoped to the green cells via tools/run_ported_cells.sh; issue #77).
         feature: [s3, packfile, tracing]
     steps:
