@@ -10,5 +10,7 @@
 # To bump: set this to a libviprs commit SHA, run the suite against the sibling
 # checkout, and update the label comment below.
 #
-# libviprs main @ 2026-07-11 (+ #55 histogram-compare and conversion-straggler op batches)
-87d5b8a5100f6c1e8d12e2daa6e21c77b7f0e21b
+# libviprs main @ 2026-07-12 (+ freqfilt/matrix op batch; the rev the green
+# ported cells were proven against in PR #76 and revalidated by the #55
+# harness-wiring mirror run)
+e9a5e6f8a8fc114b5ed0c4a2864af0b246c6146e
