@@ -10,8 +10,10 @@
 # To bump: set this to a libviprs commit SHA, run the suite against the sibling
 # checkout, and update the label comment below.
 #
-# libviprs main @ 2026-07-12 (+ the ifthenelse format-unify fix, core PR #269,
-# which greens ported_conversion::test_ifthenelse; builds on the freqfilt/matrix
-# op batch the green ported cells were proven against in PR #76 and revalidated
-# by the #55 harness-wiring mirror run)
-b90e6bffab1066eb31908e563ea4a315a9e7906f
+# libviprs main @ 2026-07-12 (+ the final #77/#79 enablement batch: atanh /
+# divide-float promotion core PRs #303/#304, smartcrop attention parity #305,
+# Phase 3 resume + queue-admission #306, and the thumbnail family + nohalo/lbb
+# interpolators #307). Greens the previously-ignored ported reds (atanh, sinh,
+# cosh, smartcrop_attention, thumbnail x3, affine) and keeps the #79 phase3
+# resume/queue cells green.
+5ffae90bd01b80ccbd67de0658e1da80c7c28fa6
