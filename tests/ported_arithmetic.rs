@@ -1284,25 +1284,29 @@ mod math_functions {
     ///
     /// ## Test logic (from libvips test_arithmetic.py::test_sinh)
     ///
-    /// 1. Apply sinh to mono test image, verify at (10,10).
+    /// 1. Apply sinh to a small representable input, verify at (50,50).
     ///
     /// Reference: test_arithmetic.py::test_sinh
     ///
-    /// RESIDUAL RED (fixture-probe remainder): make_test_mono's nonzero
-    /// values are all >= 100 (r*200 for r > 0.5), and sinh overflows the
-    /// op's f32 output above ~88.7 (real libvips also yields inf there),
-    /// so no faithful nonzero probe exists on this fixture; mono(10,10)
-    /// is 226. The libvips original probes mask_ideal-derived values 3
-    /// and 5. Not weakened; kept in its authored ignored spec-state
-    /// pending a faithful fixture.
-    #[ignore = "fixture-probe remainder: sinh(226) overflows the f32 op output"]
+    /// MIS-PORT CORRECTION (probe value, not the op): the earlier port
+    /// probed make_test_mono, whose nonzero pixels are all >= 100
+    /// (mono(10,10) = 226). The core sinh op is libvips-faithful: it
+    /// outputs f32 and overflows to +inf above ~88.7, exactly as real
+    /// libvips does (the vips oracle `vips math mono.v out.v sinh` yields
+    /// inf at (10,10) too). So the op is correct; the probe pixel was the
+    /// mis-port. The libvips original probes small values (3 and 5). This
+    /// corrects the probe to a constant-3 input and pins the libvips-exact
+    /// output captured from the real oracle:
+    ///   `vips math const3.v out.v sinh` (uchar -> float) = 10.017874717712402
     fn test_sinh() {
-        let mono = make_test_mono();
-        let result = mono.sinh();
-        let px_m = mono.getpoint(10, 10);
-        let px_r = result.getpoint(10, 10);
-        let expected = px_m[0].sinh();
-        assert!((px_r[0] - expected).abs() / expected.abs().max(1.0) < 0.01);
+        // Small, representable: sinh(3) = 10.0179 does not overflow f32.
+        let data = vec![3u8; 100 * 100];
+        let im = Raster::new(100, 100, PixelFormat::Gray8, data).unwrap();
+        let result = im.sinh();
+        let px_r = result.getpoint(50, 50);
+        // libvips-exact (vips-8.18 oracle): vips math const3.v out.v sinh.
+        let expected = 10.017874717712402_f64;
+        assert!((px_r[0] - expected).abs() < 0.001);
     }
 
     #[test]
@@ -1316,17 +1320,24 @@ mod math_functions {
     ///
     /// Reference: test_arithmetic.py::test_cosh
     ///
-    /// RESIDUAL RED (fixture-probe remainder): same as test_sinh;
-    /// cosh(226) overflows the op's f32 output (inf in real libvips too)
-    /// and the fixture has no representable nonzero probe value.
-    #[ignore = "fixture-probe remainder: cosh(226) overflows the f32 op output"]
+    /// MIS-PORT CORRECTION (probe value, not the op): same as test_sinh.
+    /// cosh(226) overflows the op's f32 output to +inf, which is the real
+    /// libvips result (`vips math mono.v out.v cosh` yields inf at (10,10)),
+    /// so the op is faithful and the mono probe pixel was the mis-port.
+    /// This corrects the probe to a constant-5 input (a small value the
+    /// libvips original also probes) and pins the libvips-exact oracle
+    /// output:
+    ///   `vips math const5.v out.v cosh` (uchar -> float) = 74.209945678710938
     fn test_cosh() {
-        let mono = make_test_mono();
-        let result = mono.cosh();
-        let px_m = mono.getpoint(10, 10);
-        let px_r = result.getpoint(10, 10);
-        let expected = px_m[0].cosh();
-        assert!((px_r[0] - expected).abs() / expected.abs().max(1.0) < 0.01);
+        // Small, representable: cosh(5) = 74.21 does not overflow f32.
+        let data = vec![5u8; 100 * 100];
+        let im = Raster::new(100, 100, PixelFormat::Gray8, data).unwrap();
+        let result = im.cosh();
+        let px_r = result.getpoint(50, 50);
+        // libvips-exact (vips-8.18 oracle): vips math const5.v out.v cosh
+        // getpoint = 74.209945678710938, the f32 value 74.209_945_678_710_94.
+        let expected = 74.209_945_678_710_94_f64;
+        assert!((px_r[0] - expected).abs() < 0.001);
     }
 
     #[test]
@@ -1397,14 +1408,12 @@ mod math_functions {
     ///
     /// Reference: test_arithmetic.py::test_atanh
     ///
-    /// RESIDUAL RED (linear-float-contract remainder): the core's
-    /// div_const follows the integer round-saturate contract, so 128/255
-    /// rounds to 1 and atanh(1) = inf on both sides of the comparison
-    /// (inf - inf = NaN fails the assert). Real libvips promotes
-    /// uchar/const division to float (0.50196..., atanh = 0.5525).
-    /// Needs the float-promoting linear/divide family in the core; out
-    /// of scope for the tests repo.
-    #[ignore = "linear-float-contract remainder: div_const rounds 128/255 to 1, atanh(1) = inf"]
+    /// The core's div_const now promotes uchar/const division to float
+    /// (core PRs #303/#304), so 128/255 = 0.50196... stays representable
+    /// and atanh(0.502) = 0.5525 is finite. The assertion is self-checking:
+    /// `expected` is atanh of the value read back from the divided image,
+    /// so it pins the float-promoted contract without any hand-computed
+    /// literal.
     fn test_atanh() {
         // atanh requires input in (-1, 1)
         let data = vec![128u8; 100 * 100];

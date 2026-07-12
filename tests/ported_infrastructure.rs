@@ -302,10 +302,11 @@ mod sequential {
     /// Reference: test_seq.sh
     fn test_seq_thumbnail() {
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
-        // The core has no `Raster::thumbnail`; the aspect-preserving
-        // downscale this shell test exercises is `resize` (scale factor
-        // 0.5 = half width), which is the real core surface for it.
-        let thumb = im.resize(0.5);
+        // The core's aspect-preserving streaming thumbnail is
+        // `thumbnail_image(width)` (in-memory `vips_thumbnail_image`,
+        // core PR #307), the real surface this shell test exercises. It
+        // fits a width x width box, so the result never exceeds half width.
+        let thumb = im.thumbnail_image(im.width() / 2);
         assert!(thumb.width() <= im.width() / 2 + 1);
         assert!(thumb.height() > 0);
     }
@@ -337,9 +338,9 @@ mod sequential {
         unsafe { std::env::set_var("TMPDIR", dir.path()) };
 
         let im = decode_file(&ref_image("sample.jpg")).unwrap();
-        // See test_seq_thumbnail: `resize` is the core's aspect-preserving
-        // downscale (0.25 = quarter width).
-        let _thumb = im.resize(0.25);
+        // See test_seq_thumbnail: `thumbnail_image` is the core's
+        // aspect-preserving streaming thumbnail; quarter-width box here.
+        let _thumb = im.thumbnail_image(im.width() / 4);
 
         let temp_files: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
