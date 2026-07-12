@@ -61,6 +61,15 @@ ENV CARGO_PROFILE_DEV_DEBUG=0
 # that cross-test concurrency instead of hiding it behind `--test-threads=1`.
 # The wall-clock perf-ratio smoke is `#[ignore]`d here and runs in the nightly
 # workflow, so it never gates this container run.
+#
+# The final step runs the green ported_* cells (feature = "ported_tests") via
+# tools/run_ported_cells.sh, the single source of truth for the green-cell
+# list (deferred remainder: issue #77). The cells read the pinned libvips
+# reference suite under tmp/, which .dockerignore excludes from the build
+# context; run-tests.sh fetches it on the host and bind-mounts it read-only
+# into /src/libviprs-tests/tmp/. When the mount is absent (offline host with
+# no cached copy) the script skips that step with a clear message instead of
+# failing, matching how the repo treats optional fixtures.
 CMD sh -c '\
     echo "================================================================" && \
     echo "Running libviprs unit tests (with pdfium)..." && \
@@ -73,4 +82,9 @@ CMD sh -c '\
     echo "================================================================" && \
     echo "Running libviprs-tests integration tests (with pdfium)..." && \
     echo "================================================================" && \
-    cd /src/libviprs-tests && cargo test --features pdfium'
+    cd /src/libviprs-tests && cargo test --features pdfium && \
+    echo "" && \
+    echo "================================================================" && \
+    echo "Running libviprs-tests green ported cells (ported_tests)..." && \
+    echo "================================================================" && \
+    ./tools/run_ported_cells.sh'
