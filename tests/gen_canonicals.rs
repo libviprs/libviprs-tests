@@ -66,10 +66,7 @@ fn generate_canonical_fixtures() {
     write_canonical_pdf(&dir.join("canonical.pdf"), Rotate::None);
     write_canonical_pdf(&dir.join("canonical_rotated_90.pdf"), Rotate::Quarter);
     write_canonical_pdf(&dir.join("canonical_rotated_180.pdf"), Rotate::Half);
-    write_canonical_pdf(
-        &dir.join("canonical_rotated_270.pdf"),
-        Rotate::ThreeQuarter,
-    );
+    write_canonical_pdf(&dir.join("canonical_rotated_270.pdf"), Rotate::ThreeQuarter);
     write_solid_white_pdf(&dir.join("canonical_solid_white.pdf"));
 
     // CMYK fixtures consumed by `tests/pdf_cmyk.rs`. Each PDF embeds a

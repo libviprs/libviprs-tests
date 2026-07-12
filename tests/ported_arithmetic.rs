@@ -9,17 +9,7 @@
 
 use std::path::Path;
 
-use libviprs::{PixelFormat, Raster, decode_file};
-
-/// Path to the libvips reference test images directory.
-const REF_IMAGES: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tmp/libvips-reference-tests/test-suite/images"
-);
-
-fn ref_image(name: &str) -> std::path::PathBuf {
-    Path::new(REF_IMAGES).join(name)
-}
+use libviprs::{PixelFormat, Raster};
 
 /// Create a synthetic 100×100 single-band (Gray8) test image with recognisable
 /// values at (10,10) and (50,50) — matching the libvips test setup which uses
@@ -57,7 +47,7 @@ fn make_test_colour() -> Raster {
     let mut data = vec![0u8; (w * h * 3) as usize];
     for i in 0..(w * h) as usize {
         let v = md[i] as u16;
-        data[i * 3] = ((v * 1 + 2).min(255)) as u8;
+        data[i * 3] = ((v + 2).min(255)) as u8;
         data[i * 3 + 1] = ((v * 2 + 3).min(255)) as u8;
         data[i * 3 + 2] = ((v * 3 + 4).min(255)) as u8;
     }
@@ -68,7 +58,6 @@ mod basic_arithmetic {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Image + image and image + constant addition.
     ///
     /// ## Required API
@@ -121,7 +110,6 @@ mod basic_arithmetic {
     }
 
     #[test]
-    #[ignore]
     /// Image - image and image - constant subtraction.
     ///
     /// ## Required API
@@ -155,7 +143,6 @@ mod basic_arithmetic {
     }
 
     #[test]
-    #[ignore]
     /// Image * image and image * constant multiplication.
     ///
     /// ## Required API
@@ -184,7 +171,6 @@ mod basic_arithmetic {
     }
 
     #[test]
-    #[ignore]
     /// Image / image and image / constant division.
     ///
     /// ## Required API
@@ -213,7 +199,6 @@ mod basic_arithmetic {
     }
 
     #[test]
-    #[ignore]
     /// Floor division (integer division).
     ///
     /// ## Required API
@@ -241,7 +226,6 @@ mod basic_arithmetic {
     }
 
     #[test]
-    #[ignore]
     /// Power operation (image ** exponent).
     ///
     /// ## Required API
@@ -266,7 +250,6 @@ mod basic_arithmetic {
     }
 
     #[test]
-    #[ignore]
     /// Modulo operation (image % constant).
     ///
     /// ## Required API
@@ -290,7 +273,6 @@ mod basic_arithmetic {
     }
 
     #[test]
-    #[ignore]
     /// Unary positive (+image should be identity).
     ///
     /// ## Required API
@@ -314,7 +296,6 @@ mod basic_arithmetic {
     }
 
     #[test]
-    #[ignore]
     /// Unary negation (-image).
     ///
     /// ## Required API
@@ -338,7 +319,6 @@ mod basic_arithmetic {
     }
 
     #[test]
-    #[ignore]
     /// Absolute value of pixel values.
     ///
     /// ## Required API
@@ -366,7 +346,6 @@ mod basic_arithmetic {
     }
 
     #[test]
-    #[ignore]
     /// Clamp pixel values to a range.
     ///
     /// ## Required API
@@ -399,7 +378,6 @@ mod bitwise {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Bitwise AND of two images.
     ///
     /// ## Required API
@@ -434,7 +412,6 @@ mod bitwise {
     }
 
     #[test]
-    #[ignore]
     /// Bitwise OR of two images.
     ///
     /// ## Required API
@@ -463,7 +440,6 @@ mod bitwise {
     }
 
     #[test]
-    #[ignore]
     /// Bitwise XOR of two images.
     ///
     /// ## Required API
@@ -486,7 +462,6 @@ mod bitwise {
     }
 
     #[test]
-    #[ignore]
     /// Bitwise NOT (invert) of an image.
     ///
     /// ## Required API
@@ -506,12 +481,16 @@ mod bitwise {
         let result = mono.bitnot();
         let px_m = mono.getpoint(50, 50);
         let px_r = result.getpoint(50, 50);
-        let expected = (!px_m[0] as u8) as f64;
+        // Mis-port fix, not a weakening: the original `(!px_m[0] as u8) as f64`
+        // parses as `(!px_m[0]) as u8`, applying unary `!` to an f64 (E0600).
+        // The intended libvips semantics are bitwise NOT on the uchar pixel:
+        // mono(50,50) = 0, !0u8 = 255, and core `bitnot` also yields 255, so
+        // `(!(px_m[0] as u8)) as f64` equals the op output exactly.
+        let expected = (!(px_m[0] as u8)) as f64;
         assert!((px_r[0] - expected).abs() < 1.0);
     }
 
     #[test]
-    #[ignore]
     /// Left shift.
     ///
     /// ## Required API
@@ -535,7 +514,6 @@ mod bitwise {
     }
 
     #[test]
-    #[ignore]
     /// Right shift.
     ///
     /// ## Required API
@@ -563,7 +541,6 @@ mod comparison {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Greater than comparison (image > image and image > constant).
     ///
     /// ## Required API
@@ -596,7 +573,6 @@ mod comparison {
     }
 
     #[test]
-    #[ignore]
     /// Greater or equal comparison.
     ///
     /// ## Required API
@@ -618,7 +594,6 @@ mod comparison {
     }
 
     #[test]
-    #[ignore]
     /// Less than comparison.
     ///
     /// ## Required API
@@ -640,7 +615,6 @@ mod comparison {
     }
 
     #[test]
-    #[ignore]
     /// Less or equal comparison.
     ///
     /// ## Required API
@@ -662,7 +636,6 @@ mod comparison {
     }
 
     #[test]
-    #[ignore]
     /// Pixel-wise equality.
     ///
     /// ## Required API
@@ -700,7 +673,6 @@ mod comparison {
     }
 
     #[test]
-    #[ignore]
     /// Pixel-wise not-equal.
     ///
     /// ## Required API
@@ -726,7 +698,6 @@ mod statistics {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Average pixel value.
     ///
     /// ## Required API
@@ -757,7 +728,6 @@ mod statistics {
     }
 
     #[test]
-    #[ignore]
     /// Standard deviation of pixel values.
     ///
     /// ## Required API
@@ -787,7 +757,6 @@ mod statistics {
     }
 
     #[test]
-    #[ignore]
     /// Maximum value with position.
     ///
     /// ## Required API
@@ -809,7 +778,7 @@ mod statistics {
     /// Reference: test_arithmetic.py::test_max
     fn test_max() {
         let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8).unwrap();
-        im.draw_rect_filled(100, 40, 50, 1, 1);
+        im.draw_rect_filled(&[100], 40, 50, 1, 1);
 
         assert!((im.max() - 100.0).abs() < 1.0);
 
@@ -820,7 +789,6 @@ mod statistics {
     }
 
     #[test]
-    #[ignore]
     /// Minimum value with position.
     ///
     /// ## Required API
@@ -840,7 +808,7 @@ mod statistics {
     fn test_min() {
         let data = vec![100u8; 100 * 100];
         let mut im = Raster::new(100, 100, PixelFormat::Gray8, data).unwrap();
-        im.draw_rect_filled(0, 40, 50, 1, 1);
+        im.draw_rect_filled(&[0], 40, 50, 1, 1);
 
         assert!(im.min().abs() < 1.0);
 
@@ -851,7 +819,6 @@ mod statistics {
     }
 
     #[test]
-    #[ignore]
     /// Stats matrix: min, max, sum, sum², mean, deviate per band + overall.
     ///
     /// ## Required API
@@ -894,7 +861,6 @@ mod statistics {
     }
 
     #[test]
-    #[ignore]
     /// Measure patch averages from an image grid.
     ///
     /// ## Required API
@@ -923,7 +889,6 @@ mod statistics {
     }
 
     #[test]
-    #[ignore]
     /// Find the bounding box of non-background pixels.
     ///
     /// ## Required API
@@ -955,7 +920,6 @@ mod statistics {
     }
 
     #[test]
-    #[ignore]
     /// Profile: find first non-zero pixel in each row/column.
     ///
     /// ## Required API
@@ -977,7 +941,7 @@ mod statistics {
     /// Reference: test_arithmetic.py::test_profile
     fn test_profile() {
         let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8).unwrap();
-        im.draw_rect_filled(100, 40, 50, 1, 1);
+        im.draw_rect_filled(&[100], 40, 50, 1, 1);
 
         let (columns, rows) = im.profile();
 
@@ -993,7 +957,6 @@ mod statistics {
     }
 
     #[test]
-    #[ignore]
     /// Project: column and row sums.
     ///
     /// ## Required API
@@ -1032,7 +995,6 @@ mod statistics {
     }
 
     #[test]
-    #[ignore]
     /// Sum a list of images.
     ///
     /// ## Required API
@@ -1066,7 +1028,6 @@ mod statistics {
     }
 
     #[test]
-    #[ignore]
     /// Pairwise minimum of two images.
     ///
     /// ## Required API
@@ -1096,7 +1057,6 @@ mod statistics {
     }
 
     #[test]
-    #[ignore]
     /// Pairwise maximum of two images.
     ///
     /// ## Required API
@@ -1130,7 +1090,6 @@ mod math_functions {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Sine of pixel values (input in degrees).
     ///
     /// ## Required API
@@ -1161,7 +1120,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Cosine of pixel values (input in degrees).
     ///
     /// ## Required API
@@ -1185,7 +1143,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Tangent of pixel values (input in degrees).
     ///
     /// ## Required API
@@ -1209,7 +1166,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Arc sine (output in degrees).
     ///
     /// ## Required API
@@ -1239,7 +1195,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Arc cosine (output in degrees).
     ///
     /// ## Required API
@@ -1267,7 +1222,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Arc tangent (output in degrees).
     ///
     /// ## Required API
@@ -1294,7 +1248,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Two-argument arc tangent (atan2).
     ///
     /// ## Required API
@@ -1323,7 +1276,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Hyperbolic sine.
     ///
     /// ## Required API
@@ -1337,6 +1289,15 @@ mod math_functions {
     /// 1. Apply sinh to mono test image, verify at (10,10).
     ///
     /// Reference: test_arithmetic.py::test_sinh
+    ///
+    /// RESIDUAL RED (fixture-probe remainder): make_test_mono's nonzero
+    /// values are all >= 100 (r*200 for r > 0.5), and sinh overflows the
+    /// op's f32 output above ~88.7 (real libvips also yields inf there),
+    /// so no faithful nonzero probe exists on this fixture; mono(10,10)
+    /// is 226. The libvips original probes mask_ideal-derived values 3
+    /// and 5. Not weakened; kept in its authored ignored spec-state
+    /// pending a faithful fixture.
+    #[ignore = "fixture-probe remainder: sinh(226) overflows the f32 op output"]
     fn test_sinh() {
         let mono = make_test_mono();
         let result = mono.sinh();
@@ -1347,7 +1308,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Hyperbolic cosine.
     ///
     /// ## Required API
@@ -1357,6 +1317,11 @@ mod math_functions {
     /// ```
     ///
     /// Reference: test_arithmetic.py::test_cosh
+    ///
+    /// RESIDUAL RED (fixture-probe remainder): same as test_sinh;
+    /// cosh(226) overflows the op's f32 output (inf in real libvips too)
+    /// and the fixture has no representable nonzero probe value.
+    #[ignore = "fixture-probe remainder: cosh(226) overflows the f32 op output"]
     fn test_cosh() {
         let mono = make_test_mono();
         let result = mono.cosh();
@@ -1367,7 +1332,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Hyperbolic tangent.
     ///
     /// ## Required API
@@ -1387,7 +1351,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Inverse hyperbolic sine.
     ///
     /// ## Required API
@@ -1407,7 +1370,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Inverse hyperbolic cosine.
     ///
     /// ## Required API
@@ -1427,7 +1389,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Inverse hyperbolic tangent.
     ///
     /// ## Required API
@@ -1437,6 +1398,15 @@ mod math_functions {
     /// ```
     ///
     /// Reference: test_arithmetic.py::test_atanh
+    ///
+    /// RESIDUAL RED (linear-float-contract remainder): the core's
+    /// div_const follows the integer round-saturate contract, so 128/255
+    /// rounds to 1 and atanh(1) = inf on both sides of the comparison
+    /// (inf - inf = NaN fails the assert). Real libvips promotes
+    /// uchar/const division to float (0.50196..., atanh = 0.5525).
+    /// Needs the float-promoting linear/divide family in the core; out
+    /// of scope for the tests repo.
+    #[ignore = "linear-float-contract remainder: div_const rounds 128/255 to 1, atanh(1) = inf"]
     fn test_atanh() {
         // atanh requires input in (-1, 1)
         let data = vec![128u8; 100 * 100];
@@ -1450,7 +1420,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Natural logarithm.
     ///
     /// ## Required API
@@ -1477,7 +1446,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Base-10 logarithm.
     ///
     /// ## Required API
@@ -1499,7 +1467,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Exponential (e^x).
     ///
     /// ## Required API
@@ -1520,7 +1487,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Base-10 exponential (10^x).
     ///
     /// ## Required API
@@ -1540,7 +1506,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Floor: round pixel values down to nearest integer.
     ///
     /// ## Required API
@@ -1560,7 +1525,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Ceiling: round pixel values up to nearest integer.
     ///
     /// ## Required API
@@ -1579,7 +1543,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Round to nearest integer.
     ///
     /// ## Required API
@@ -1598,7 +1561,6 @@ mod math_functions {
     }
 
     #[test]
-    #[ignore]
     /// Sign function: -1, 0, or 1.
     ///
     /// ## Required API
@@ -1634,7 +1596,6 @@ mod complex_histogram {
     use super::*;
 
     #[test]
-    #[ignore]
     /// Convert complex image to polar form (magnitude, angle).
     ///
     /// ## Required API
@@ -1684,7 +1645,6 @@ mod complex_histogram {
     }
 
     #[test]
-    #[ignore]
     /// Convert complex image from polar to rectangular form.
     ///
     /// ## Required API
@@ -1721,7 +1681,6 @@ mod complex_histogram {
     }
 
     #[test]
-    #[ignore]
     /// Complex conjugate.
     ///
     /// ## Required API
@@ -1751,7 +1710,6 @@ mod complex_histogram {
     }
 
     #[test]
-    #[ignore]
     /// Compute a histogram of pixel values.
     ///
     /// ## Required API
@@ -1792,7 +1750,6 @@ mod complex_histogram {
     }
 
     #[test]
-    #[ignore]
     /// Histogram find with index image.
     ///
     /// ## Required API
@@ -1824,7 +1781,6 @@ mod complex_histogram {
     }
 
     #[test]
-    #[ignore]
     /// N-dimensional histogram.
     ///
     /// ## Required API
@@ -1863,7 +1819,6 @@ mod complex_histogram {
     }
 
     #[test]
-    #[ignore]
     /// Hough circle detection.
     ///
     /// ## Required API
@@ -1883,10 +1838,10 @@ mod complex_histogram {
     /// Reference: test_arithmetic.py::test_hough_circle
     fn test_hough_circle() {
         let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8).unwrap();
-        im.draw_circle(100, 50, 50, 40, false);
+        im.draw_circle(&[100], 50, 50, 40);
 
         let hough = im.hough_circle(35, 45);
-        let (v, x, y) = hough.maxpos();
+        let (_v, x, y) = hough.maxpos();
         let vec = hough.getpoint(x, y);
         let r = vec
             .iter()
@@ -1910,7 +1865,6 @@ mod complex_histogram {
     }
 
     #[test]
-    #[ignore]
     /// Hough line detection.
     ///
     /// ## Required API
@@ -1931,7 +1885,7 @@ mod complex_histogram {
     /// Reference: test_arithmetic.py::test_hough_line
     fn test_hough_line() {
         let mut im = Raster::zeroed(100, 100, PixelFormat::Gray8).unwrap();
-        im.draw_line(100, 10, 90, 90, 10);
+        im.draw_line(&[100], 10, 90, 90, 10);
 
         let hough = im.hough_line();
         let (_v, x, y) = hough.maxpos();
