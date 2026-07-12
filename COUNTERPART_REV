@@ -10,7 +10,8 @@
 # To bump: set this to a libviprs commit SHA, run the suite against the sibling
 # checkout, and update the label comment below.
 #
-# libviprs main @ 2026-07-12 (+ freqfilt/matrix op batch; the rev the green
-# ported cells were proven against in PR #76 and revalidated by the #55
-# harness-wiring mirror run)
-e9a5e6f8a8fc114b5ed0c4a2864af0b246c6146e
+# libviprs main @ 2026-07-12 (+ the ifthenelse format-unify fix, core PR #269,
+# which greens ported_conversion::test_ifthenelse; builds on the freqfilt/matrix
+# op batch the green ported cells were proven against in PR #76 and revalidated
+# by the #55 harness-wiring mirror run)
+b90e6bffab1066eb31908e563ea4a315a9e7906f
