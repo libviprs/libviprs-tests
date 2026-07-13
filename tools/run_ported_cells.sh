@@ -5,16 +5,17 @@ set -euo pipefail
 # run_ported_cells.sh — Run the green subset of the ported_* test cells.
 #
 # The ported_* integration tests (feature = "ported_tests") are ports of the
-# libvips reference test suite. Twelve cells compile and run green against
-# the current core (224 tests, no per-test `#[ignore]` reds remaining).
-# Two codec cells (ported_foreign, ported_connection) target an
-# external-decoder surface the core does not expose yet and do not compile,
-# so a blanket `cargo test --features ported_tests` build of every test
-# target fails. This script is the single source of truth for the green-cell
-# list: the Docker mirror (Dockerfile CMD via run-tests.sh), the pre-commit
-# hooks (install-hooks.sh), and .github/workflows/ci.yml all call it, so
-# promoting a cell to green is a one-file change. The deferred remainder (the
-# two codec cells) is tracked in issue #77.
+# libvips reference test suite. All fourteen cells compile and run green
+# against the current core. The two codec cells (ported_foreign,
+# ported_connection) landed with the codec surface (core PRs #309-#315,
+# issue #77): the real-impl subset is green, and the genuinely-external codec
+# tests (HEIF/AVIF, JP2K, JPEG-XL, WebP/GIF encode, magick, SVG, UHDR,
+# FITS/OpenEXR/OpenSlide/MAT/Analyze/NIfTI/Radiance, OJPEG/JPEG-in-TIFF/CCITT/
+# BigTIFF/tiled) either assert the typed Unsupported/decode contract or stay
+# `#[ignore]` with a precise reason. This script is the single source of truth
+# for the green-cell list: the Docker mirror (Dockerfile CMD via run-tests.sh),
+# the pre-commit hooks (install-hooks.sh), and .github/workflows/ci.yml all
+# call it, so promoting a cell to green is a one-file change.
 #
 # After the ported cells this script also runs phase3_tracing under the
 # `tracing` feature so the per-tile span tests (core PR #308, issue #83) are
@@ -44,10 +45,12 @@ set -euo pipefail
 PARALLEL_CELLS=(
     ported_arithmetic
     ported_colour
+    ported_connection
     ported_conversion
     ported_convolution
     ported_create
     ported_draw
+    ported_foreign
     ported_histogram
     ported_iofuncs
     ported_morphology

@@ -10,9 +10,11 @@
 # To bump: set this to a libviprs commit SHA, run the suite against the sibling
 # checkout, and update the label comment below.
 #
-# libviprs main @ 2026-07-12 (+ the #83 iofuncs enablement batch: the per-tile
-# tracing span core PR #308, and iofuncs batch B1 with the bounded LRU load
-# cache core PR #309). Greens the iofuncs cell (new_from_image, new_from_memory,
-# get_fields, write_to_memory, revalidate) and lets the per-tile span tests
-# (emits_span_per_tile, tile_span_carries_coords) run under the tracing feature.
-8b3eba5717a7b72de2edd8a6c919ffb054b20746
+# libviprs main @ 2026-07-12 (+ the codec-cell PR batch that closes issue #77:
+# the B0 spine #310, iofuncs #309, and the Wave-2 lanes ENCODE #312, TIFF #314,
+# CONNECTION #311, TEXT #313, and FOREIGN-SUPPORT #315). This is the full codec
+# and connection surface the ported_foreign and ported_connection cells compile
+# against: Source/Target streaming, JPEG/PNG/TIFF encoders, the matrix/csv/ppm
+# text codecs, and the typed-Unsupported deferred-format stubs (HEIF/AVIF, JP2K,
+# JPEG-XL, WebP/GIF encode, magick, SVG, UHDR). Greens both codec cells.
+47894ecc5d7d8265f235950c81d1c38e0fd36320

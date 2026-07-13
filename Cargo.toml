@@ -33,7 +33,14 @@ tracing = ["libviprs/tracing"]
 [dependencies]
 libviprs = { path = "../libviprs" }
 pdfium-render = { version = "0.9", optional = true }
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
+# Feature unification across the workspace means the decode features enabled
+# here also reach the core `libviprs` crate's `image` dependency, so the ported
+# foreign cell's `decode_file`/`decode_bytes` calls gain the pure-Rust decoders
+# for these formats (bmp/gif/pnm/tga/ico/webp/hdr). See tools/run_ported_cells.sh
+# and issue #77. Encode-only external formats (heif/avif/jp2k/jxl) stay deferred.
+image = { version = "0.25", default-features = false, features = [
+    "jpeg", "png", "tiff", "bmp", "gif", "pnm", "tga", "ico", "webp", "hdr",
+] }
 flate2 = "1"
 tempfile = "3"
 # Used by `tests/gen_canonicals.rs` (the offline canonical-fixture
