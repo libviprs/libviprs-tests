@@ -1,0 +1,35 @@
+# BuildKit .dockerignore for the run-tests.sh Docker mirror.
+#
+# The mirror builds with the WORKSPACE ROOT (the parent of libviprs/ and
+# libviprs-tests/) as the build context and `-f libviprs-tests/Dockerfile`
+# (see tools/run-tests.sh). Docker therefore reads its ignore rules from the
+# context root's `.dockerignore`, NOT from `libviprs-tests/.dockerignore`.
+# BuildKit checks for a `<dockerfile>.dockerignore` next to the `-f` Dockerfile
+# first and prefers it, so this file (living in the libviprs-tests repo, in
+# scope) is the authoritative ignore set for the mirror build. It fully
+# replaces the context-root file, so it must carry every exclusion, not just
+# the native-library additions.
+#
+# Patterns are relative to the build context (the workspace root); `**/` makes
+# them match under both libviprs/ and libviprs-tests/.
+**/target/
+**/.git/
+**/.DS_Store
+**/tmp/
+**/*.log
+**/*.bak
+**/*.tmp
+
+# Native library binaries are gitignored but present in a local checkout. The
+# COPY of libviprs-tests/ would otherwise pull the ~6 MiB libpdfium.dylib into
+# the image, where the pdfium_provenance working-tree scan (which runs when the
+# context has no .git) false-fails on it (issue #56 guard). The runtime
+# libpdfium.so comes from the pinned `pdfium` build stage, not the context, so
+# excluding these here is safe and keeps the pre-push hook green without
+# --no-verify.
+**/*.dylib
+**/*.so
+**/*.dll
+**/*.a
+**/*.lib
+**/libpdfium*
