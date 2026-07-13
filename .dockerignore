@@ -5,3 +5,15 @@
 *.log
 *.bak
 *.tmp
+
+# Native library binaries are gitignored (see .gitignore) but, without .git in
+# the Docker build context, the pdfium_provenance working-tree scan would find a
+# locally-present libpdfium.dylib and false-fail (issue #56 guard). Keep native
+# libs out of the build context entirely so the provenance test stays honest and
+# the pre-push hook does not need --no-verify.
+*.dylib
+*.so
+*.dll
+*.a
+*.lib
+libpdfium*
