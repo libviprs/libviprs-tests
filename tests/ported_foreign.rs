@@ -18,8 +18,8 @@ use libviprs::{
     MagickLoadOptions, PixelFormat, PyramidPlanner, Raster, SaveError, SinkError, TiffCompression,
     TileFormat, decode_bytes_fail_on, decode_file, decode_file_fail_on, decode_file_sequential,
     decode_file_with_shrink, decode_svg, decode_tiff_page, extract_page_image,
-    extract_page_image_dpi, extract_page_image_with_password, magickload, magickload_with,
-    pdf_info, pdf_info_with_password, thumbnail, thumbnail_crop, tiff_page_count,
+    extract_page_image_dpi, extract_page_image_with_password, generate_pyramid_region, magickload,
+    magickload_with, pdf_info, pdf_info_with_password, thumbnail, thumbnail_crop, tiff_page_count,
 };
 
 mod common;
@@ -1947,33 +1947,46 @@ fn test_dz_properties() {
 }
 
 #[test]
-#[ignore = "needs core generate_pyramid_region (region-limited pyramid); \
-            outside the #77 codec surface — core follow-up"]
 /// Subset of libvips test_foreign.py::test_dzsave.
-/// Generate tiles for a sub-region of the source image.
 ///
-/// ## Required API
-///
-/// ```rust,ignore
-/// /// Generate a pyramid from only a rectangular region of the source.
-/// fn generate_pyramid_region(
-///     src: &Raster, plan: &Plan, sink: &dyn Sink, config: &EngineConfig,
-///     left: u32, top: u32, width: u32, height: u32,
-/// ) -> Result<PyramidResult, PyramidError>;
-/// ```
-///
-/// ## Test logic
-///
-/// 1. Load sample.jpg.
-/// 2. Generate tiles for region (0, 0, 100, 100).
-/// 3. Top-level tile should cover only the specified region.
-///
-/// Reference: test_foreign.py::test_dzsave (region section)
+/// `generate_pyramid_region` is crop-then-pyramid: tiling the (0,0,100,100)
+/// sub-region of the source must match a vips pyramid of the same crop, under
+/// `tests/fixtures/region_expected/`, produced offline with:
+///   vips crop canonical_input.png cropped.png 0 0 100 100
+///   vips dzsave cropped.png region_expected --layout dz --tile-size 64 --overlap 0 --suffix .png
 fn test_dz_region() {
-    // Deferred: core does not expose `generate_pyramid_region`. Region-limited
-    // pyramid generation is not part of the #77 codec surface. The Required API
-    // and test logic above are the spec for the core follow-up; the body stays
-    // a no-op stub so the codec cell compiles until the function lands.
+    let src = decode_file(Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/canonical_input.png"
+    )))
+    .unwrap();
+    let expected_dir = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/region_expected"
+    ));
+    let (left, top, rw, rh) = (0u32, 0u32, 100u32, 100u32);
+
+    // The plan is sized to the REGION, not the whole source.
+    let plan = PyramidPlanner::new(rw, rh, 64, 0, Layout::DeepZoom)
+        .unwrap()
+        .plan();
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("region_out");
+    let sink = FsSink::new(base.clone(), plan.clone());
+    let config = EngineConfig::default();
+
+    let result = generate_pyramid_region(&src, &plan, &sink, &config, left, top, rw, rh).unwrap();
+    assert_eq!(result.tiles_produced, plan.total_tile_count());
+
+    // Every tile matches the vips crop-then-pyramid reference within tolerance.
+    let expected = common::dzsave_expected::collect_files(expected_dir, "png");
+    let actual = common::dzsave_expected::collect_files(&base, "png");
+    common::dzsave_expected::assert_tiles_pixel_equal_tol(&expected, &actual, "region", 0);
+
+    // The top-level (full-resolution) tile covers only the requested region.
+    let top_level = plan.levels.last().unwrap();
+    assert!(top_level.width <= rw && top_level.height <= rh);
 }
 
 // ===========================================================================
