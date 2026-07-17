@@ -17,6 +17,7 @@
 
 #![allow(dead_code)]
 
+pub mod dzsave_expected;
 pub mod fixtures;
 
 #[cfg(feature = "pdfium")]
