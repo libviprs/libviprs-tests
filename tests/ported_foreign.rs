@@ -1876,34 +1876,46 @@ fn test_dz_format_jpeg() {
 }
 
 #[test]
-#[ignore = "needs core EngineConfig::skip_blanks (DZ blank-tile skipping); \
-            outside the #77 codec surface — core follow-up"]
 /// Subset of libvips test_foreign.py::test_dzsave.
-/// Skip blank (fully transparent/white) tiles to save space.
 ///
-/// ## Required API
-///
-/// ```rust,ignore
-/// /// Engine configuration with skip_blanks option.
-/// impl EngineConfig {
-///     /// If true, tiles that are entirely one colour (e.g. white or transparent)
-///     /// are not written, saving disk space.
-///     pub fn skip_blanks(self, skip: bool) -> Self;
-/// }
-/// ```
-///
-/// ## Test logic (from libvips test_foreign.py::test_dzsave — skip-blanks section)
-///
-/// 1. Create a mostly-white 256×256 image with a small non-white region.
-/// 2. Generate tiles with skip_blanks=true.
-/// 3. The number of tiles should be less than without skip_blanks.
-///
-/// Reference: test_foreign.py::test_dzsave
+/// `EngineConfig::skip_blanks` drops uniform tiles. libviprs output must match
+/// the vips `--skip-blanks` reference under `tests/fixtures/skip_expected/`:
+///   vips dzsave skip_blanks_source.png skip_expected --layout dz \
+///     --tile-size 256 --overlap 0 --suffix .png --background 255 --skip-blanks 0
+/// The source is a 512x512 image with a gradient top-left quadrant and three
+/// pure-white quadrants, so the three white full-resolution tiles are blank.
 fn test_dz_skip_blanks() {
-    // Deferred: core `EngineConfig` has no `skip_blanks` toggle. Blank-tile
-    // skipping in DZ save is not part of the #77 codec surface. The Required
-    // API and test logic above are the spec for the core follow-up; the body
-    // stays a no-op stub so the codec cell compiles until the method lands.
+    let src = decode_file(Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/skip_blanks_source.png"
+    )))
+    .unwrap();
+    let expected_dir = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/skip_expected"
+    ));
+
+    let plan = PyramidPlanner::new(src.width(), src.height(), 256, 0, Layout::DeepZoom)
+        .unwrap()
+        .plan();
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("skip_out");
+    let sink = FsSink::new(base.clone(), plan.clone());
+    let result = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default().skip_blanks(true))
+        .run()
+        .unwrap();
+
+    assert!(
+        result.tiles_skipped > 0,
+        "at least one blank tile must be skipped"
+    );
+
+    let expected = common::dzsave_expected::collect_files(expected_dir, "png");
+    let actual = common::dzsave_expected::collect_files(&base, "png");
+    common::dzsave_expected::assert_tiles_pixel_equal_tol(&expected, &actual, "skip_blanks", 0);
 }
 
 #[test]
