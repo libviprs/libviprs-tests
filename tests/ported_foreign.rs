@@ -1767,28 +1767,51 @@ fn test_dz_layout_zoomify() {
 }
 
 #[test]
-#[ignore = "needs core Layout::Iiif (DZ layout variant); core Layout exposes \
-            only DeepZoom/Xyz/Google — outside the #77 codec surface, core follow-up"]
 /// Subset of libvips test_foreign.py::test_dzsave.
-/// IIIF tile layout.
 ///
-/// ## Required API
-///
-/// ```rust,ignore
-/// Layout::Iiif
-/// ```
-///
-/// ## Test logic (from libvips test_foreign.py::test_dzsave — IIIF section)
-///
-/// 1. Generate tiles with Layout::Iiif.
-/// 2. Verify info.json exists with correct dimensions.
-///
-/// Reference: test_foreign.py::test_dzsave
+/// IIIF layout: libviprs output must match the vips-generated expected fixture
+/// under `tests/fixtures/iiif_expected/`, produced offline with:
+///   vips dzsave canonical_input.png iiif_expected \
+///     --layout iiif --tile-size 128 --overlap 0 --suffix .png
 fn test_dz_layout_iiif() {
-    // Deferred: core `Layout` has only DeepZoom/Xyz/Google; the IIIF layout
-    // variant is not implemented. Not part of the #77 codec surface. The
-    // Required API and test logic above are the spec for the core follow-up;
-    // the body stays a no-op stub so the codec cell compiles until then.
+    let src = decode_file(Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/canonical_input.png"
+    )))
+    .unwrap();
+    let expected_dir = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/iiif_expected"
+    ));
+
+    let plan = PyramidPlanner::new(src.width(), src.height(), 128, 0, Layout::Iiif)
+        .unwrap()
+        .plan();
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("iiif_out");
+    let sink = FsSink::new(base.clone(), plan.clone());
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
+
+    // Every IIIF `{region}/{size},/0/default.png` tile matches the vips
+    // reference within tolerance.
+    let expected = common::dzsave_expected::collect_files(expected_dir, "png");
+    let actual = common::dzsave_expected::collect_files(&base, "png");
+    common::dzsave_expected::assert_tiles_pixel_equal_tol(&expected, &actual, "iiif", 0);
+
+    // IIIF sidecar: an info.json carrying the source dimensions (matches vips'
+    // Image API v2 document), no sibling .dzi.
+    let json = std::fs::read_to_string(base.join("info.json")).unwrap();
+    assert!(
+        json.contains("\"width\": 256") && json.contains("\"height\": 256"),
+        "libviprs info.json missing source dims, got: {json}"
+    );
+    let expected_json = std::fs::read_to_string(expected_dir.join("info.json")).unwrap();
+    assert!(expected_json.contains("\"width\": 256") && expected_json.contains("\"height\": 256"));
+    assert!(!dir.path().join("iiif_out.dzi").exists());
 }
 
 #[test]
