@@ -17,4 +17,8 @@
 # against: Source/Target streaming, JPEG/PNG/TIFF encoders, the matrix/csv/ppm
 # text codecs, and the typed-Unsupported deferred-format stubs (HEIF/AVIF, JP2K,
 # JPEG-XL, WebP/GIF encode, magick, SVG, UHDR). Greens both codec cells.
-47894ecc5d7d8265f235950c81d1c38e0fd36320
+# libviprs main including the libviprs-tests#87 non-codec feature PRs:
+# #316 ZipSink, #317 EngineConfig::skip_blanks + generate_pyramid_region,
+# #318 Zoomify/IIIF DeepZoom layouts, #319 extract_page_image_with_background.
+# The six ported tests enabled here compile and run against this counterpart.
+6f094b0e7955d29a6fdbc2596cfdd41189a4766f
