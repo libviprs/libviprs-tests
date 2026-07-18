@@ -18,8 +18,9 @@ use libviprs::{
     MagickLoadOptions, PixelFormat, PyramidPlanner, Raster, SaveError, SinkError, TiffCompression,
     TileFormat, decode_bytes_fail_on, decode_file, decode_file_fail_on, decode_file_sequential,
     decode_file_with_shrink, decode_svg, decode_tiff_page, extract_page_image,
-    extract_page_image_dpi, extract_page_image_with_password, generate_pyramid_region, magickload,
-    magickload_with, pdf_info, pdf_info_with_password, thumbnail, thumbnail_crop, tiff_page_count,
+    extract_page_image_dpi, extract_page_image_with_background, extract_page_image_with_password,
+    generate_pyramid_region, magickload, magickload_with, pdf_info, pdf_info_with_password,
+    thumbnail, thumbnail_crop, tiff_page_count,
 };
 
 mod common;
@@ -1515,32 +1516,52 @@ fn test_pdf_dpi_scale() {
 }
 
 #[test]
-#[ignore = "needs core extract_page_image_with_background (PDF background render); \
-            outside the #77 codec surface, tracked for a core follow-up"]
+#[cfg_attr(
+    not(feature = "pdfium"),
+    ignore = "needs pdfium to render a PDF page with a background fill"
+)]
 /// Subset of libvips test_foreign.py::test_pdfload.
-/// Set background colour for PDF rendering.
 ///
-/// ## Required API
-///
-/// ```rust,ignore
-/// /// Extract with a specified background colour (for transparent PDFs).
-/// fn extract_page_image_with_background(
-///     path: &Path, page: u32, background: &[f64],
-/// ) -> Result<Raster, DecodeError>;
-/// ```
-///
-/// ## Test logic
-///
-/// 1. Extract page 1 with white background [255, 255, 255].
-/// 2. Extract page 1 with red background [255, 0, 0].
-/// 3. If the PDF has transparent areas, the two should differ.
-///
-/// Reference: test_foreign.py::test_pdf
+/// Render a PDF page over an explicit background colour. Exercised on
+/// `canonical_solid_white.pdf`, whose empty content stream makes the whole
+/// render the background colour — isolating the background feature from
+/// rasteriser differences. libviprs output must match the vips reference under
+/// `tests/fixtures/pdf_bg_red_expected.png`, produced offline with:
+///   vips pdfload canonical_solid_white.pdf pdf_bg_red_expected.png \
+///     --background "255 0 0 255" --dpi 72
 fn test_pdf_background() {
-    // Deferred: core does not expose `extract_page_image_with_background`. This
-    // is a PDF-render feature, not part of the #77 codec surface. The Required
-    // API and test logic above are the spec for the core follow-up; the body
-    // stays a no-op stub so the codec cell compiles until the symbol lands.
+    let pdf = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/canonical_solid_white.pdf"
+    ));
+
+    // Render page 1 over a red background; the empty page becomes solid red.
+    let red = extract_page_image_with_background(pdf, 1, &[255.0, 0.0, 0.0, 255.0]).unwrap();
+    let reference = decode_file(Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/pdf_bg_red_expected.png"
+    )))
+    .unwrap();
+    assert_eq!(
+        (red.width(), red.height()),
+        (reference.width(), reference.height())
+    );
+    let diff = red.max_diff(&reference);
+    assert!(
+        diff <= 1.0,
+        "libviprs vs vips background render differ by {diff} (expected solid-red match)"
+    );
+
+    // A white background differs from red on this fully-transparent page.
+    let white = extract_page_image_with_background(pdf, 1, &[255.0, 255.0, 255.0, 255.0]).unwrap();
+    assert!(
+        white.max_diff(&red) > 0.0,
+        "white and red backgrounds must differ on a transparent page"
+    );
+
+    // Invalid inputs are typed errors, not panics.
+    assert!(extract_page_image_with_background(pdf, 1, &[0.5]).is_err());
+    assert!(extract_page_image_with_background(pdf, 0, &[255.0, 255.0, 255.0]).is_err());
 }
 
 #[test]
