@@ -21,4 +21,4 @@
 # #316 ZipSink, #317 EngineConfig::skip_blanks + generate_pyramid_region,
 # #318 Zoomify/IIIF DeepZoom layouts, #319 extract_page_image_with_background.
 # The six ported tests enabled here compile and run against this counterpart.
-6f094b0e7955d29a6fdbc2596cfdd41189a4766f
+38a7ff0670bbc93d3dd89aac300516aee7d1babe
