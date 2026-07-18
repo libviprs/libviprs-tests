@@ -51,6 +51,7 @@ PARALLEL_CELLS=(
     ported_create
     ported_draw
     ported_foreign
+    core_review_followups
     ported_histogram
     ported_iofuncs
     ported_morphology
