@@ -1833,35 +1833,57 @@ fn test_dz_layout_iiif() {
     assert!(!dir.path().join("iiif_out.dzi").exists());
 }
 
+#[cfg(feature = "packfile")]
 #[test]
-#[ignore = "needs core ZipSink (archive tile sink); outside the #77 codec surface \
-            (archive-sink lane is the feature-gated PackfileSink) — core follow-up"]
 /// Subset of libvips test_foreign.py::test_dzsave.
-/// Write tiles to a ZIP archive.
 ///
-/// ## Required API
-///
-/// ```rust,ignore
-/// /// A sink that writes tiles into a ZIP archive.
-/// pub struct ZipSink { ... }
-///
-/// impl ZipSink {
-///     pub fn new(path: PathBuf, plan: Plan, format: TileFormat) -> Self;
-/// }
-/// ```
-///
-/// ## Test logic (from libvips test_foreign.py::test_dzsave — zip section)
-///
-/// 1. Generate tiles into a ZipSink.
-/// 2. Verify the output .zip file exists and is non-empty.
-/// 3. Open the zip and verify it contains tile files.
-///
-/// Reference: test_foreign.py::test_dzsave
+/// `ZipSink` writes a pyramid into a single ZIP archive. Extracting it must
+/// yield the same DeepZoom tiles as the vips reference under
+/// `tests/fixtures/zip_expected/`, produced offline with:
+///   vips dzsave canonical_input.png zip_expected \
+///     --layout dz --tile-size 128 --overlap 0 --suffix .png
 fn test_dz_zip() {
-    // Deferred: core does not expose a `ZipSink` tile sink. Not part of the #77
-    // codec surface (the archive-sink lane is the feature-gated `PackfileSink`).
-    // The Required API and test logic above are the spec for the core follow-up;
-    // the body stays a no-op stub so the codec cell compiles until then.
+    use libviprs::ZipSink;
+
+    let src = decode_file(Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/canonical_input.png"
+    )))
+    .unwrap();
+    let expected_dir = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/zip_expected"
+    ));
+
+    let plan = PyramidPlanner::new(src.width(), src.height(), 128, 0, Layout::DeepZoom)
+        .unwrap()
+        .plan();
+
+    let dir = tempfile::tempdir().unwrap();
+    let zip_path = dir.path().join("tiles.zip");
+    let sink = ZipSink::new(zip_path.clone(), plan.clone(), TileFormat::Png);
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
+
+    // The archive exists, is non-empty, and opens as a valid ZIP.
+    assert!(
+        std::fs::metadata(&zip_path).unwrap().len() > 0,
+        "ZIP archive must be non-empty"
+    );
+    let reader = std::fs::File::open(&zip_path).unwrap();
+    let mut archive = zip::ZipArchive::new(reader).unwrap();
+    assert!(!archive.is_empty(), "ZIP archive must contain entries");
+
+    // Extract and compare every tile against the vips DeepZoom reference.
+    let extracted = dir.path().join("extracted");
+    archive.extract(&extracted).unwrap();
+    let expected = common::dzsave_expected::collect_files(expected_dir, "png");
+    // libviprs mirrors each tile under both `<stem>_files/` (DeepZoom, vips-
+    // compatible) and `<stem>/` (FsSink layout); compare the DeepZoom subtree.
+    let actual = common::dzsave_expected::collect_files(&extracted.join("tiles_files"), "png");
+    common::dzsave_expected::assert_tiles_pixel_equal_tol(&expected, &actual, "zip", 0);
 }
 
 #[test]

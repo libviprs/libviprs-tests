@@ -89,6 +89,12 @@ if [ "$MODE" = "clippy" ]; then
     # deferred codec cells, which do not build yet (issue #77).
     echo "cargo clippy --features ported_tests (green ported cells) -D warnings..."
     cargo clippy --features ported_tests "${TARGETS[@]}" -- -D warnings
+    # The ZipSink archive-sink test (test_dz_zip) is gated behind BOTH
+    # ported_tests and packfile; neither the green-cell clippy above (no
+    # packfile) nor the feature-cells matrix (no ported_tests) lints it, so
+    # clippy it here under the combined features (libviprs-tests#90).
+    echo "cargo clippy --features 'ported_tests packfile' --test ported_foreign -D warnings..."
+    cargo clippy --features "ported_tests packfile" --test ported_foreign -- -D warnings
     exit 0
 fi
 
@@ -128,6 +134,14 @@ cargo test --features ported_tests --test "$SERIAL_CELL" -- --test-threads=1
 # feature here so the per-tile `libviprs::tile` span wired in core PR #308
 # actually gates the mirror (issue #83). phase3_tracing reads only the
 # checked-in canonical PNG, not the reference suite fetched above.
+# The ZipSink archive-sink test (test_dz_zip) needs BOTH ported_tests and the
+# packfile feature (ZipSink is gated behind libviprs/packfile). No other cell
+# needs this combination, so run it here so CI exercises the archive sink
+# (libviprs-tests#90). It uses only synthetic rasters, so it needs no fixtures.
+echo ""
+echo "Running the ZipSink cell under --features 'ported_tests packfile'..."
+cargo test --features "ported_tests packfile" --test ported_foreign -- test_dz_zip
+
 echo ""
 echo "Running phase3_tracing under --features tracing (per-tile span tests)..."
 cargo test --features "ported_tests tracing" --test phase3_tracing
