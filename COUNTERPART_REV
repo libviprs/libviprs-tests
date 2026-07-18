@@ -28,4 +28,11 @@
 # s3 rename, pdfium rev-pin, ICC precision, de00_sharma sign fix, Nearest
 # premultiply skip, composite output-interpretation tag. The colour/resample/
 # composite review-repro cells below build and pass against this counterpart.
-e02e93a81ac2dd58cea45f004bc074dec7b23bd6
+#
+# Bumped again for the tier-2 review-follow-up fixes (PRs #357 hex dedup,
+# #358 draw(&op) ink guard + try_draw_mask float, #359 op-name single-prefix
+# + 32-bit-safe alloc tests, #360 DecodeLimits #[non_exhaustive] + typed
+# max-coord errors, #361 with_config compose-not-clobber). The draw-op /
+# engine-config / arithmetic-message review-repro cells build and pass
+# against this counterpart.
+bd2e3f4fc6c4c287607aa041d6da82a83b006486
