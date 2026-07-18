@@ -21,4 +21,11 @@
 # #316 ZipSink, #317 EngineConfig::skip_blanks + generate_pyramid_region,
 # #318 Zoomify/IIIF DeepZoom layouts, #319 extract_page_image_with_background.
 # The six ported tests enabled here compile and run against this counterpart.
-38a7ff0670bbc93d3dd89aac300516aee7d1babe
+#
+# Bumped for the Wave-1 panel-review fixes + review-driven follow-ups
+# (PRs #331-341, #353-355): op panic-safety, lock precedence, draw ink
+# validation, resample/composite alpha, MAX_COORD->DecodeLimits, hex dedup,
+# s3 rename, pdfium rev-pin, ICC precision, de00_sharma sign fix, Nearest
+# premultiply skip, composite output-interpretation tag. The colour/resample/
+# composite review-repro cells below build and pass against this counterpart.
+e02e93a81ac2dd58cea45f004bc074dec7b23bd6
