@@ -759,6 +759,11 @@ mod cli {
     }
 
     #[test]
+    // The process-global max_coord knobs are deprecated in favour of the
+    // per-decode `DecodeLimits::max_coord` field (core #293); this ported cell
+    // still exercises the retained shims until they are removed (tracked in
+    // libviprs#349). Migrate to `DecodeLimits` when the shims go.
+    #[allow(deprecated)]
     /// Max coordinate limit via CLI flag.
     ///
     /// ## Required API
@@ -798,6 +803,9 @@ mod cli {
     }
 
     #[test]
+    // See the note on `test_cli_max_coord_flag`: deprecated shims, tracked in
+    // libviprs#349.
+    #[allow(deprecated)]
     /// Max coordinate limit via environment variable.
     ///
     /// ## Required API
