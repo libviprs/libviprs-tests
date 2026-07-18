@@ -1738,32 +1738,51 @@ fn test_dz_layout_xyz() {
 }
 
 #[test]
-#[ignore = "needs core Layout::Zoomify (DZ layout variant); core Layout exposes \
-            only DeepZoom/Xyz/Google — outside the #77 codec surface, core follow-up"]
 /// Subset of libvips test_foreign.py::test_dzsave.
-/// Zoomify tile layout.
 ///
-/// ## Required API
-///
-/// ```rust,ignore
-/// /// Zoomify layout variant.
-/// Layout::Zoomify
-///
-/// /// Zoomify writes tiles in TileGroup directories.
-/// ```
-///
-/// ## Test logic (from libvips test_foreign.py::test_dzsave — Zoomify section)
-///
-/// 1. Generate tiles with Layout::Zoomify.
-/// 2. Verify TileGroup0/ directory exists.
-/// 3. Verify ImageProperties.xml exists with correct dimensions.
-///
-/// Reference: test_foreign.py::test_dzsave
+/// Zoomify layout: libviprs output must match the vips-generated expected
+/// fixture under `tests/fixtures/zoomify_expected/`, produced offline with:
+///   vips dzsave canonical_input.png zoomify_expected \
+///     --layout zoomify --tile-size 128 --overlap 0 --suffix .png
 fn test_dz_layout_zoomify() {
-    // Deferred: core `Layout` has only DeepZoom/Xyz/Google; the Zoomify layout
-    // variant is not implemented. Not part of the #77 codec surface. The
-    // Required API and test logic above are the spec for the core follow-up;
-    // the body stays a no-op stub so the codec cell compiles until then.
+    let src = decode_file(Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/canonical_input.png"
+    )))
+    .unwrap();
+    let expected_dir = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/zoomify_expected"
+    ));
+
+    let plan = PyramidPlanner::new(src.width(), src.height(), 128, 0, Layout::Zoomify)
+        .unwrap()
+        .plan();
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("zoomify_out");
+    let sink = FsSink::new(base.clone(), plan.clone());
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .unwrap();
+
+    // Every Zoomify tile matches the vips reference within tolerance (only the
+    // downscaled overview level can differ, by area-averaging rounding).
+    let expected = common::dzsave_expected::collect_files(expected_dir, "png");
+    let actual = common::dzsave_expected::collect_files(&base, "png");
+    common::dzsave_expected::assert_tiles_pixel_equal_tol(&expected, &actual, "zoomify", 0);
+
+    // Zoomify sidecar: an ImageProperties.xml carrying the source dimensions
+    // (as vips writes `<IMAGE_PROPERTIES WIDTH=.. HEIGHT=.. />`), no sibling .dzi.
+    let xml = std::fs::read_to_string(base.join("ImageProperties.xml")).unwrap();
+    assert!(
+        xml.contains("WIDTH=\"256\"") && xml.contains("HEIGHT=\"256\""),
+        "libviprs ImageProperties.xml missing source dims, got: {xml}"
+    );
+    let expected_xml = std::fs::read_to_string(expected_dir.join("ImageProperties.xml")).unwrap();
+    assert!(expected_xml.contains("WIDTH=\"256\"") && expected_xml.contains("HEIGHT=\"256\""));
+    assert!(!dir.path().join("zoomify_out.dzi").exists());
 }
 
 #[test]
