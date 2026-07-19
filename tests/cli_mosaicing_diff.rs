@@ -70,6 +70,7 @@ fn out_path(name: &str) -> PathBuf {
 const MERGE_REF: &str = "mosaicing/merge_ref.png";
 const MERGE_SEC: &str = "mosaicing/merge_sec.png";
 const MERGE_RGB: &str = "mosaicing/merge_rgb.png";
+const MERGE_RGB_SEC: &str = "mosaicing/merge_rgb_sec.png";
 const MOSAIC_H_REF: &str = "mosaicing/mosaic_h_ref.png";
 const MOSAIC_H_SEC: &str = "mosaicing/mosaic_h_sec.png";
 const MOSAIC_V_REF: &str = "mosaicing/mosaic_v_ref.png";
@@ -124,6 +125,57 @@ fn merge_vertical_matches_vips_exact() {
         "-22",
     ]);
     decode_compare(&out, &cli_fixture("mosaicing/merge_v_expected.png"), EXACT);
+}
+
+#[test]
+fn merge_rgb_multiband_matches_vips_exact() {
+    if skip_if_no_cli("merge_rgb") {
+        return;
+    }
+    let out = out_path("merge_rgb.png");
+    // A 3-band sRGB horizontal merge (dx -28) exercises the MULTI-BAND
+    // render_merge band-handling path that the single-band Gray8 cases leave
+    // unpinned (adversarial-review finding 1). Verified bit-exact vs vips.
+    run_viprs_ok(&[
+        "merge",
+        &fx(MERGE_RGB),
+        &fx(MERGE_RGB_SEC),
+        out.to_str().unwrap(),
+        "horizontal",
+        "-28",
+        "0",
+    ]);
+    decode_compare(
+        &out,
+        &cli_fixture("mosaicing/merge_rgb_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn merge_insert_fallback_matches_vips_exact() {
+    if skip_if_no_cli("merge_insert_fallback") {
+        return;
+    }
+    let out = out_path("merge_fallback.png");
+    // A POSITIVE dx (12) takes the wrong-side / disjoint INSERT-FALLBACK branch
+    // (paste both, no blend, output sized by `rarea.union(&sarea)`) — a distinct
+    // code path from the feathered seam blend, previously unpinned (finding 1).
+    // vips falls back to vips_insert identically here (verified bit-exact).
+    run_viprs_ok(&[
+        "merge",
+        &fx(MERGE_REF),
+        &fx(MERGE_SEC),
+        out.to_str().unwrap(),
+        "horizontal",
+        "12",
+        "0",
+    ]);
+    decode_compare(
+        &out,
+        &cli_fixture("mosaicing/merge_fallback_expected.png"),
+        EXACT,
+    );
 }
 
 // ---------------------------------------------------------------------------

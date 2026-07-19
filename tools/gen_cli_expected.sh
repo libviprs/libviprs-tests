@@ -940,7 +940,11 @@ echo "==> [mosaicing input] merge_ref / merge_sec (40x32 gaussnoise, distinct se
 "$VIPS" cast "$TMP/mg1.v" "$MOS/merge_ref.png" uchar
 "$VIPS" gaussnoise "$TMP/mg2.v" 40 32 --seed 2 --mean 130 --sigma 45
 "$VIPS" cast "$TMP/mg2.v" "$MOS/merge_sec.png" uchar
-# A 3-band RGB (same geometry) for the format-mismatch error case.
+# A 3-band RGB (same geometry) for the format-mismatch error case AND — reused —
+# as the REF of the RGB (multi-band) merge case (adversarial-review finding 1:
+# the committed merge/mosaic fixtures were all single-band Gray8, leaving the
+# multi-band render_merge band-handling path unpinned).
+echo "==> [mosaicing input] merge_rgb (40x32 sRGB) — mismatch SEC + RGB-merge REF"
 "$VIPS" gaussnoise "$TMP/mg3a.v" 40 32 --seed 5 --mean 128 --sigma 45
 "$VIPS" gaussnoise "$TMP/mg3b.v" 40 32 --seed 6 --mean 128 --sigma 45
 "$VIPS" gaussnoise "$TMP/mg3c.v" 40 32 --seed 7 --mean 128 --sigma 45
@@ -949,6 +953,16 @@ echo "==> [mosaicing input] merge_ref / merge_sec (40x32 gaussnoise, distinct se
 "$VIPS" cast "$TMP/mg3c.v" "$TMP/mg3c.png" uchar
 "$VIPS" bandjoin "$TMP/mg3a.png $TMP/mg3b.png $TMP/mg3c.png" "$TMP/mrgb.v"
 "$VIPS" copy "$TMP/mrgb.v" "$MOS/merge_rgb.png" --interpretation srgb
+# A second, distinct-seed 40x32 sRGB image = the SEC of the RGB merge case.
+echo "==> [mosaicing input] merge_rgb_sec (40x32 sRGB, distinct seeds) — RGB-merge SEC"
+"$VIPS" gaussnoise "$TMP/ms3a.v" 40 32 --seed 31 --mean 120 --sigma 45
+"$VIPS" gaussnoise "$TMP/ms3b.v" 40 32 --seed 32 --mean 135 --sigma 45
+"$VIPS" gaussnoise "$TMP/ms3c.v" 40 32 --seed 33 --mean 145 --sigma 45
+"$VIPS" cast "$TMP/ms3a.v" "$TMP/ms3a.png" uchar
+"$VIPS" cast "$TMP/ms3b.v" "$TMP/ms3b.png" uchar
+"$VIPS" cast "$TMP/ms3c.v" "$TMP/ms3c.png" uchar
+"$VIPS" bandjoin "$TMP/ms3a.png $TMP/ms3b.png $TMP/ms3c.png" "$TMP/msrgb.v"
+"$VIPS" copy "$TMP/msrgb.v" "$MOS/merge_rgb_sec.png" --interpretation srgb
 
 # --- mosaic HORIZONTAL inputs: two 100x150 crops of a 110x150 noise scene, sec
 #     offset +10 in x (overlap 90x150, exceeds the 3-strip search geometry). ---
@@ -970,6 +984,18 @@ echo "==> [mosaicing input] mosaic_v_ref / mosaic_v_sec (150x100 crops of a 150x
 echo "==> [merge] horizontal (dx -28) + vertical (dy -22) (EXACT, Gray8 PNG)"
 "$VIPS" merge "$MOS/merge_ref.png" "$MOS/merge_sec.png" "$MOS/merge_h_expected.png" horizontal -- -28 0
 "$VIPS" merge "$MOS/merge_ref.png" "$MOS/merge_sec.png" "$MOS/merge_v_expected.png" vertical   -- 0 -22
+
+# --- References — merge, multi-band + insert-fallback paths (EXACT; finding 1).
+# RGB (3-band) horizontal merge pins the multi-band render_merge band-handling
+# path the single-band Gray8 fixtures left unprotected (verified max-abs-diff 0).
+echo "==> [merge] RGB 3-band horizontal (dx -28) (EXACT, sRGB PNG)"
+"$VIPS" merge "$MOS/merge_rgb.png" "$MOS/merge_rgb_sec.png" "$MOS/merge_rgb_expected.png" horizontal -- -28 0
+# A POSITIVE dx (dx>0) takes the wrong-side/disjoint INSERT-FALLBACK branch
+# (`merge_impl`: paste both, no blend, output sized by `rarea.union(&sarea)`) —
+# a distinct code path from the feathered blend, previously unpinned. vips falls
+# back to vips_insert identically here (verified max-abs-diff 0, 52x32 union).
+echo "==> [merge] insert-fallback, positive dx 12 (EXACT, Gray8 PNG)"
+"$VIPS" merge "$MOS/merge_ref.png" "$MOS/merge_sec.png" "$MOS/merge_fallback_expected.png" horizontal 12 0
 
 # --- References — mosaic (EXACT). Tie-point = the true correspondence; the full
 #     discrete search still runs and must agree with vips bit-for-bit. ---------
@@ -1025,13 +1051,20 @@ Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
   pin, not a parity check.
 - **Common inputs** (under \`mosaicing/\`): \`merge_ref.png\`/\`merge_sec.png\`
   (40x32 Gray8, distinct-seed textures for the non-vacuous seam blend),
-  \`merge_rgb.png\` (40x32 sRGB, for the format-mismatch error case),
+  \`merge_rgb.png\` (40x32 sRGB — the format-mismatch error SEC AND the RGB-merge
+  REF), \`merge_rgb_sec.png\` (40x32 sRGB, distinct seeds — the RGB-merge SEC),
   \`mosaic_h_ref.png\`/\`mosaic_h_sec.png\` (100x150 crops of a 110x150 noise
   scene, x-offset 10 → 90x150 overlap), \`mosaic_v_ref.png\`/\`mosaic_v_sec.png\`
   (150x100 crops of a 150x110 scene, y-offset 10). \`mosaic\` inputs are large
   because its search needs 3 strips × 20 high-contrast windows — an inherent
   property of the op, not a fixture choice. \`balance_input.v\` is a viprs mosaic
   (INPUT only, carries the blob).
+- **Multi-band + insert-fallback merge coverage** (adversarial-review finding 1):
+  the single-band Gray8 fixtures left the multi-band \`render_merge\` band path
+  and the wrong-side/disjoint INSERT-FALLBACK branch (paste both, no blend,
+  output sized by \`rarea.union(&sarea)\`) unpinned. \`merge_rgb_expected.png\`
+  (RGB horizontal) pins the former and \`merge_fallback_expected.png\` (positive
+  dx 12) the latter — both verified bit-exact vs vips (max-abs-diff 0).
 
 ## Exact commands
 
@@ -1057,6 +1090,8 @@ References (paths relative to \`tests/fixtures/cli/\`):
 |---|---|---|
 | \`mosaicing/merge_h_expected.png\` | EXACT | \`vips merge merge_ref.png merge_sec.png merge_h_expected.png horizontal -- -28 0\` |
 | \`mosaicing/merge_v_expected.png\` | EXACT | \`vips merge merge_ref.png merge_sec.png merge_v_expected.png vertical -- 0 -22\` |
+| \`mosaicing/merge_rgb_expected.png\` | EXACT | \`vips merge merge_rgb.png merge_rgb_sec.png merge_rgb_expected.png horizontal -- -28 0\` (3-band multi-band path) |
+| \`mosaicing/merge_fallback_expected.png\` | EXACT | \`vips merge merge_ref.png merge_sec.png merge_fallback_expected.png horizontal 12 0\` (positive dx → insert-fallback, no blend) |
 | \`mosaicing/mosaic_h_expected.png\` | EXACT | \`vips mosaic mosaic_h_ref.png mosaic_h_sec.png mosaic_h_expected.png horizontal 50 75 40 75\` |
 | \`mosaicing/mosaic_v_expected.png\` | EXACT | \`vips mosaic mosaic_v_ref.png mosaic_v_sec.png mosaic_v_expected.png vertical 75 50 75 40\` |
 | \`mosaicing/balance_expected.v\` | GOLDEN-ONLY | \`viprs globalbalance balance_input.v balance_expected.v\` (NO vips oracle) |
@@ -1065,8 +1100,17 @@ References (paths relative to \`tests/fixtures/cli/\`):
 exit-1 error, and \`globalbalance\` rejects an input without the join-tree blob
 (a plain PNG) the same way; both are asserted in \`cli_mosaicing_diff.rs\`
 (nonzero exit + a viprs-side message substring; CLI_CONTRACT.md §8) and need no
-reference output. \`--mblend N\` (N != 10) is rejected because the core fixes the
-blend width at the vips default 10 (a documented subset).
+reference output.
+
+**\`merge --mblend\` — a deliberate CLI-surface divergence from vips (finding 2):**
+vips \`merge\` honours \`--mblend N\` and produces a valid, different blend for any
+N; \`viprs merge\` exposes the flag for parity but the core public \`try_merge\`
+fixes the blend width at the vips default 10 and offers no API to vary it, so
+\`viprs\` **exits 1 on any non-default \`--mblend\`** where vips would succeed. This
+is intentional (loud-fail beats a silently-wrong "success"; the \`add\` 16-bit
+lesson) but IS a real divergence from the oracle — recorded here so a parity
+auditor is not surprised, and left uncovered by the differential precisely
+because the core cannot reproduce what vips does at a non-default mblend.
 EOF
 
 echo "==> Done. Generated fixtures under $FIX_ROOT"

@@ -186,14 +186,18 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "mosaicing/merge_ref.png",
     "mosaicing/merge_sec.png",
     "mosaicing/merge_rgb.png",
+    "mosaicing/merge_rgb_sec.png",
     "mosaicing/mosaic_h_ref.png",
     "mosaicing/mosaic_h_sec.png",
     "mosaicing/mosaic_v_ref.png",
     "mosaicing/mosaic_v_sec.png",
     "mosaicing/balance_input.v",
-    // merge (EXACT): horizontal (lr) + vertical (tb) feathered blend.
+    // merge (EXACT): horizontal (lr) + vertical (tb) feathered blend, the RGB
+    // multi-band path, and the positive-dx insert-fallback (no-blend) path.
     "mosaicing/merge_h_expected.png",
     "mosaicing/merge_v_expected.png",
+    "mosaicing/merge_rgb_expected.png",
+    "mosaicing/merge_fallback_expected.png",
     // mosaic (EXACT): horizontal (lr) + vertical (tb) tie-point search.
     "mosaicing/mosaic_h_expected.png",
     "mosaicing/mosaic_v_expected.png",
