@@ -759,82 +759,111 @@ mod cli {
     }
 
     #[test]
-    // The process-global max_coord knobs are deprecated in favour of the
-    // per-decode `DecodeLimits::max_coord` field (core #293); this ported cell
-    // still exercises the retained shims until they are removed (tracked in
-    // libviprs#349). Migrate to `DecodeLimits` when the shims go.
-    #[allow(deprecated)]
     /// Max coordinate limit via CLI flag.
     ///
-    /// ## Required API
+    /// ## API
+    ///
+    /// The coordinate ceiling is a per-decode knob, not a process-global.
+    /// The former `set_max_coord`/`get_max_coord` shims (deprecated on
+    /// arrival, removed in libviprs#462) are superseded by
+    /// [`DecodeLimits::with_max_coord`], enforced by every decoder before
+    /// any pixel allocation.
     ///
     /// ```rust,ignore
-    /// /// Set the maximum allowed image dimension.
-    /// fn set_max_coord(max: u32);
-    ///
-    /// /// Get the current maximum allowed image dimension.
-    /// fn get_max_coord() -> u32;
+    /// let limits = DecodeLimits::default().with_max_coord(1000);
+    /// let raster = decode_bytes_with_limits(&bytes, limits)?;
     /// ```
     ///
     /// ## Test logic (from test_cli.sh)
     ///
-    /// 1. Set max_coord to 1000.
-    /// 2. Attempt to create a 2000×2000 image — should fail.
-    /// 3. Create a 500×500 image — should succeed.
+    /// 1. Configure a ceiling of 1000.
+    /// 2. Decode a 2000×2000 header — must reject as over-ceiling.
+    /// 3. Decode a 500×500 image — must succeed.
     ///
     /// Reference: test_cli.sh
     fn test_cli_max_coord_flag() {
-        use libviprs::{get_max_coord, set_max_coord};
+        use libviprs::source::{DecodeLimits, SourceError, decode_bytes_with_limits};
 
-        // max_coord is process-global; restore it so other tests in this
-        // cell keep the default limit (the shell original was per-process).
-        let old_max = get_max_coord();
-        set_max_coord(1000);
-        assert_eq!(get_max_coord(), 1000);
+        // The ceiling now travels with the decode call, so nothing global
+        // is mutated or restored: distinct decodes carry distinct limits.
+        let limits = DecodeLimits::default().with_max_coord(1000);
 
-        // Attempting to create an oversized image should fail
-        let _oversized = Raster::zeroed(2000, 2000, PixelFormat::Gray8);
-        // (Depending on API design, this might panic, return Err, or silently succeed)
+        // A 2000×2000 declared header exceeds the ceiling on both axes and
+        // is rejected before allocation.
+        let oversized = Raster::zeroed(2000, 2000, PixelFormat::Gray8)
+            .unwrap()
+            .encode_vips()
+            .unwrap();
+        let err =
+            decode_bytes_with_limits(&oversized, limits).expect_err("oversized decode must reject");
+        assert!(
+            matches!(
+                err,
+                SourceError::CoordLimitExceeded {
+                    max_coord: 1000,
+                    ..
+                }
+            ),
+            "expected CoordLimitExceeded at the 1000 px ceiling, got {err}"
+        );
 
-        // A small image should succeed
-        let result = Raster::zeroed(500, 500, PixelFormat::Gray8).unwrap();
-        set_max_coord(old_max);
+        // A 500×500 image is under the ceiling and decodes cleanly.
+        let small = Raster::zeroed(500, 500, PixelFormat::Gray8)
+            .unwrap()
+            .encode_vips()
+            .unwrap();
+        let result = decode_bytes_with_limits(&small, limits).unwrap();
         assert_eq!(result.width(), 500);
     }
 
     #[test]
-    // See the note on `test_cli_max_coord_flag`: deprecated shims, tracked in
-    // libviprs#349.
-    #[allow(deprecated)]
     /// Max coordinate limit via environment variable.
     ///
-    /// ## Required API
+    /// ## API
+    ///
+    /// The former `init_from_env` shim folded `VIPS_MAX_COORD` into a
+    /// process-global (removed in libviprs#462). The caller now reads the
+    /// variable and builds a [`DecodeLimits`] from it.
     ///
     /// ```rust,ignore
-    /// /// Read max_coord from the VIPS_MAX_COORD environment variable at init.
-    /// fn init_from_env();
+    /// let ceiling: u32 = std::env::var("VIPS_MAX_COORD")?.parse()?;
+    /// let limits = DecodeLimits::default().with_max_coord(ceiling);
     /// ```
     ///
     /// ## Test logic (from test_cli.sh)
     ///
     /// 1. Set VIPS_MAX_COORD=500 in the environment.
-    /// 2. Re-init.
-    /// 3. Verify get_max_coord() returns 500.
+    /// 2. Read it in the caller into a `DecodeLimits`.
+    /// 3. Verify the configured ceiling is 500 and enforced on decode.
     ///
     /// Reference: test_cli.sh
     fn test_cli_max_coord_env() {
-        use libviprs::{get_max_coord, init_from_env, set_max_coord};
+        use libviprs::source::{DecodeLimits, SourceError, decode_bytes_with_limits};
 
-        // max_coord is process-global; restore it afterwards (the shell
-        // original was per-process, so its override died with it).
-        let old_max = get_max_coord();
+        // SAFETY: test-local mutation of this process's environment; the
+        // variable is removed again before the ceiling is exercised.
         unsafe { std::env::set_var("VIPS_MAX_COORD", "500") };
-        init_from_env();
-        let seen = get_max_coord();
-
-        // Clean up
+        let ceiling: u32 = std::env::var("VIPS_MAX_COORD")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .expect("VIPS_MAX_COORD parses");
         unsafe { std::env::remove_var("VIPS_MAX_COORD") };
-        set_max_coord(old_max);
-        assert_eq!(seen, 500);
+
+        let limits = DecodeLimits::default().with_max_coord(ceiling);
+        assert_eq!(limits.max_coord, 500);
+
+        // The env-derived ceiling enforces like any other: a 600 px width
+        // over it rejects.
+        let over = Raster::zeroed(600, 1, PixelFormat::Gray8)
+            .unwrap()
+            .encode_vips()
+            .unwrap();
+        assert!(
+            matches!(
+                decode_bytes_with_limits(&over, limits),
+                Err(SourceError::CoordLimitExceeded { max_coord: 500, .. })
+            ),
+            "width over the env-derived ceiling must reject"
+        );
     }
 }
