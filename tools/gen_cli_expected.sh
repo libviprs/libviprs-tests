@@ -309,7 +309,134 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`bands/extract_bandn_expected.png\` | EXACT | \`vips extract_band rgba.png extract_bandn_expected.png 1 --n 3\` |
 EOF
 
+# ===========================================================================
+# CORE FAMILY (add / getpoint; OP_MAP.md core section — raster_ops.rs ops the
+# frozen contract hard-codes, CLI_CONTRACT.md §1/§2).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_core_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. `add` is EXACT-AFTER-CAST (uchar+uchar
+# widens to ushort; the output is integer so the §2 save-cast is a no-op and the
+# differential compares at tol 0). `getpoint` is EXACT (integer pixel values).
+#
+# Carrier choice: `add` output is a 16-bit (ushort) raster — carried as the
+# native `.v` container, which both vips and the libviprs decoder round-trip
+# losslessly (a 16-bit PNG's encode path differs between the two libraries).
+# `getpoint` prints an S3 scalar/vector to stdout, captured as a `.txt`.
+# ===========================================================================
+CORE="$FIX_ROOT/core"
+mkdir -p "$CORE"
+
+# --- Common inputs -----------------------------------------------------------
+# Two DISTINCT 8x8 RGB uchar images (sRGB-tagged so a 3-band PNG saves as clean
+# RGB, not a b-w image vips would alpha-pad) whose per-band sums EXCEED 255 in
+# some bands, so `add` must widen 8-bit -> 16-bit (a broken add that stayed
+# 8-bit would clip at 255 — the case is discriminating). `vips grey` is a pure
+# coordinate function (0..1 ramp), so every input is bit-reproducible.
+echo "==> [core input] two 8x8 sRGB RGB sources + two Gray8 sources (sums > 255)"
+"$VIPS" grey "$TMP/cg.v" 8 8
+"$VIPS" rot  "$TMP/cg.v" "$TMP/cgv.v" d90
+# add_a bands (horizontal / vertical / horizontal ramps).
+"$VIPS" linear "$TMP/cg.v"  "$TMP/a1.png" 180 20 --uchar
+"$VIPS" linear "$TMP/cgv.v" "$TMP/a2.png" 180 30 --uchar
+"$VIPS" linear "$TMP/cg.v"  "$TMP/a3.png" 150 40 --uchar
+"$VIPS" bandjoin "$TMP/a1.png $TMP/a2.png $TMP/a3.png" "$TMP/a_rgb.v"
+"$VIPS" copy "$TMP/a_rgb.v" "$CORE/add_a.png" --interpretation srgb
+# add_b bands (distinct from add_a).
+"$VIPS" linear "$TMP/cgv.v" "$TMP/b1.png" 150 50 --uchar
+"$VIPS" linear "$TMP/cg.v"  "$TMP/b2.png" 150 60 --uchar
+"$VIPS" linear "$TMP/cgv.v" "$TMP/b3.png" 150 40 --uchar
+"$VIPS" bandjoin "$TMP/b1.png $TMP/b2.png $TMP/b3.png" "$TMP/b_rgb.v"
+"$VIPS" copy "$TMP/b_rgb.v" "$CORE/add_b.png" --interpretation srgb
+# Single-band Gray8 sources whose sums exceed 255 (Gray8 -> Gray16 widening).
+"$VIPS" linear "$TMP/cg.v"  "$CORE/gray_a.png" 200 30 --uchar
+"$VIPS" linear "$TMP/cgv.v" "$CORE/gray_b.png" 200 40 --uchar
+# A CONSTANT 8x8 3-band FLOAT `.v` image ([0.5, 1.25, 2.5] everywhere): a clean
+# dyadic value at every pixel, so `getpoint` prints it exactly and the case
+# proves getpoint reads FLOAT samples (not just uchar) without a print-precision
+# mismatch on a non-dyadic ramp value.
+"$VIPS" black "$TMP/cblk.v" 8 8 --bands 3
+"$VIPS" linear "$TMP/cblk.v" "$CORE/getpoint_float.v" "1 1 1" "0.5 1.25 2.5"
+
+# --- References — one vips run per differential case -------------------------
+echo "==> [add] rgb + rgb -> 16-bit ushort .v (per-band, 8->16 widening)"
+"$VIPS" add "$CORE/add_a.png" "$CORE/add_b.png" "$CORE/add_rgb_expected.v"
+echo "==> [add] gray + gray -> 16-bit ushort .v (Gray8 -> Gray16 widening)"
+"$VIPS" add "$CORE/gray_a.png" "$CORE/gray_b.png" "$CORE/add_gray_expected.v"
+
+echo "==> [getpoint] rgb (3-band) + gray (1-band) + float (3-band) pixel reads (S3)"
+"$VIPS" getpoint "$CORE/add_a.png"          5 2 > "$CORE/getpoint_rgb_expected.txt"
+"$VIPS" getpoint "$CORE/gray_a.png"         5 2 > "$CORE/getpoint_gray_expected.txt"
+"$VIPS" getpoint "$CORE/getpoint_float.v"   0 0 > "$CORE/getpoint_float_expected.txt"
+
+# --- Provenance (append the core section) ------------------------------------
+echo "==> [provenance] appending core section to $FIX_ROOT/PROVENANCE.md"
+cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
+
+---
+
+# core family (add / getpoint) CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the core
+CLI-differential suite (\`tests/cli_core_diff.rs\`) compares \`viprs\` output
+against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI. \`add\`
+and \`getpoint\` are the two \`raster_ops.rs\` ops the frozen contract hard-codes
+(CLI_CONTRACT.md §1/§2).
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`core/\`): \`add_a.png\`, \`add_b.png\` (two distinct
+  8×8 sRGB RGB uchar images whose per-band sums exceed 255, exercising the
+  8→16-bit widening), \`gray_a.png\`, \`gray_b.png\` (single-band Gray8 sums > 255),
+  \`getpoint_float.v\` (constant 8×8 3-band float \`[0.5, 1.25, 2.5]\`, for the
+  float-sample getpoint read).
+- **Carriers**: \`add\` output is a 16-bit ushort raster carried as native \`.v\`
+  (a 16-bit PNG encode differs between vips and libviprs; \`.v\` round-trips
+  losslessly on both sides). \`getpoint\` prints an S3 scalar/vector, captured to
+  \`.txt\` and compared numerically (never as text; CLI_CONTRACT.md §3).
+
+## Exact commands
+
+Inputs:
+
+\`\`\`
+vips grey cg.v 8 8
+vips rot  cg.v cgv.v d90
+vips linear cg.v  a1.png 180 20 --uchar
+vips linear cgv.v a2.png 180 30 --uchar
+vips linear cg.v  a3.png 150 40 --uchar
+vips bandjoin "a1.png a2.png a3.png" a_rgb.v
+vips copy a_rgb.v core/add_a.png --interpretation srgb
+vips linear cgv.v b1.png 150 50 --uchar
+vips linear cg.v  b2.png 150 60 --uchar
+vips linear cgv.v b3.png 150 40 --uchar
+vips bandjoin "b1.png b2.png b3.png" b_rgb.v
+vips copy b_rgb.v core/add_b.png --interpretation srgb
+vips linear cg.v  core/gray_a.png 200 30 --uchar
+vips linear cgv.v core/gray_b.png 200 40 --uchar
+vips black cblk.v 8 8 --bands 3
+vips linear cblk.v core/getpoint_float.v "1 1 1" "0.5 1.25 2.5"
+\`\`\`
+
+References (paths relative to \`tests/fixtures/cli/\`):
+
+| reference | oracle class | vips command |
+|---|---|---|
+| \`core/add_rgb_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips add add_a.png add_b.png add_rgb_expected.v\` (ushort, per-band, 8→16 widening) |
+| \`core/add_gray_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips add gray_a.png gray_b.png add_gray_expected.v\` (Gray8→Gray16 widening) |
+| \`core/getpoint_rgb_expected.txt\` | EXACT (S3 vector) | \`vips getpoint add_a.png 5 2\` (3-band pixel) |
+| \`core/getpoint_gray_expected.txt\` | EXACT (S3 scalar) | \`vips getpoint gray_a.png 5 2\` (1-band pixel) |
+| \`core/getpoint_float_expected.txt\` | EXACT (S3 vector, float) | \`vips getpoint getpoint_float.v 0 0\` (float [0.5 1.25 2.5]) |
+
+\`add\` rejects float inputs (a later arithmetic batch adds float addition) and a
+dimension / channel-count mismatch with a typed exit-1 error, never a panic;
+\`getpoint\` rejects an out-of-bounds coordinate the same way. Those error paths
+are asserted in \`cli_core_diff.rs\` (nonzero exit + a viprs-side message
+substring; CLI_CONTRACT.md §8) and need no vips reference.
+EOF
+
 echo "==> Done. Generated fixtures under $FIX_ROOT"
 ls -1 "$FIX"
 echo "--- bands ---"
 ls -1 "$BANDS"
+echo "--- core ---"
+ls -1 "$CORE"
