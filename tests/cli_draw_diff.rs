@@ -67,6 +67,7 @@ const FLOOD: &str = "draw/flood.png";
 const MASK: &str = "draw/mask.png";
 const SUB: &str = "draw/sub.png";
 const SMUDGE: &str = "draw/smudge.png";
+const GRAY16: &str = "draw/gray16.v";
 
 /// Absolute string path to a committed fixture (for passing to `viprs`).
 fn fx(rel: &str) -> String {
@@ -380,6 +381,39 @@ fn draw_smudge_golden_pin() {
 }
 
 // ---------------------------------------------------------------------------
+// draw_rect onto a 16-bit (Gray16) target with a >255 ink — pins build_ink's
+// 2-byte native-endian encode branch + the core 16-bit draw/save round trip.
+// The only 16-bit draw target in the suite; a byte-order regression in the ink
+// encode (or the sample read/write) would be caught here (adversarial-review
+// draw finding 3). Carried as `.v` (a 16-bit PNG does not round-trip cleanly).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn draw_rect_16bit_golden_pin() {
+    if skip_if_no_cli("draw_rect_16bit") {
+        return;
+    }
+    let out = out_path("draw_rect_16bit.v");
+    // ink 40000 > 255: exercises the 16-bit (2-byte) ink encode, then draws and
+    // saves the Gray16 raster — the full encode/draw/save path at the CLI level.
+    run_viprs_ok(&[
+        "draw_rect",
+        &fx(GRAY16),
+        out.to_str().unwrap(),
+        "4",
+        "4",
+        "8",
+        "8",
+        "--ink",
+        "40000",
+    ]);
+    decode_compare(&out, &cli_fixture("draw/draw_rect_16bit_golden.v"), GOLDEN);
+    // A vacuous 16-bit draw (e.g. a byte-order bug that painted the input's own
+    // value, or no-op'd) would leave out == input and fail here.
+    drew_something(&out, GRAY16);
+}
+
+// ---------------------------------------------------------------------------
 // draw_image — paste a sub-image (no ink).
 // ---------------------------------------------------------------------------
 
@@ -470,6 +504,40 @@ fn draw_ink_wrong_band_count_is_typed_error_not_panic() {
             "255 0",
         ],
         "band",
+    );
+}
+
+#[test]
+fn draw_mask_non_single_band_8bit_mask_is_typed_error_not_panic() {
+    if skip_if_no_cli("draw_mask_bad_mask") {
+        return;
+    }
+    let out = out_path("draw_mask_badmask_err.png");
+    // MASK = the 3-band rgb.png (not a single-band 8-bit stencil): the core
+    // `Mask::apply` paints NOTHING for any non-single-band-8-bit mask, so an
+    // unchecked CLI would write an UNCHANGED image and exit 0 — a silent
+    // wrong-output that also diverges from vips (`draw_mask_direct: image must
+    // one band`). The CLI must reject it up front with a typed exit-1 error, not
+    // silently succeed and not panic (mirrors the draw_image format-mismatch
+    // guard). Adversarial-review draw finding 1.
+    expect_error(
+        &[
+            "draw_mask",
+            &fx(RGB),
+            out.to_str().unwrap(),
+            &fx(RGB),
+            "0",
+            "0",
+            "--ink",
+            "255 255 0",
+        ],
+        "single-band 8-bit",
+    );
+    // And the guard must not have written an output file at all.
+    assert!(
+        !out.exists(),
+        "draw_mask rejected the bad mask but still wrote {} — the guard must fail before save",
+        out.display()
     );
 }
 

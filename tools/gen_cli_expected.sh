@@ -974,6 +974,17 @@ echo "==> [draw input] 16x16 Gray8 high-frequency thresholded eye (smudge.png)"
 "$VIPS" eye "$TMP/de.v" 16 16
 "$VIPS" relational_const "$TMP/de.v" "$DRAW/smudge.png" more 0.0
 
+# gray16: a 16x16 SINGLE-BAND Gray16 (ushort) ramp, carried as native `.v` (a
+# 16-bit PNG neither vips nor the libviprs decoder round-trips cleanly — a ushort
+# PNG whose samples fit in 8 bits comes back 8-bit). Its samples run 0..~60000 so
+# a >255 ink genuinely lands in the high byte. This is the ONLY 16-bit draw target
+# in the suite: it exercises build_ink's 2-byte native-endian encode branch and
+# the core mask/rect 16-bit sample path end-to-end at the CLI level.
+echo "==> [draw input] 16x16 Gray16 ramp (gray16.v) — 16-bit ink encode/draw pin"
+"$VIPS" grey "$TMP/dg16.v" 16 16
+"$VIPS" linear "$TMP/dg16.v" "$TMP/dg16s.v" 60000 0
+"$VIPS" cast "$TMP/dg16s.v" "$DRAW/gray16.v" ushort
+
 # --- References — every one minted by `viprs` (GOLDEN-ONLY, no vips oracle) ---
 echo "==> [draw_circle] outline + --fill disc, red ink (GOLDEN-ONLY)"
 "$VIPRS" draw_circle "$DRAW/rgb.png" "$DRAW/draw_circle_golden.png"      16 16 8 --ink "255 0 0" >/dev/null
@@ -999,6 +1010,12 @@ echo "==> [draw_smudge] box-blur a rect over the high-frequency input (GOLDEN-ON
 echo "==> [draw_image] paste the magenta sub-image at (10,10) (GOLDEN-ONLY)"
 "$VIPRS" draw_image "$DRAW/rgb.png" "$DRAW/draw_image_golden.png" "$DRAW/sub.png" 10 10 >/dev/null
 
+# 16-bit target pin: draw_rect a >255 ink onto the Gray16 ramp, output as `.v`.
+# This is the only golden that pins build_ink's 2-byte native-endian encode + the
+# core 16-bit draw/save round trip; a byte-order regression would be caught here.
+echo "==> [draw_rect 16-bit] ink 40000 onto the Gray16 ramp -> .v (GOLDEN-ONLY, 16-bit ink pin)"
+"$VIPRS" draw_rect "$DRAW/gray16.v" "$DRAW/draw_rect_16bit_golden.v" 4 4 8 8 --ink "40000" >/dev/null
+
 # --- Provenance (append the draw section) ------------------------------------
 echo "==> [provenance] appending draw section to $FIX_ROOT/PROVENANCE.md"
 cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
@@ -1020,7 +1037,8 @@ pin** that states there is no vips cross-oracle — NOT a parity claim.
 - **Common inputs** (under \`draw/\`): \`rgb.png\` (32×32 sRGB 2-D gradient),
   \`flood.png\` (32×32 Gray8 three flat stripes 0/100/200), \`mask.png\` (16×16
   Gray8 ramp opacity stencil), \`sub.png\` (8×8 solid magenta sRGB paste source),
-  \`smudge.png\` (16×16 Gray8 high-frequency thresholded \`eye\`).
+  \`smudge.png\` (16×16 Gray8 high-frequency thresholded \`eye\`), \`gray16.v\`
+  (16×16 single-band Gray16 ramp, native \`.v\` — the 16-bit ink/draw target).
 
 ## Exact commands
 
@@ -1046,6 +1064,9 @@ vips linear db.v dsub.v "0 0 0" "255 0 255" --uchar
 vips copy dsub.v draw/sub.png --interpretation srgb
 vips eye de.v 16 16
 vips relational_const de.v draw/smudge.png more 0.0
+vips grey dg16.v 16 16
+vips linear dg16.v dg16s.v 60000 0
+vips cast dg16s.v draw/gray16.v ushort
 \`\`\`
 
 References (paths relative to \`tests/fixtures/cli/\`, ALL GOLDEN-ONLY — minted by \`viprs\`):
@@ -1062,13 +1083,19 @@ References (paths relative to \`tests/fixtures/cli/\`, ALL GOLDEN-ONLY — minte
 | \`draw/draw_mask_golden.png\` | GOLDEN-ONLY | \`viprs draw_mask rgb.png draw_mask_golden.png mask.png 8 8 --ink "255 255 0"\` |
 | \`draw/draw_smudge_golden.png\` | GOLDEN-ONLY | \`viprs draw_smudge smudge.png draw_smudge_golden.png 4 4 8 8\` |
 | \`draw/draw_image_golden.png\` | GOLDEN-ONLY | \`viprs draw_image rgb.png draw_image_golden.png sub.png 10 10\` |
+| \`draw/draw_rect_16bit_golden.v\` | GOLDEN-ONLY | \`viprs draw_rect gray16.v draw_rect_16bit_golden.v 4 4 8 8 --ink "40000"\` (16-bit ink encode/draw pin; \`.v\` carrier) |
 
 The draw ops mutate their input in place; \`viprs\` materialises the result to
 \`OUT\` (the S6 shape). \`draw_smudge\` and \`draw_image\` take no ink; \`draw_image\`
 requires \`SUB\` to share \`IN\`'s pixel format (a documented core no-op otherwise,
-surfaced as a typed exit-1 error), and \`draw_smudge\`/\`--ink\` reject a float
-target with a typed exit-1 error (never a panic). 16-bit ink byte order is
-\`CLI_CONTRACT.md\` §9 missing-scope; the committed inputs are all 8-bit.
+surfaced as a typed exit-1 error); \`draw_mask\` requires a single-band 8-bit
+\`MASK\` (the core paints nothing for any other mask format — a 3-band or 16-bit
+mask is a silent no-op in the core, so the CLI rejects it with a typed exit-1
+error rather than writing an unchanged image); and \`draw_smudge\`/\`--ink\` reject
+a float target with a typed exit-1 error (never a panic). Most committed inputs
+are 8-bit; \`gray16.v\` is a single-band Gray16 target that pins the 16-bit
+native-endian ink encode + draw/save round trip (\`CLI_CONTRACT.md\` §9: 16-bit
+ink byte order is native-endian, now regression-pinned by the committed golden).
 EOF
 
 echo "==> Done. Generated fixtures under $FIX_ROOT"

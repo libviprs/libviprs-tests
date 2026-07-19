@@ -186,6 +186,8 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "draw/mask.png",
     "draw/sub.png",
     "draw/smudge.png",
+    // 16-bit (Gray16) draw target for the 16-bit ink encode/draw pin.
+    "draw/gray16.v",
     // References — every one minted by `viprs` itself (GOLDEN-ONLY regression
     // pins; `draw_*` are in-place mutators the vips CLI discards).
     "draw/draw_circle_golden.png",
@@ -198,6 +200,7 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "draw/draw_mask_golden.png",
     "draw/draw_smudge_golden.png",
     "draw/draw_image_golden.png",
+    "draw/draw_rect_16bit_golden.v",
 ];
 
 #[test]

@@ -332,7 +332,8 @@ pin** that states there is no vips cross-oracle — NOT a parity claim.
 - **Common inputs** (under `draw/`): `rgb.png` (32×32 sRGB 2-D gradient),
   `flood.png` (32×32 Gray8 three flat stripes 0/100/200), `mask.png` (16×16
   Gray8 ramp opacity stencil), `sub.png` (8×8 solid magenta sRGB paste source),
-  `smudge.png` (16×16 Gray8 high-frequency thresholded `eye`).
+  `smudge.png` (16×16 Gray8 high-frequency thresholded `eye`), `gray16.v`
+  (16×16 single-band Gray16 ramp, native `.v` — the 16-bit ink/draw target).
 
 ## Exact commands
 
@@ -358,6 +359,9 @@ vips linear db.v dsub.v "0 0 0" "255 0 255" --uchar
 vips copy dsub.v draw/sub.png --interpretation srgb
 vips eye de.v 16 16
 vips relational_const de.v draw/smudge.png more 0.0
+vips grey dg16.v 16 16
+vips linear dg16.v dg16s.v 60000 0
+vips cast dg16s.v draw/gray16.v ushort
 ```
 
 References (paths relative to `tests/fixtures/cli/`, ALL GOLDEN-ONLY — minted by `viprs`):
@@ -374,10 +378,16 @@ References (paths relative to `tests/fixtures/cli/`, ALL GOLDEN-ONLY — minted 
 | `draw/draw_mask_golden.png` | GOLDEN-ONLY | `viprs draw_mask rgb.png draw_mask_golden.png mask.png 8 8 --ink "255 255 0"` |
 | `draw/draw_smudge_golden.png` | GOLDEN-ONLY | `viprs draw_smudge smudge.png draw_smudge_golden.png 4 4 8 8` |
 | `draw/draw_image_golden.png` | GOLDEN-ONLY | `viprs draw_image rgb.png draw_image_golden.png sub.png 10 10` |
+| `draw/draw_rect_16bit_golden.v` | GOLDEN-ONLY | `viprs draw_rect gray16.v draw_rect_16bit_golden.v 4 4 8 8 --ink "40000"` (16-bit ink encode/draw pin; `.v` carrier) |
 
 The draw ops mutate their input in place; `viprs` materialises the result to
 `OUT` (the S6 shape). `draw_smudge` and `draw_image` take no ink; `draw_image`
 requires `SUB` to share `IN`'s pixel format (a documented core no-op otherwise,
-surfaced as a typed exit-1 error), and `draw_smudge`/`--ink` reject a float
-target with a typed exit-1 error (never a panic). 16-bit ink byte order is
-`CLI_CONTRACT.md` §9 missing-scope; the committed inputs are all 8-bit.
+surfaced as a typed exit-1 error); `draw_mask` requires a single-band 8-bit
+`MASK` (the core paints nothing for any other mask format — a 3-band or 16-bit
+mask is a silent no-op in the core, so the CLI rejects it with a typed exit-1
+error rather than writing an unchanged image); and `draw_smudge`/`--ink` reject
+a float target with a typed exit-1 error (never a panic). Most committed inputs
+are 8-bit; `gray16.v` is a single-band Gray16 target that pins the 16-bit
+native-endian ink encode + draw/save round trip (`CLI_CONTRACT.md` §9: 16-bit
+ink byte order is native-endian, now regression-pinned by the committed golden).
