@@ -178,6 +178,75 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "core/getpoint_gray_expected.txt",
     "core/getpoint_float_expected.txt",
     "core/getpoint_float_nd_expected.txt",
+    // ---- convolution family (cli_convolution_diff.rs) ----
+    // Common inputs (eye = high-frequency zone-plate; patch = correlation
+    // template) + the three mask files.
+    "convolution/eye.png",
+    "convolution/patch.png",
+    "convolution/blur.mat",
+    "convolution/sobel.mat",
+    "convolution/sep.mat",
+    // gaussmat / logmat (S5 matrix creators → float `.v`).
+    "convolution/gaussmat_int_expected.v",
+    "convolution/gaussmat_sep_expected.v",
+    "convolution/gaussmat_float_expected.v",
+    "convolution/logmat_int_expected.v",
+    "convolution/logmat_float_expected.v",
+    // conv / convsep (matrix-file mask): integer (≤1 LSB) PNG + float `.v`.
+    "convolution/conv_blur_int_expected.png",
+    "convolution/conv_sobel_float_expected.v",
+    "convolution/convsep_float_expected.v",
+    // compass: max/integer (EXACT, scale-1 mask) PNG + sum/float `.v`.
+    "convolution/compass_max_int_expected.png",
+    "convolution/compass_sum_float_expected.v",
+    "convolution/compass_sum_int_expected.v",
+    // gaussblur: integer (≤1 LSB) PNG + float `.v`.
+    "convolution/gaussblur_int_expected.png",
+    "convolution/gaussblur_float_expected.v",
+    // sharpen (LabS unsharp, ≤1 LSB) PNG.
+    "convolution/sharpen_expected.png",
+    // spcor (float NCC) + fastcor (uint→float SSD, EXACT) surfaces.
+    "convolution/spcor_expected.v",
+    "convolution/fastcor_expected.v",
+    // ---- matrix family (cli_matrix_diff.rs) ----
+    // Common inputs: vips text-matrix files (consumed by both the generator and
+    // the `viprs` MatFile loader). m3 = 3x3 (matrixinvert direct cofactor path),
+    // m4 = 4x4 (matrixinvert PLU path), lut = 3x3 measured points (invertlut).
+    "matrix/m3.mat",
+    "matrix/m4.mat",
+    "matrix/lut.mat",
+    // matrixinvert (BOUNDED-TOL f32): direct 3x3 + PLU 4x4, cast double->float `.v`.
+    "matrix/matrixinvert3_expected.v",
+    "matrix/matrixinvert4_expected.v",
+    // invertlut (BOUNDED-TOL f32): default size 256 + explicit --size 64.
+    "matrix/invertlut_expected.v",
+    "matrix/invertlut_size64_expected.v",
+    // ---- colour family (cli_colour_diff.rs) ----
+    // Common inputs: two distinct sRGB images, an sRGB matrix-shaper ICC
+    // profile, and a D50 Lab PCS image (the shared icc_export input).
+    "colour/rgb.png",
+    "colour/rgb2.png",
+    "colour/sRGB.icc",
+    "colour/icc_pcs_lab.v",
+    // colourspace: LAB/XYZ/scRGB float (.v) + the #36 interpretation-aware PNG
+    // save + the --source-space override (uchar PNG).
+    "colour/colourspace_lab_expected.v",
+    "colour/colourspace_xyz_expected.v",
+    "colour/colourspace_scrgb_expected.v",
+    "colour/colourspace_lab_png_expected.png",
+    "colour/colourspace_lab_input_png_expected.png",
+    "colour/colourspace_srcspace_expected.png",
+    // dE76 / dE00 float ΔE (.v); dECMC is a GOLDEN-ONLY viprs pin (vips computes
+    // a different formula — see cli_colour_diff.rs).
+    "colour/dE76_expected.v",
+    "colour/dE00_expected.v",
+    "colour/dECMC_golden.v",
+    // ICC (matrix-shaper sRGB): import Lab PCS (.v), export + transform device
+    // PNG.
+    "colour/icc_import_lab_expected.v",
+    "colour/icc_export_expected.png",
+    "colour/icc_export_d16_expected.png",
+    "colour/icc_transform_expected.png",
 ];
 
 #[test]

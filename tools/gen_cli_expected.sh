@@ -898,6 +898,503 @@ band counts, so the channel-mismatch case is a documented SUBSET limitation (cor
 cannot broadcast without a core change), not a parity claim.
 EOF
 
+# ===========================================================================
+# CONVOLUTION FAMILY (the Wave-2 convolution lane; OP_MAP.md convolution
+# section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_convolution_diff.rs (which feeds them to `viprs`), so
+# the two sides compare like against like.
+#
+# HONEST oracle classes (measured against vips 8.18.4 on the author Mac):
+#  * `compass --combine max` at INTEGER precision with a scale-1 (sobel) mask and
+#    `fastcor` are EXACT (tol 0): a scale-1 mask needs no coefficient rounding, and
+#    fastcor is an integer sum-of-squared-differences, so neither hits the
+#    integer-precision rounding-scheme gap below. `compass --combine sum` at
+#    INTEGER precision is likewise EXACT — its distinct 16-bit-promotion +
+#    saturation branch (out_fmt = ushort) is deterministic integer arithmetic.
+#  * conv / gaussblur at INTEGER precision with a scaled mask are **BOUNDED-TOL
+#    ≤1 LSB** (tol 1), NOT the EXACT that OP_MAP.md provisionally listed: vips's
+#    `vips_convi` bakes the mask into a power-of-two fixed-point form and shifts
+#    (`>> sexp`), while the core divides `(sum + scale/2) / scale`; the two
+#    round differently by at most one LSB. This is a MEASURED core-vs-vips
+#    rounding difference (a scale-1 mask — as compass uses — is exact, proving
+#    it is the scale division, not a CLI bug). Flagged as an open question.
+#  * convsep / conv / compass / gaussblur / gaussmat / logmat at FLOAT precision
+#    and spcor are float surfaces: compared at a small BOUNDED-TOL (the core
+#    accumulates in a different order than vips's vectorised path; measured
+#    ≤1.5e-5 on the author Mac, with headroom for cross-platform libm/FMA drift).
+#  * gaussmat / logmat at INTEGER precision are integer-valued matrices: tol 0.
+#  * sharpen is BOUNDED-TOL ≤1 LSB (the LabS unsharp round trip; measured 1).
+#
+# Every input is chosen DISCRIMINATING (a broken/identity op fails loudly): the
+# `eye.png` zone-plate is high-frequency, so a box blur moves pixels by up to 59
+# (≫ the ≤1 tol), compass edge-detection by 254, and the extracted `patch.png`
+# gives correlation surfaces with a sharp peak. Carriers: integer uchar outputs →
+# PNG; float / matrix outputs → the native `.v` container (CLI_CONTRACT.md §2).
+# vips writes the gaussmat/logmat matrix and fastcor surface as double/uint the
+# libviprs decoder cannot read, so they are `vips cast … float`ed to a float `.v`.
+# ===========================================================================
+CONVOL="$FIX_ROOT/convolution"
+mkdir -p "$CONVOL"
+
+# --- Common inputs -----------------------------------------------------------
+# `vips eye` (a zone-plate grating) and `vips grey` are pure coordinate
+# functions, so every input below is bit-for-bit reproducible.
+echo "==> [convolution input] eye.png (16x16 Gray8 zone-plate, high frequency)"
+"$VIPS" eye "$TMP/veye.v" 16 16
+"$VIPS" linear "$TMP/veye.v" "$CONVOL/eye.png" 127.5 127.5 --uchar
+
+# A 5x5 patch of the zone-plate for the correlations (a clear best-match peak).
+echo "==> [convolution input] patch.png (5x5 extract of eye.png; correlation template)"
+"$VIPS" extract_area "$CONVOL/eye.png" "$CONVOL/patch.png" 4 4 5 5
+
+# --- Mask files (vips text matrix; read by BOTH vips and viprs) --------------
+# blur: a 3x3 box (scale 9 -> the fixed-point rounding-scheme gap shows).
+# sobel: a 3x3 edge detector (scale 1 -> no coefficient rounding; odd-square, so
+#        compass can rotate it). sep: a 1x5 separable smoother (scale 10).
+echo "==> [convolution mask] blur.mat / sobel.mat / sep.mat"
+printf '3 3 9\n1 1 1\n1 1 1\n1 1 1\n'   > "$CONVOL/blur.mat"
+printf '3 3 1\n1 2 1\n0 0 0\n-1 -2 -1\n' > "$CONVOL/sobel.mat"
+printf '5 1 10\n1 2 4 2 1\n'            > "$CONVOL/sep.mat"
+
+# --- References — one vips run per differential case -------------------------
+# gaussmat / logmat: the double matrix is `cast … float`ed so the libviprs
+# decoder can read it (no double PixelFormat). The header scale is mask metadata
+# the raster differential does not compare.
+echo "==> [gaussmat] integer + separable + float precision -> float .v"
+"$VIPS" gaussmat "$TMP/gm.v"  2 0.2;              "$VIPS" cast "$TMP/gm.v"  "$CONVOL/gaussmat_int_expected.v"   float
+"$VIPS" gaussmat "$TMP/gms.v" 2 0.2 --separable;  "$VIPS" cast "$TMP/gms.v" "$CONVOL/gaussmat_sep_expected.v"   float
+"$VIPS" gaussmat "$TMP/gmf.v" 2 0.2 --precision float; "$VIPS" cast "$TMP/gmf.v" "$CONVOL/gaussmat_float_expected.v" float
+
+echo "==> [logmat] integer + float separable -> float .v"
+"$VIPS" logmat "$TMP/lm.v"  2 0.1;                             "$VIPS" cast "$TMP/lm.v"  "$CONVOL/logmat_int_expected.v"   float
+"$VIPS" logmat "$TMP/lmf.v" 2 0.1 --separable --precision float; "$VIPS" cast "$TMP/lmf.v" "$CONVOL/logmat_float_expected.v" float
+
+echo "==> [conv] box blur integer (PNG, ≤1 LSB) + sobel float (.v)"
+"$VIPS" conv "$CONVOL/eye.png" "$CONVOL/conv_blur_int_expected.png"   "$CONVOL/blur.mat"  --precision integer
+"$VIPS" conv "$CONVOL/eye.png" "$CONVOL/conv_sobel_float_expected.v"  "$CONVOL/sobel.mat" --precision float
+
+echo "==> [convsep] separable smoother, float (.v)"
+"$VIPS" convsep "$CONVOL/eye.png" "$CONVOL/convsep_float_expected.v" "$CONVOL/sep.mat" --precision float
+
+echo "==> [compass] max integer (PNG, EXACT — scale-1 mask) + sum float/integer (.v)"
+"$VIPS" compass "$CONVOL/eye.png" "$CONVOL/compass_max_int_expected.png" "$CONVOL/sobel.mat" \
+    --times 4 --angle d45 --combine max --precision integer
+"$VIPS" compass "$CONVOL/eye.png" "$CONVOL/compass_sum_float_expected.v" "$CONVOL/sobel.mat" \
+    --times 4 --angle d45 --combine sum --precision float
+# combine=sum at INTEGER precision: the distinct 16-bit-promotion + saturation
+# branch (out_fmt promotes uchar to 16-bit for Sum; the summed sobel edges reach
+# 812, above the uchar range). Integer arithmetic is deterministic → EXACT (tol
+# 0). vips emits this surface as **uint** (band format 4), which the libviprs
+# decoder does not read; the core (viprs) emits it as **ushort** (Gray16). The
+# decode-compare requires matching format classes, so the reference is
+# `vips cast … ushort` — lossless for these values (max 812 « 65535) and the same
+# Gray16 class viprs produces (unlike fastcor, whose viprs surface is float).
+"$VIPS" compass "$CONVOL/eye.png" "$TMP/compass_sum_int_uint.v" "$CONVOL/sobel.mat" \
+    --times 4 --angle d45 --combine sum --precision integer
+"$VIPS" cast "$TMP/compass_sum_int_uint.v" "$CONVOL/compass_sum_int_expected.v" ushort
+
+echo "==> [gaussblur] integer (PNG, ≤1 LSB) + float (.v)"
+"$VIPS" gaussblur "$CONVOL/eye.png" "$CONVOL/gaussblur_int_expected.png" 1.5 --precision integer
+"$VIPS" gaussblur "$CONVOL/eye.png" "$CONVOL/gaussblur_float_expected.v" 1.5 --precision float
+
+echo "==> [sharpen] eye (mono, high-freq) --sigma 1 --m1 1 --m2 2 (PNG, ≤1 LSB)"
+"$VIPS" sharpen "$CONVOL/eye.png" "$CONVOL/sharpen_expected.png" --sigma 1 --m1 1 --m2 2
+
+echo "==> [spcor] normalised cross-correlation (.v float, eps 1e-5)"
+"$VIPS" spcor "$CONVOL/eye.png" "$CONVOL/patch.png" "$CONVOL/spcor_expected.v"
+
+echo "==> [fastcor] SSD surface (vips uint -> cast float .v, EXACT)"
+"$VIPS" fastcor "$CONVOL/eye.png" "$CONVOL/patch.png" "$TMP/fc_uint.v"
+"$VIPS" cast "$TMP/fc_uint.v" "$CONVOL/fastcor_expected.v" float
+
+# --- Provenance (append the convolution section) -----------------------------
+echo "==> [provenance] appending convolution section to $FIX_ROOT/PROVENANCE.md"
+# MATRIX FAMILY (the Wave-2 matrix lane; OP_MAP.md matrix section).
+#
+# The same committed matrix FILES feed BOTH this generator (to make the vips
+# references) and tests/cli_matrix_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. Both ops are oracle class BOUNDED-TOL:
+# the core computes in f64 but STORES results as f32 (libvips stores double), so
+# the vips double result is CAST TO FLOAT (`vips cast … float`) before it is
+# committed — the libviprs `.v` decoder rejects a DOUBLE band format and the
+# compare harness reads f32 samples. The core is a faithful port of libvips'
+# matrixinvert.c / invertlut.c (identical operation order), so the measured
+# max-abs-diff is 0 for matrixinvert (both the direct and PLU paths) and 5.96e-8
+# — one f32 ULP at 1.0 — for invertlut (whose tail extrapolates to 1.0). The
+# OP_MAP's 1e-9 tol assumed a double carrier and is unreachable with f32; the
+# honest measured f32 tol (1e-6) is used in the test.
+#
+# Inputs are DISCRIMINATING (a no-op / identity op FAILS): matrixinvert of a
+# non-identity 3x3 (direct cofactor path, n<4) and 4x4 (PLU decomposition path,
+# n>=4) yields a visibly different inverse; invertlut of a 3x3 measured-points
+# matrix yields a 256x1 (or 64x1) LUT an identity op would mismatch on shape.
+# ===========================================================================
+MATRIX="$FIX_ROOT/matrix"
+mkdir -p "$MATRIX"
+
+# --- Common inputs (vips text-matrix files, header `width height`) -----------
+# A .mat is a pure text file, deterministic and consumed by both sides. No scale
+# / offset header (default 1 / 0): matrixinvert / invertlut read the raw cell
+# values, so both vips and the libviprs MatFile loader see the same matrix.
+echo "==> [matrix input] m3 (3x3, direct path), m4 (4x4, PLU path), lut (3x3 measured points)"
+printf '3 3\n2 0 1\n1 3 0\n0 1 4\n'            > "$MATRIX/m3.mat"
+printf '4 4\n2 1 0.5 0\n1 3 0 1\n0 1 4 2\n1 0 2 5\n' > "$MATRIX/m4.mat"
+printf '3 3\n0.1 0.2 0.3\n0.2 0.4 0.4\n0.7 0.5 0.6\n' > "$MATRIX/lut.mat"
+
+# --- References — one vips run per differential case, cast double -> float ---
+echo "==> [matrixinvert] 3x3 direct + 4x4 PLU -> float .v (BOUNDED-TOL, measured 0)"
+"$VIPS" matrixinvert "$MATRIX/m3.mat" "$TMP/mi3.v"
+"$VIPS" cast "$TMP/mi3.v" "$MATRIX/matrixinvert3_expected.v" float
+"$VIPS" matrixinvert "$MATRIX/m4.mat" "$TMP/mi4.v"
+"$VIPS" cast "$TMP/mi4.v" "$MATRIX/matrixinvert4_expected.v" float
+
+echo "==> [invertlut] default size 256 + --size 64 -> float .v (BOUNDED-TOL, 1 f32 ULP)"
+"$VIPS" invertlut "$MATRIX/lut.mat" "$TMP/il.v"
+"$VIPS" cast "$TMP/il.v" "$MATRIX/invertlut_expected.v" float
+"$VIPS" invertlut "$MATRIX/lut.mat" "$TMP/il64.v" --size 64
+"$VIPS" cast "$TMP/il64.v" "$MATRIX/invertlut_size64_expected.v" float
+
+# --- Provenance (append the matrix section) ----------------------------------
+echo "==> [provenance] appending matrix section to $FIX_ROOT/PROVENANCE.md"
+# COLOUR FAMILY (the Wave-2 colour lane; OP_MAP.md colour section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_colour_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. Every colour op outputs a NON-RGB
+# interpretation (LAB/XYZ/scRGB float, a float ΔE, or a re-profiled device
+# image), so every case is oracle class BOUNDED-TOL at a MEASURED tolerance —
+# EXCEPT `dECMC`, which is GOLDEN-ONLY: the core computes the published CMC(1:1)
+# ΔE while vips approximates dECMC as Euclidean distance in its CMC uniform
+# space, a DIFFERENT formula (measured max-abs-diff ~297; vips range [13,311] vs
+# core [8,100]) — there is no cross-oracle, so its reference is generated by
+# `viprs` itself (deterministic) as a regression pin.
+#
+# Carriers: float LAB/XYZ/scRGB and the float ΔE go to `.v`; an sRGB / device
+# uchar target goes to PNG (the integer sink runs the interpretation-aware
+# `→ sRGB` conversion in io::save — libviprs-cli #36, so `colourspace … lab`
+# written to PNG matches vips's own LAB→sRGB pngsave).
+#
+# ICC caveat (OP_MAP colour notes): libviprs ships a native moxcms ICC engine
+# while homebrew vips uses lcms2. The two agree on MATRIX-SHAPER RGB profiles
+# (sRGB) — the device-space round trips (icc_export, icc_transform) match vips
+# EXACTLY (measured 0) and the Lab PCS (icc_import) agrees to ~0.31 Lab units
+# (moxcms-vs-lcms matrix-shaper divergence, a measured BOUNDED-TOL, NOT a bug).
+# CMYK / LUT profiles diverge by design and are out of scope here.
+# ===========================================================================
+COLOUR="$FIX_ROOT/colour"
+mkdir -p "$COLOUR"
+
+# Ensure the viprs binary exists for the GOLDEN-ONLY dECMC pin.
+if [ ! -x "$VIPRS" ]; then
+    echo "    (building $VIPRS: cargo build --release --no-default-features --bin viprs)"
+    ( cd "$CLI_DIR" && cargo build --release --no-default-features --bin viprs )
+fi
+
+# --- Common inputs -----------------------------------------------------------
+# Two DISTINCT 16x16 sRGB images with TRUE 2-D structure (band0 horizontal ramp,
+# band1 scaled horizontal ramp, band2 VERTICAL ramp), re-tagged sRGB so a 3-band
+# PNG saves as clean RGB. `vips grey`/`rot` are pure coordinate functions, so
+# every input is bit-reproducible. rgb2 is distinct from rgb so the ΔE metrics
+# are NON-VACUOUS (a==b would give ΔE≡0).
+echo "==> [colour input] two 16x16 sRGB images (distinct, 2-D structure)"
+"$VIPS" grey "$TMP/clg.v" 16 16
+"$VIPS" rot "$TMP/clg.v" "$TMP/clg_v.v" d90
+"$VIPS" linear "$TMP/clg.v"   "$TMP/cl_b0.png" 255 0  --uchar
+"$VIPS" linear "$TMP/clg.v"   "$TMP/cl_b1.png" 200 20 --uchar
+"$VIPS" linear "$TMP/clg_v.v" "$TMP/cl_b2.png" 255 0  --uchar
+"$VIPS" bandjoin "$TMP/cl_b0.png $TMP/cl_b1.png $TMP/cl_b2.png" "$TMP/cl_rgb.v"
+"$VIPS" copy "$TMP/cl_rgb.v" "$COLOUR/rgb.png" --interpretation srgb
+"$VIPS" linear "$TMP/clg.v"   "$TMP/cl_c0.png" 150 40 --uchar
+"$VIPS" linear "$TMP/clg_v.v" "$TMP/cl_c1.png" 150 50 --uchar
+"$VIPS" linear "$TMP/clg.v"   "$TMP/cl_c2.png" 120 60 --uchar
+"$VIPS" bandjoin "$TMP/cl_c0.png $TMP/cl_c1.png $TMP/cl_c2.png" "$TMP/cl_rgb2.v"
+"$VIPS" copy "$TMP/cl_rgb2.v" "$COLOUR/rgb2.png" --interpretation srgb
+
+# sRGB MATRIX-SHAPER profile (v2.1, rXYZ/gXYZ/bXYZ colorants + rTRC/gTRC/bTRC
+# tone curves, NO A2B LUT) — both moxcms and lcms2 evaluate it on the exact
+# matrix-shaper path. Copied from the author-Mac ColorSync store.
+echo "==> [colour input] sRGB matrix-shaper ICC profile"
+SRGB_SRC="/System/Library/ColorSync/Profiles/sRGB Profile.icc"
+if [ -f "$SRGB_SRC" ]; then
+    cp "$SRGB_SRC" "$COLOUR/sRGB.icc"
+else
+    echo "    WARNING: $SRGB_SRC not found; kept the committed colour/sRGB.icc" >&2
+fi
+
+# Lab PCS input for icc_export: import rgb.png through the sRGB profile with vips
+# (a genuine D50 Lab PCS image). Committed and fed to BOTH sides of the export
+# differential, so the export route is compared like-for-like.
+echo "==> [colour input] icc_pcs_lab.v (vips icc_import of rgb.png through sRGB)"
+"$VIPS" icc_import "$COLOUR/rgb.png" "$COLOUR/icc_pcs_lab.v" \
+    --input-profile "$COLOUR/sRGB.icc" --intent relative
+
+# --- References — one vips run per differential case -------------------------
+# colourspace: sRGB -> LAB / XYZ / scRGB, real round-trips through the D65 XYZ
+# hub (float .v, BOUNDED-TOL eps 1e-4; measured LAB 4.6e-5, XYZ 1.5e-5,
+# scRGB 1e-6).
+echo "==> [colourspace] srgb -> lab / xyz / scrgb (.v float, eps 1e-4)"
+"$VIPS" colourspace "$COLOUR/rgb.png" "$COLOUR/colourspace_lab_expected.v"   lab
+"$VIPS" colourspace "$COLOUR/rgb.png" "$COLOUR/colourspace_xyz_expected.v"   xyz
+"$VIPS" colourspace "$COLOUR/rgb.png" "$COLOUR/colourspace_scrgb_expected.v" scrgb
+
+# #36 interpretation-aware PNG save: `colourspace … lab` written to an INTEGER
+# sink. vips's pngsave converts the LAB result to sRGB before encoding; io::save
+# must do the same (not cast the raw Lab channels). uchar, ≤1 LSB (measured 0).
+echo "==> [colourspace] srgb -> lab written to PNG (#36 interp-aware save; ≤1 LSB)"
+"$VIPS" colourspace "$COLOUR/rgb.png" "$COLOUR/colourspace_lab_png_expected.png" lab
+
+# #36 discriminator strengthener: a GENUINELY Lab-tagged input (icc_pcs_lab.v, a
+# D50 Lab PCS image) converted to sRGB and written to PNG. Unlike the round-trip
+# above (whose reference equals rgb.png, so an identity colourspace would still
+# pass), here the reference DIFFERS from the input — a no-op / raw-cast
+# colourspace would garble it — so the PNG path discriminates the colourspace
+# transform itself, not only the interpretation-aware save. uchar, ≤1 LSB
+# (measured 1).
+echo "==> [colourspace] LAB-tagged input -> srgb PNG (non-round-trip discriminator; ≤1 LSB)"
+"$VIPS" colourspace "$COLOUR/icc_pcs_lab.v" "$COLOUR/colourspace_lab_input_png_expected.png" srgb
+
+# --source-space override: force the sRGB-tagged input to be read as LAB, then
+# convert to sRGB. Genuinely discriminating (vs the srgb->srgb identity the flag
+# would collapse to if ignored: 255 apart). uchar, ≤1 LSB (measured 1).
+echo "==> [colourspace] --source-space lab override -> srgb PNG (≤1 LSB)"
+"$VIPS" colourspace "$COLOUR/rgb.png" "$COLOUR/colourspace_srcspace_expected.png" srgb \
+    --source-space lab
+
+# dE76 / dE00: two distinct sRGB inputs -> float ΔE (.v, eps 1e-4; measured
+# 6.5e-5). dE00 pins the libvips vips_col_dE00 hue-wrap parity.
+echo "==> [dE76/dE00] rgb vs rgb2 -> float ΔE (.v, eps 1e-4)"
+"$VIPS" dE76 "$COLOUR/rgb.png" "$COLOUR/rgb2.png" "$COLOUR/dE76_expected.v"
+"$VIPS" dE00 "$COLOUR/rgb.png" "$COLOUR/rgb2.png" "$COLOUR/dE00_expected.v"
+
+# dECMC: GOLDEN-ONLY. vips computes Euclidean distance in its CMC uniform space;
+# the core computes the published CMC(1:1) ΔE — a DIFFERENT formula (measured
+# max-abs-diff ~297). No cross-oracle: the reference is a viprs regression pin.
+echo "==> [dECMC] rgb vs rgb2 -> float ΔE (GOLDEN-ONLY viprs pin — no vips oracle)"
+"$VIPRS" dECMC "$COLOUR/rgb.png" "$COLOUR/rgb2.png" "$COLOUR/dECMC_golden.v"
+
+# icc_import: sRGB device -> D50 Lab PCS (.v float). BOUNDED-TOL at the measured
+# moxcms-vs-lcms matrix-shaper divergence (~0.31 Lab units).
+echo "==> [icc_import] rgb through sRGB -> Lab PCS (.v, BOUNDED-TOL ~0.31)"
+"$VIPS" icc_import "$COLOUR/rgb.png" "$COLOUR/icc_import_lab_expected.v" \
+    --input-profile "$COLOUR/sRGB.icc" --intent relative
+
+# icc_export: Lab PCS -> sRGB device (PNG uchar). Matrix-shaper round trip
+# matches vips EXACTLY (measured 0); compared at ≤2 LSB.
+echo "==> [icc_export] Lab PCS through sRGB -> device PNG (≤2 LSB, measured 0)"
+"$VIPS" icc_export "$COLOUR/icc_pcs_lab.v" "$COLOUR/icc_export_expected.png" \
+    --output-profile "$COLOUR/sRGB.icc" --intent relative --depth 8
+
+# icc_export --depth 16: pin the 16-bit device-output path. At 16-bit precision
+# the native moxcms engine and vips's lcms2 diverge by ~13/65535 on the matrix
+# -shaper sRGB profile (the 8-bit case rounds that away to 0) — a real, measured
+# cross-CMS BOUNDED-TOL, NOT a bug. 16-bit PNG, compared at ≤16 LSB (measured 13).
+echo "==> [icc_export] Lab PCS through sRGB -> 16-bit device PNG (--depth 16; ≤16 LSB, measured 13)"
+"$VIPS" icc_export "$COLOUR/icc_pcs_lab.v" "$COLOUR/icc_export_d16_expected.png" \
+    --output-profile "$COLOUR/sRGB.icc" --intent relative --depth 16
+
+# icc_transform: sRGB device -> sRGB device in one step (import+export). Matrix
+# -shaper round trip matches vips EXACTLY (measured 0); compared at ≤2 LSB.
+echo "==> [icc_transform] rgb sRGB->sRGB round trip -> device PNG (≤2 LSB, measured 0)"
+"$VIPS" icc_transform "$COLOUR/rgb.png" "$COLOUR/icc_transform_expected.png" \
+    "$COLOUR/sRGB.icc" --input-profile "$COLOUR/sRGB.icc" --intent relative
+
+# --- Provenance (append the colour section) ----------------------------------
+echo "==> [provenance] appending colour section to $FIX_ROOT/PROVENANCE.md"
+cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
+
+---
+
+# convolution family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the convolution
+CLI-differential suite (\`tests/cli_convolution_diff.rs\`) decode-compares
+\`viprs\` output against. Generated offline by \`tools/gen_cli_expected.sh\`,
+NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`convolution/\`): \`eye.png\` (16×16 Gray8 zone-plate,
+  high-frequency so a blur/edge op is non-vacuous — a box blur moves it by up to
+  59, compass by 254; \`sharpen\` runs on that same mono zone-plate),
+  \`patch.png\` (5×5 extract of \`eye.png\`, the correlation template with a
+  sharp best-match peak).
+- **Masks**: \`blur.mat\` (3×3 box, scale 9), \`sobel.mat\` (3×3 edge, scale 1,
+  odd-square for \`compass\`), \`sep.mat\` (1×5 separable smoother, scale 10).
+- **Carriers**: integer uchar outputs → PNG; float / matrix / correlation
+  surfaces → native \`.v\`. vips writes the gaussmat/logmat matrix as **double**
+  and fastcor as **uint**, neither of which the libviprs decoder reads, so they
+  are \`vips cast … float\`ed to a float \`.v\` (lossless for these values).
+
+## Honest oracle classes (measured)
+
+- **EXACT (tol 0)**: \`compass --combine max\` integer (scale-1 sobel mask needs
+  no coefficient rounding), \`compass --combine sum\` integer (the deterministic
+  16-bit-promotion + saturation branch; summed sobel edges reach 812; vips
+  emits uint, core emits Gray16, cast to ushort \`.v\`), and \`fastcor\` (integer SSD). Also gaussmat/logmat at
+  **integer** precision (integer-valued matrices).
+- **BOUNDED-TOL ≤1 LSB (tol 1)**: \`conv\` and \`gaussblur\` at **integer**
+  precision with a **scaled** mask. This is a MEASURED core-vs-vips rounding-scheme
+  difference — vips's \`vips_convi\` uses a power-of-two fixed-point shift while the
+  core divides \`(sum + scale/2)/scale\` — NOT the EXACT that OP_MAP.md
+  provisionally listed. The scale-1 compass case proves it is the scale division
+  (a scale-1 mask is exact). Also \`sharpen\` (LabS unsharp round trip).
+- **BOUNDED-TOL float (small eps)**: \`conv\`/\`compass\`/\`gaussblur\` at float
+  precision, \`convsep\` (measured ≤1.5e-5 on the author Mac), \`gaussmat\`/\`logmat\`
+  float precision, and \`spcor\` (eps 1e-5): float surfaces whose accumulation
+  order / transcendental libm differs slightly from vips.
+
+## Exact commands
+
+Inputs + masks:
+
+\`\`\`
+vips eye veye.v 16 16 ; vips linear veye.v convolution/eye.png 127.5 127.5 --uchar
+vips extract_area convolution/eye.png convolution/patch.png 4 4 5 5
+printf '3 3 9\\n1 1 1\\n1 1 1\\n1 1 1\\n'    > convolution/blur.mat
+printf '3 3 1\\n1 2 1\\n0 0 0\\n-1 -2 -1\\n' > convolution/sobel.mat
+printf '5 1 10\\n1 2 4 2 1\\n'              > convolution/sep.mat
+# matrix family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the matrix
+CLI-differential suite (\`tests/cli_matrix_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`matrix/\`, vips text-matrix files): \`m3.mat\` (3x3,
+  the matrixinvert **direct cofactor** path, n<4), \`m4.mat\` (4x4, the
+  matrixinvert **PLU decomposition** path, n>=4), \`lut.mat\` (3x3 measured
+  points: column 0 = input level, columns 1/2 = two bands' responses, all in
+  0..=1, for invertlut). Consumed identically by both vips and the \`viprs\`
+  \`MatFile\` loader (no scale/offset header, so the raw cells are read on both
+  sides).
+- **Oracle class BOUNDED-TOL (f32 carrier)**: the core computes in f64 but stores
+  results as **f32** (libvips stores double), so every reference is the vips
+  double result **cast to float** (\`vips cast … float\`) — the libviprs \`.v\`
+  decoder rejects a DOUBLE band format, and the compare is f32-vs-f32. Measured
+  max-abs-diff: \`0\` for \`matrixinvert\` (both paths), \`5.96e-8\` (one f32 ULP
+  at 1.0) for \`invertlut\`. The test tol is \`1e-6\`; the OP_MAP \`1e-9\` was
+  written assuming a double carrier and is unreachable with f32.
+# colour family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the colour
+CLI-differential suite (\`tests/cli_colour_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`colour/\`): \`rgb.png\` / \`rgb2.png\` (two DISTINCT
+  16×16 sRGB images with 2-D structure — band0 horizontal ramp, band1 scaled
+  horizontal ramp, band2 vertical ramp; distinct so the ΔE metrics are
+  non-vacuous), \`sRGB.icc\` (a v2.1 **matrix-shaper** sRGB profile: colorant
+  matrix + per-channel TRC, no A2B LUT), \`icc_pcs_lab.v\` (a D50 Lab PCS image =
+  \`vips icc_import rgb.png … --input-profile sRGB.icc\`, the shared \`icc_export\`
+  input).
+- **Oracle classes**: every case is **BOUNDED-TOL** at a MEASURED tolerance
+  EXCEPT \`dECMC\`, which is **GOLDEN-ONLY**. Measured max-abs-diff per case:
+  colourspace LAB 4.6e-5 / XYZ 1.5e-5 / scRGB 1e-6 (float, tol 1e-4); the #36
+  LAB→PNG save 0, the LAB-tagged-input→sRGB PNG non-round-trip discriminator 1,
+  and the \`--source-space\` override 1 (uchar, tol 1 = ≤1 LSB); dE76 / dE00
+  6.5e-5 (float, tol 1e-4); icc_import 0.303 (Lab float, tol 0.35 —
+  moxcms-vs-lcms2 matrix-shaper divergence, NOT a bug); icc_export / icc_transform
+  0 (uchar, tol 2 = ≤2 LSB margin for cross-CMS / cross-arch); icc_export --depth
+  16 13 (16-bit, tol 16 — the moxcms-vs-lcms2 divergence the 8-bit path rounds away).
+
+## dECMC — no vips cross-oracle (a real formula difference, GOLDEN-ONLY)
+
+vips \`dECMC\` approximates the CMC colour difference as **Euclidean distance in
+its CMC uniform space**; libviprs computes the **published CMC(l:c) ΔE at
+l=c=1** (BS 6923). These are different functions — on \`rgb\`/\`rgb2\` the two
+diverge by ~297 (vips range [13.17, 311.39] vs core [7.75, 99.71]) — so there is
+no meaningful cross-oracle. \`dECMC_golden.v\` is generated by **\`viprs\`**
+itself (deterministic across runs) and the test is a regression pin, NOT a vips
+comparison. (OP_MAP.md provisionally listed \`dECMC\` BOUNDED-TOL 1e-4; this
+honest measurement corrects it to GOLDEN-ONLY.)
+
+## ICC — matrix-shaper only (moxcms vs lcms2)
+
+libviprs ships a native pure-Rust ICC engine (moxcms); homebrew vips uses lcms2.
+The two agree on the matrix-shaper sRGB profile used here: the device-space
+round trips (\`icc_export\`, \`icc_transform\`) reproduce vips's output EXACTLY
+(measured 0), and the intermediate D50 Lab PCS (\`icc_import\`) agrees to ~0.31
+Lab units. CMYK / LUT profiles interpolate different grids between the two CMSs
+and diverge by design — they are out of scope for this cross-oracle.
+
+## Exact commands
+
+Inputs:
+
+\`\`\`
+printf '3 3\\n2 0 1\\n1 3 0\\n0 1 4\\n'                > matrix/m3.mat
+printf '4 4\\n2 1 0.5 0\\n1 3 0 1\\n0 1 4 2\\n1 0 2 5\\n' > matrix/m4.mat
+printf '3 3\\n0.1 0.2 0.3\\n0.2 0.4 0.4\\n0.7 0.5 0.6\\n' > matrix/lut.mat
+vips grey clg.v 16 16 ; vips rot clg.v clg_v.v d90
+vips linear clg.v   cl_b0.png 255 0  --uchar
+vips linear clg.v   cl_b1.png 200 20 --uchar
+vips linear clg_v.v cl_b2.png 255 0  --uchar
+vips bandjoin "cl_b0.png cl_b1.png cl_b2.png" cl_rgb.v
+vips copy cl_rgb.v colour/rgb.png --interpretation srgb
+vips linear clg.v   cl_c0.png 150 40 --uchar
+vips linear clg_v.v cl_c1.png 150 50 --uchar
+vips linear clg.v   cl_c2.png 120 60 --uchar
+vips bandjoin "cl_c0.png cl_c1.png cl_c2.png" cl_rgb2.v
+vips copy cl_rgb2.v colour/rgb2.png --interpretation srgb
+cp "/System/Library/ColorSync/Profiles/sRGB Profile.icc" colour/sRGB.icc
+vips icc_import colour/rgb.png colour/icc_pcs_lab.v --input-profile colour/sRGB.icc --intent relative
+\`\`\`
+
+References (paths relative to \`tests/fixtures/cli/\`):
+
+| reference | oracle class | vips command |
+|---|---|---|
+| \`convolution/gaussmat_int_expected.v\` | BOUNDED-TOL (tol 0) | \`vips gaussmat gm.v 2 0.2\` then \`vips cast gm.v … float\` |
+| \`convolution/gaussmat_sep_expected.v\` | BOUNDED-TOL (tol 0) | \`vips gaussmat gms.v 2 0.2 --separable\` then cast float |
+| \`convolution/gaussmat_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips gaussmat gmf.v 2 0.2 --precision float\` then cast float |
+| \`convolution/logmat_int_expected.v\` | BOUNDED-TOL (tol 0) | \`vips logmat lm.v 2 0.1\` then cast float |
+| \`convolution/logmat_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips logmat lmf.v 2 0.1 --separable --precision float\` then cast float |
+| \`convolution/conv_blur_int_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips conv eye.png conv_blur_int_expected.png blur.mat --precision integer\` |
+| \`convolution/conv_sobel_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips conv eye.png conv_sobel_float_expected.v sobel.mat --precision float\` |
+| \`convolution/convsep_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips convsep eye.png convsep_float_expected.v sep.mat --precision float\` |
+| \`convolution/compass_max_int_expected.png\` | EXACT (tol 0) | \`vips compass eye.png … sobel.mat --times 4 --angle d45 --combine max --precision integer\` |
+| \`convolution/compass_sum_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips compass eye.png … sobel.mat --times 4 --angle d45 --combine sum --precision float\` |
+| \`convolution/compass_sum_int_expected.v\` | EXACT (tol 0) | \`vips compass eye.png … sobel.mat --times 4 --angle d45 --combine sum --precision integer\` then \`vips cast … ushort\` (vips emits uint; core emits Gray16; 16-bit-promotion path) |
+| \`convolution/gaussblur_int_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips gaussblur eye.png gaussblur_int_expected.png 1.5 --precision integer\` |
+| \`convolution/gaussblur_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips gaussblur eye.png gaussblur_float_expected.v 1.5 --precision float\` |
+| \`convolution/sharpen_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips sharpen eye.png sharpen_expected.png --sigma 1 --m1 1 --m2 2\` |
+| \`convolution/spcor_expected.v\` | BOUNDED-TOL (eps 1e-5) | \`vips spcor eye.png patch.png spcor_expected.v\` |
+| \`convolution/fastcor_expected.v\` | EXACT (tol 0) | \`vips fastcor eye.png patch.png fc_uint.v\` then \`vips cast fc_uint.v … float\` |
+| \`matrix/matrixinvert3_expected.v\` | BOUNDED-TOL (f32, measured 0) | \`vips matrixinvert m3.mat mi3.v\` then \`vips cast mi3.v matrixinvert3_expected.v float\` (direct cofactor path) |
+| \`matrix/matrixinvert4_expected.v\` | BOUNDED-TOL (f32, measured 0) | \`vips matrixinvert m4.mat mi4.v\` then \`vips cast mi4.v matrixinvert4_expected.v float\` (PLU path) |
+| \`matrix/invertlut_expected.v\` | BOUNDED-TOL (f32, 1 ULP = 5.96e-8) | \`vips invertlut lut.mat il.v\` then \`vips cast il.v invertlut_expected.v float\` (default size 256) |
+| \`matrix/invertlut_size64_expected.v\` | BOUNDED-TOL (f32, 1 ULP = 5.96e-8) | \`vips invertlut lut.mat il64.v --size 64\` then \`vips cast il64.v invertlut_size64_expected.v float\` |
+
+Bounds rejection (singular / non-square matrixinvert, out-of-range /
+too-few-columns invertlut, sub-range \`--size\`, and a \`--size\` in the
+clap-accepts / core-rejects band 65537..=1000000) is a typed exit-1 (or usage
+exit-2) error with a \`viprs\`-side message, never a panic (CLI_CONTRACT.md §8);
+those cases build their tiny matrices in-test (or reuse \`lut.mat\`) and need no
+committed reference. The size band is a PARITY quirk: clap mirrors vips's
+declared \`1..=1000000\` metadata while the core caps at \`1..=65536\`, and vips
+itself independently rejects a size above 65536 despite its declared max — so a
+\`--size 100000\` is a clean exit-1 \`BadSize\` on both sides, not a panic.
+
+The \`matrixinvert\` cases compare at tol \`0.0\` (EXACT-AFTER-CAST — the f32-cast
+core result is bit-identical to the vips-double-cast-to-float reference); only the
+\`invertlut\` cases use the nonzero \`1e-6\` f32 tol.
+| \`colour/colourspace_lab_expected.v\` | BOUNDED-TOL (1e-4) | \`vips colourspace rgb.png colourspace_lab_expected.v lab\` |
+| \`colour/colourspace_xyz_expected.v\` | BOUNDED-TOL (1e-4) | \`vips colourspace rgb.png colourspace_xyz_expected.v xyz\` |
+| \`colour/colourspace_scrgb_expected.v\` | BOUNDED-TOL (1e-4) | \`vips colourspace rgb.png colourspace_scrgb_expected.v scrgb\` |
+| \`colour/colourspace_lab_png_expected.png\` | BOUNDED-TOL (≤1 LSB) | \`vips colourspace rgb.png colourspace_lab_png_expected.png lab\` (#36 interp-aware save) |
+| \`colour/colourspace_lab_input_png_expected.png\` | BOUNDED-TOL (≤1 LSB) | \`vips colourspace icc_pcs_lab.v colourspace_lab_input_png_expected.png srgb\` (#36 non-round-trip discriminator) |
+| \`colour/colourspace_srcspace_expected.png\` | BOUNDED-TOL (≤1 LSB) | \`vips colourspace rgb.png colourspace_srcspace_expected.png srgb --source-space lab\` |
+| \`colour/dE76_expected.v\` | BOUNDED-TOL (1e-4) | \`vips dE76 rgb.png rgb2.png dE76_expected.v\` |
+| \`colour/dE00_expected.v\` | BOUNDED-TOL (1e-4) | \`vips dE00 rgb.png rgb2.png dE00_expected.v\` (vips_col_dE00 parity) |
+| \`colour/dECMC_golden.v\` | GOLDEN-ONLY | \`viprs dECMC rgb.png rgb2.png dECMC_golden.v\` (NO vips oracle — vips computes a different formula) |
+| \`colour/icc_import_lab_expected.v\` | BOUNDED-TOL (~0.31) | \`vips icc_import rgb.png icc_import_lab_expected.v --input-profile sRGB.icc --intent relative\` |
+| \`colour/icc_export_expected.png\` | BOUNDED-TOL (≤2 LSB) | \`vips icc_export icc_pcs_lab.v icc_export_expected.png --output-profile sRGB.icc --intent relative --depth 8\` |
+| \`colour/icc_export_d16_expected.png\` | BOUNDED-TOL (≤16 LSB @ 16-bit) | \`vips icc_export icc_pcs_lab.v icc_export_d16_expected.png --output-profile sRGB.icc --intent relative --depth 16\` |
+| \`colour/icc_transform_expected.png\` | BOUNDED-TOL (≤2 LSB) | \`vips icc_transform rgb.png icc_transform_expected.png sRGB.icc --input-profile sRGB.icc --intent relative\` |
+EOF
+
 echo "==> Done. Generated fixtures under $FIX_ROOT"
 ls -1 "$FIX"
 echo "--- bands ---"
@@ -908,3 +1405,9 @@ echo "--- conversion ---"
 ls -1 "$CONV"
 echo "--- core ---"
 ls -1 "$CORE"
+echo "--- convolution ---"
+ls -1 "$CONVOL"
+echo "--- matrix ---"
+ls -1 "$MATRIX"
+echo "--- colour ---"
+ls -1 "$COLOUR"
