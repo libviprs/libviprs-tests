@@ -407,6 +407,198 @@ fi
 
 # --- Provenance (append the extract section) ---------------------------------
 echo "==> [provenance] appending extract section to $FIX_ROOT/PROVENANCE.md"
+# CONVERSION FAMILY (the Wave-2 conversion lane; OP_MAP.md conversion section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_conversion_diff.rs (which feeds them to `viprs`).
+# Most commands are oracle class EXACT (integer-in / integer-out, decode-compare
+# tol 0); `flatten` is BOUNDED-TOL (≤1 LSB alpha-blend rounding) and `grey` is
+# BOUNDED-TOL (float ramp `.v` eps 1e-6 / uchar ≤1 LSB). Carriers: 1/3/4-band
+# uchar outputs → PNG; float (`cast`→float, `grey` float ramp) and 16-bit
+# (`byteswap` source `nb16`, `msb` source `mb16`) inputs whose byte order / raw
+# bands PNG cannot carry → the native `.v` container (CLI_CONTRACT.md §2).
+#
+# Inputs are chosen to make every differential DISCRIMINATING (adversarial-review
+# conversion findings 1/2/3/5): `grad` is a 2-D gradient (flip-vertical, wrap,
+# rot-d180 are not no-ops); `nb16` has differing high/low bytes (byteswap moves
+# data); `mb16` is 3-band with band0 != band1 (msb --band actually selects); and
+# `ramp256` spans the full 0..255 domain (gamma/falsecolour LUTs fully covered).
+#
+# `autorot` is the exception (see its block): libviprs' decoders read neither
+# the vips `.v` XML `orientation` field nor the TIFF Orientation tag (274) that
+# vips sets, so a vips-oriented input is a no-op under `viprs` — the two
+# orientation metadata channels are mutually unreadable (the globalbalance
+# situation). Its oriented input is therefore produced by `viprs` itself
+# (`$VIPRS copy … --orientation 6`), and the vips reference exploits the
+# identity autorot(orientation=6) == rot(d90), giving a genuine vips oracle.
+# ===========================================================================
+CONV="$FIX_ROOT/conversion"
+mkdir -p "$CONV"
+
+# Optional path to a pre-built `viprs` binary, used ONLY to mint the autorot
+# oriented `.v` input (which vips cannot write in a libviprs-readable way). If
+# unset the script tries the release binary in the sibling CLI checkout.
+VIPRS="${VIPRS:-${CLI_DIR:-$REPO_ROOT/../libviprs-cli}/target/release/viprs}"
+
+# --- Common inputs -----------------------------------------------------------
+# `vips grey` is a pure coordinate function (0..1 float ramp), so every fixture
+# below is bit-for-bit reproducible.
+echo "==> [conversion input] gray / gray2 / gray3 (16x16 Gray8), rgb, rgba"
+"$VIPS" grey "$TMP/cg.v" 16 16
+"$VIPS" linear "$TMP/cg.v" "$CONV/gray.png"  255 0  --uchar
+"$VIPS" linear "$TMP/cg.v" "$CONV/gray2.png" 200 10 --uchar
+"$VIPS" rot "$TMP/cg.v" "$TMP/cg_v.v" d90
+"$VIPS" linear "$TMP/cg_v.v" "$CONV/gray3.png" 255 0 --uchar
+"$VIPS" bandjoin "$CONV/gray.png $CONV/gray2.png $CONV/gray3.png" "$TMP/crgb.v"
+"$VIPS" copy "$TMP/crgb.v" "$CONV/rgb.png" --interpretation srgb
+"$VIPS" bandjoin "$CONV/rgb.png $CONV/gray.png" "$TMP/crgba.v"
+"$VIPS" copy "$TMP/crgba.v" "$CONV/rgba.png" --interpretation srgb
+
+# grad: a 2-D gradient varying in BOTH axes (x*85 + y*170), so vertical flip, the
+# wrap h/2 shift and rot d180 are NON-VACUOUS. gray.png is a horizontal ramp
+# (constant in Y), which made flip-vertical / wrap-vertical no-ops and collapsed
+# rot d180 to a horizontal flip (adversarial-review conversion finding 2). Max
+# sample 85+170 = 255, so it fills uchar without clipping.
+echo "==> [conversion input] grad (16x16 2-D gradient, both axes)"
+"$VIPS" rot "$TMP/cg.v" "$TMP/cgrot.v" d90
+"$VIPS" linear "$TMP/cg.v"    "$TMP/cgx.v" 85  0
+"$VIPS" linear "$TMP/cgrot.v" "$TMP/cgy.v" 170 0
+"$VIPS" add "$TMP/cgx.v" "$TMP/cgy.v" "$TMP/cgsum.v"
+"$VIPS" cast "$TMP/cgsum.v" "$CONV/grad.png" uchar
+
+# nb16: a 16-bit input whose high and low bytes DIFFER (multiples of 0x1000:
+# 0x0000,0x1000,…,0xF000 — low byte 0, high byte varies), so byteswap actually
+# moves data. A gray16 ramp (multiples of 0x1111) is all byte-palindromes, so a
+# no-op byteswap passed GREEN (adversarial-review conversion finding 1). Carried
+# as `.v` (a raw 16-bit container PNG bit-depth minimisation cannot distort).
+echo "==> [conversion input] nb16 (16x16 Gray16, non-palindromic bytes; for byteswap)"
+"$VIPS" linear "$TMP/cg.v" "$TMP/cnb16f.v" 61440 0
+"$VIPS" cast "$TMP/cnb16f.v" "$CONV/nb16.v" ushort
+
+# mb16: a 3-band 16-bit input where band 0 != band 1 (distinct per-band scales),
+# so `msb --band 0` (→ 1 band, band-0 high byte) is provably distinct from `msb`
+# default (→ 3 bands). A 1-band gray16 made the --band selection path vacuous
+# (adversarial-review conversion finding 3). Carried as `.v` (multiband 16-bit).
+echo "==> [conversion input] mb16 (16x16 3-band Gray16, distinct bands; for msb --band)"
+"$VIPS" linear "$TMP/cg.v"    "$TMP/cm16a.v" 65535 0
+"$VIPS" linear "$TMP/cg.v"    "$TMP/cm16b.v" 40000 0
+"$VIPS" linear "$TMP/cgrot.v" "$TMP/cm16c.v" 50000 0
+"$VIPS" bandjoin "$TMP/cm16a.v $TMP/cm16b.v $TMP/cm16c.v" "$TMP/cmb16f.v"
+"$VIPS" cast "$TMP/cmb16f.v" "$CONV/mb16.v" ushort
+
+echo "==> [conversion input] odd (15x15 Gray8, for rot45)"
+"$VIPS" grey "$TMP/codd.v" 15 15
+"$VIPS" linear "$TMP/codd.v" "$CONV/odd.png" 255 0 --uchar
+
+# ramp256: a 256x1 grey ramp covering EVERY 0..255 sample value once, so the LUT
+# ops (gamma, falsecolour) are compared over the FULL domain — a 16-value input
+# verified only 16 of 256 LUT entries (adversarial-review conversion finding 5).
+echo "==> [conversion input] ramp256 (256x1 Gray8, full 0..255 domain; for LUT ops)"
+"$VIPS" grey "$TMP/cr256.v" 256 1
+"$VIPS" linear "$TMP/cr256.v" "$CONV/ramp256.png" 255 0 --uchar
+
+echo "==> [conversion input] stack (8x16 vertical ramp for grid: distinct tiles)"
+"$VIPS" grey "$TMP/cs.v" 16 8
+"$VIPS" rot "$TMP/cs.v" "$TMP/cs_v.v" d90
+"$VIPS" linear "$TMP/cs_v.v" "$CONV/stack.png" 255 0 --uchar
+
+echo "==> [conversion input] cond / cond2 (16x16 0/255 masks at distinct thresholds)"
+"$VIPS" relational_const "$CONV/gray.png" "$CONV/cond.png"  more 127
+"$VIPS" relational_const "$CONV/gray.png" "$CONV/cond2.png" more 63
+
+# --- References — one vips run per differential case -------------------------
+echo "==> [copy] header tweak (interpretation) — pixels unchanged (EXACT PNG)"
+"$VIPS" copy "$CONV/rgb.png" "$CONV/copy_expected.png" --interpretation srgb
+
+# Both cast targets are carried as `.v`: vips's pngsave MINIMISES bit depth, so a
+# ushort image whose samples all fit in 8 bits is written as an 8-bit PNG,
+# defeating the widen-to-16-bit differential. `.v` preserves the true ushort /
+# float result losslessly (the libviprs decoder reads it back at full width).
+echo "==> [cast] gray -> ushort (.v) and gray -> float (.v) (EXACT)"
+"$VIPS" cast "$CONV/gray.png" "$CONV/cast_ushort_expected.v" ushort
+"$VIPS" cast "$CONV/gray.png" "$CONV/cast_float_expected.v" float
+
+echo "==> [flip] horizontal + vertical on grad (2-D; both arms discriminate) (EXACT PNG)"
+"$VIPS" flip "$CONV/grad.png" "$CONV/flip_horizontal_expected.png" horizontal
+"$VIPS" flip "$CONV/grad.png" "$CONV/flip_vertical_expected.png"   vertical
+
+echo "==> [rot] d90 + d180 on grad (2-D; d180 != a horizontal flip) (EXACT PNG)"
+"$VIPS" rot "$CONV/grad.png" "$CONV/rot_d90_expected.png"  d90
+"$VIPS" rot "$CONV/grad.png" "$CONV/rot_d180_expected.png" d180
+
+echo "==> [rot45] odd-square, --angle d45 (EXACT PNG)"
+"$VIPS" rot45 "$CONV/odd.png" "$CONV/rot45_d45_expected.png" --angle d45
+
+echo "==> [byteswap] nb16 (non-palindromic) -> .v (16-bit; byteswap truly moves bytes) (EXACT)"
+"$VIPS" byteswap "$CONV/nb16.v" "$CONV/byteswap_expected.v"
+
+echo "==> [msb] mb16 default (3 bands) + --band 0 (1 band) -> Gray8 (EXACT PNG)"
+"$VIPS" msb "$CONV/mb16.v" "$CONV/msb_expected.png"
+"$VIPS" msb "$CONV/mb16.v" "$CONV/msb_band0_expected.png" --band 0
+
+echo "==> [grid] stack tile-height 4 across 2 down 2 -> 16x8 (EXACT PNG)"
+"$VIPS" grid "$CONV/stack.png" "$CONV/grid_expected.png" 4 2 2
+
+echo "==> [flatten] rgba --background \"0 0 0\" -> 3-band (BOUNDED-TOL ≤1 LSB)"
+"$VIPS" flatten "$CONV/rgba.png" "$CONV/flatten_expected.png" --background "0 0 0"
+
+echo "==> [ifthenelse] cond ? gray : gray2 -> 1-band (EXACT PNG)"
+"$VIPS" ifthenelse "$CONV/cond.png" "$CONV/gray.png" "$CONV/gray2.png" \
+    "$CONV/ifthenelse_expected.png"
+
+# autorot: NO vips-oriented cross-oracle exists (libviprs ignores the vips `.v`
+# XML orientation field and the TIFF Orientation tag). We exploit the identity
+# autorot(orientation=6) == rot(d90): the vips reference is a plain `rot d90` of
+# the base, and the `viprs`-readable oriented input is minted by `viprs` itself.
+echo "==> [autorot] base (8x6) + rot-d90 reference; oriented input via viprs"
+"$VIPS" grey "$TMP/cab.v" 8 6
+"$VIPS" linear "$TMP/cab.v" "$CONV/autorot_base.png" 255 0 --uchar
+"$VIPS" rot "$CONV/autorot_base.png" "$CONV/autorot_expected.png" d90
+if [ -x "$VIPRS" ]; then
+    "$VIPRS" copy "$CONV/autorot_base.png" "$CONV/autorot_oriented.v" --orientation 6
+    echo "    (minted autorot_oriented.v with $VIPRS)"
+else
+    echo "    WARNING: viprs binary not found at '$VIPRS'; autorot_oriented.v NOT" >&2
+    echo "    regenerated (kept the committed copy). Set VIPRS=/path/to/viprs." >&2
+fi
+
+echo "==> [wrap] grad (2-D; the h/2 vertical shift is exercised) (EXACT PNG)"
+"$VIPS" wrap "$CONV/grad.png" "$CONV/wrap_expected.png"
+
+# gamma is BOUNDED-TOL (≤1 LSB), NOT EXACT/EAC as OP_MAP.md provisionally listed:
+# the per-sample power LUT is computed and rounded independently by the core and
+# by vips, and the two land ±1 apart on some samples (a measured, honest
+# core-vs-vips rounding difference — see the open question in the wave report).
+echo "==> [gamma] ramp256 (full 0..255 domain) default + --exponent 2.0 (BOUNDED-TOL ≤1 LSB PNG)"
+"$VIPS" gamma "$CONV/ramp256.png" "$CONV/gamma_expected.png"
+"$VIPS" gamma "$CONV/ramp256.png" "$CONV/gamma_exp2_expected.png" --exponent 2.0
+
+echo "==> [falsecolour] ramp256 (full domain) -> 3-band sRGB via PET LUT (EXACT PNG)"
+"$VIPS" falsecolour "$CONV/ramp256.png" "$CONV/falsecolour_expected.png"
+
+echo "==> [addalpha] rgb -> 4-band rgba (EXACT PNG)"
+"$VIPS" addalpha "$CONV/rgb.png" "$CONV/addalpha_expected.png"
+
+echo "==> [arrayjoin] 3 grays --across 2 -> 2x2 grid (EXACT PNG, >=3 variadic)"
+"$VIPS" arrayjoin "$CONV/gray.png $CONV/gray2.png $CONV/gray3.png" \
+    "$CONV/arrayjoin_expected.png" --across 2
+
+echo "==> [grey] float ramp (.v, eps 1e-6) + --uchar (PNG, ≤1 LSB)"
+"$VIPS" grey "$CONV/grey_float_expected.v" 16 16
+"$VIPS" grey "$CONV/grey_uchar_expected.png" 16 16 --uchar
+
+# vips tags identity output `histogram`, and pngsave has no histogram->b-w
+# colourspace route, so the reference is carried as `.v` (the libviprs decoder
+# reads the raw Gray8/Gray16 samples regardless of the interpretation tag).
+echo "==> [identity] 256x1 Gray8 + --ushort 65536x1 Gray16 -> .v (EXACT)"
+"$VIPS" identity "$CONV/identity_expected.v"
+"$VIPS" identity "$CONV/identity_ushort_expected.v" --ushort
+
+echo "==> [switch] cond, cond2 -> Gray8 index image (EXACT PNG, all 3 indices)"
+"$VIPS" switch "$CONV/cond.png $CONV/cond2.png" "$CONV/switch_expected.png"
+
+# --- Provenance (append the conversion section) ------------------------------
+echo "==> [provenance] appending conversion section to $FIX_ROOT/PROVENANCE.md"
 cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
 
 ---
@@ -430,6 +622,40 @@ output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
   tolerance), so there is no cross-oracle. Its reference
   (\`smartcrop_entropy_golden.png\`) is generated by \`viprs\` itself
   (deterministic across runs) and the test is a regression pin.
+# conversion family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the conversion
+CLI-differential suite (\`tests/cli_conversion_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`conversion/\`): \`gray.png\`/\`gray2.png\`/\`gray3.png\`
+  (16×16 Gray8), \`rgb.png\`/\`rgba.png\` (sRGB 3/4-band), \`grad.png\` (16×16 2-D
+  gradient varying in BOTH axes, for \`flip\`/\`rot\`/\`wrap\` — a Y-constant ramp
+  made the vertical arms no-ops), \`nb16.v\` (16×16 Gray16, non-palindromic bytes,
+  for \`byteswap\` — a byte-palindrome would pass a no-op), \`mb16.v\` (16×16
+  3-band Gray16, band0 != band1, for \`msb --band\`), \`ramp256.png\` (256×1 Gray8
+  full 0..255 domain, for the \`gamma\`/\`falsecolour\` LUTs), \`odd.png\` (15×15
+  Gray8, for \`rot45\`), \`stack.png\` (8×16 vertical ramp with distinct tiles, for
+  \`grid\`), \`cond.png\`/\`cond2.png\` (0/255 masks at thresholds 127/63, for
+  \`ifthenelse\`/\`switch\`).
+- **Carriers**: 1/3/4-band uchar → PNG. \`cast\`→float and \`grey\` float ramp →
+  \`.v\` (float); \`byteswap\` → \`.v\` (16-bit byte order PNG would normalise). The
+  16-bit \`nb16\`/\`mb16\` inputs are \`.v\` (raw byte order / multiband 16-bit).
+
+## autorot — no vips cross-oracle (a real limitation, flagged)
+
+libviprs' decoders read neither the vips \`.v\` XML \`orientation\` field nor the
+TIFF Orientation tag (274) that vips writes, so a vips-oriented input is a
+**no-op** under \`viprs\` while vips rotates — the two orientation metadata
+channels are mutually unreadable (the same shape as \`globalbalance\`). The
+oriented input \`autorot_oriented.v\` is therefore minted by **\`viprs\`**
+(\`viprs copy autorot_base.png autorot_oriented.v --orientation 6\`), the only
+producer of an orientation \`viprs\` reads back. The reference remains a genuine
+vips oracle via the identity **autorot(orientation=6) == rot(d90)**: verified
+pixel-for-pixel that \`viprs autorot autorot_oriented.v\` equals
+\`vips rot autorot_base.png … d90\`. See the open question about teaching the
+libviprs decoders to read the EXIF/TIFF orientation tag.
 
 ## Exact commands
 
@@ -448,6 +674,30 @@ vips linear eb.v esub.v "0 0 0" "200 50 100" --uchar
 vips copy esub.v extract/sub.png --interpretation srgb
 vips grey esub1.v 6 6
 vips linear esub1.v extract/sub1.png 255 0 --uchar
+vips grey cg.v 16 16
+vips linear cg.v conversion/gray.png  255 0  --uchar
+vips linear cg.v conversion/gray2.png 200 10 --uchar
+vips rot cg.v cgrot.v d90 ; vips linear cgrot.v conversion/gray3.png 255 0 --uchar
+vips bandjoin "conversion/gray.png conversion/gray2.png conversion/gray3.png" crgb.v
+vips copy crgb.v conversion/rgb.png --interpretation srgb
+vips bandjoin "conversion/rgb.png conversion/gray.png" crgba.v
+vips copy crgba.v conversion/rgba.png --interpretation srgb
+# grad: 2-D gradient (x*85 + y*170) so vertical flip / wrap / rot-d180 discriminate
+vips linear cg.v cgx.v 85 0 ; vips linear cgrot.v cgy.v 170 0
+vips add cgx.v cgy.v cgsum.v ; vips cast cgsum.v conversion/grad.png uchar
+# nb16: non-palindromic 16-bit (multiples of 0x1000) so byteswap moves data
+vips linear cg.v cnb16f.v 61440 0 ; vips cast cnb16f.v conversion/nb16.v ushort
+# mb16: 3-band 16-bit with band0 != band1 so msb --band 0 differs from the default
+vips linear cg.v cm16a.v 65535 0 ; vips linear cg.v cm16b.v 40000 0 ; vips linear cgrot.v cm16c.v 50000 0
+vips bandjoin "cm16a.v cm16b.v cm16c.v" cmb16f.v ; vips cast cmb16f.v conversion/mb16.v ushort
+vips grey codd.v 15 15 ; vips linear codd.v conversion/odd.png 255 0 --uchar
+# ramp256: full 0..255 domain so gamma/falsecolour LUTs are fully covered
+vips grey cr256.v 256 1 ; vips linear cr256.v conversion/ramp256.png 255 0 --uchar
+vips grey cs.v 16 8 ; vips rot cs.v cs_v.v d90 ; vips linear cs_v.v conversion/stack.png 255 0 --uchar
+vips relational_const conversion/gray.png conversion/cond.png  more 127
+vips relational_const conversion/gray.png conversion/cond2.png more 63
+vips grey cab.v 8 6 ; vips linear cab.v conversion/autorot_base.png 255 0 --uchar
+viprs copy conversion/autorot_base.png conversion/autorot_oriented.v --orientation 6
 \`\`\`
 
 References (paths relative to \`tests/fixtures/cli/\`):
@@ -477,6 +727,32 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`extract/smartcrop_high_expected.png\` | EXACT | \`vips smartcrop rgb.png smartcrop_high_expected.png 8 8 --interesting high\` |
 | \`extract/smartcrop_attention_expected.png\` | EXACT | \`vips smartcrop rgb.png smartcrop_attention_expected.png 8 8 --interesting attention\` (crop 15,11 — non-vacuous, differs from low/high) |
 | \`extract/smartcrop_entropy_golden.png\` | GOLDEN-ONLY | \`viprs smartcrop rgb.png smartcrop_entropy_golden.png 8 8 --interesting entropy\` (NO vips oracle — vips picks a different discrete window) |
+| \`conversion/copy_expected.png\` | EXACT | \`vips copy rgb.png copy_expected.png --interpretation srgb\` |
+| \`conversion/cast_ushort_expected.v\` | EXACT | \`vips cast gray.png cast_ushort_expected.v ushort\` (pngsave minimises depth → \`.v\`) |
+| \`conversion/cast_float_expected.v\` | EXACT | \`vips cast gray.png cast_float_expected.v float\` |
+| \`conversion/flip_horizontal_expected.png\` | EXACT | \`vips flip grad.png flip_horizontal_expected.png horizontal\` |
+| \`conversion/flip_vertical_expected.png\` | EXACT | \`vips flip grad.png flip_vertical_expected.png vertical\` |
+| \`conversion/rot_d90_expected.png\` | EXACT | \`vips rot grad.png rot_d90_expected.png d90\` |
+| \`conversion/rot_d180_expected.png\` | EXACT | \`vips rot grad.png rot_d180_expected.png d180\` |
+| \`conversion/rot45_d45_expected.png\` | EXACT | \`vips rot45 odd.png rot45_d45_expected.png --angle d45\` |
+| \`conversion/byteswap_expected.v\` | EXACT | \`vips byteswap nb16.v byteswap_expected.v\` (non-palindromic 16-bit) |
+| \`conversion/msb_expected.png\` | EXACT | \`vips msb mb16.v msb_expected.png\` (3-band) |
+| \`conversion/msb_band0_expected.png\` | EXACT | \`vips msb mb16.v msb_band0_expected.png --band 0\` (1-band) |
+| \`conversion/grid_expected.png\` | EXACT | \`vips grid stack.png grid_expected.png 4 2 2\` |
+| \`conversion/flatten_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips flatten rgba.png flatten_expected.png --background "0 0 0"\` |
+| \`conversion/ifthenelse_expected.png\` | EXACT | \`vips ifthenelse cond.png gray.png gray2.png ifthenelse_expected.png\` |
+| \`conversion/autorot_expected.png\` | EXACT (golden via rot-d90 identity; see above) | \`vips rot autorot_base.png autorot_expected.png d90\` |
+| \`conversion/wrap_expected.png\` | EXACT | \`vips wrap grad.png wrap_expected.png\` |
+| \`conversion/gamma_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips gamma ramp256.png gamma_expected.png\` (full domain; core vs vips LUT rounding ±1) |
+| \`conversion/gamma_exp2_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips gamma ramp256.png gamma_exp2_expected.png --exponent 2.0\` (full domain) |
+| \`conversion/falsecolour_expected.png\` | EXACT | \`vips falsecolour ramp256.png falsecolour_expected.png\` (full domain) |
+| \`conversion/addalpha_expected.png\` | EXACT | \`vips addalpha rgb.png addalpha_expected.png\` |
+| \`conversion/arrayjoin_expected.png\` | EXACT | \`vips arrayjoin "gray.png gray2.png gray3.png" arrayjoin_expected.png --across 2\` |
+| \`conversion/grey_float_expected.v\` | BOUNDED-TOL (float eps 1e-6) | \`vips grey grey_float_expected.v 16 16\` |
+| \`conversion/grey_uchar_expected.png\` | BOUNDED-TOL (≤1 LSB) | \`vips grey grey_uchar_expected.png 16 16 --uchar\` |
+| \`conversion/identity_expected.v\` | EXACT | \`vips identity identity_expected.v\` (histogram-tagged → \`.v\`) |
+| \`conversion/identity_ushort_expected.v\` | EXACT | \`vips identity identity_ushort_expected.v --ushort\` |
+| \`conversion/switch_expected.png\` | EXACT | \`vips switch "cond.png cond2.png" switch_expected.png\` |
 EOF
 
 echo "==> Done. Generated fixtures under $FIX_ROOT"
@@ -485,3 +761,5 @@ echo "--- bands ---"
 ls -1 "$BANDS"
 echo "--- extract ---"
 ls -1 "$EXTRACT"
+echo "--- conversion ---"
+ls -1 "$CONV"
