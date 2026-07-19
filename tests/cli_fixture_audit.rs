@@ -596,6 +596,20 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "arithb/complex_conj_expected.v",
     "arithb/complexget_real_expected.v",
     "arithb/complexget_imag_expected.v",
+    // ---- iocleanup family (cli_iocleanup_diff.rs) — io save-path #37/#38 ----
+    // Common inputs: 8×8 8-bit rgb/gray + the same scaled to 16-bit (>255
+    // samples) so a downcast is caught on value as well as format-class.
+    "iocleanup/rgb.png",
+    "iocleanup/gray.png",
+    "iocleanup/rgb16.v",
+    "iocleanup/gray16.v",
+    // #38 PNM byte-exact references: P6/P5 × 8/16-bit.
+    "iocleanup/flip_ppm_expected.ppm",
+    "iocleanup/flip_pgm_expected.pgm",
+    "iocleanup/copy_ppm16_expected.ppm",
+    "iocleanup/copy_pgm16_expected.pgm",
+    // #37 16-bit PNG save-path reference (decode-compare).
+    "iocleanup/copy_png16_expected.png",
 ];
 
 #[test]
