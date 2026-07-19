@@ -117,7 +117,11 @@ and `getpoint` are the two `raster_ops.rs` ops the frozen contract hard-codes
   8×8 sRGB RGB uchar images whose per-band sums exceed 255, exercising the
   8→16-bit widening), `gray_a.png`, `gray_b.png` (single-band Gray8 sums > 255),
   `getpoint_float.v` (constant 8×8 3-band float `[0.5, 1.25, 2.5]`, for the
-  float-sample getpoint read).
+  float-sample getpoint read), `getpoint_float_nd.v` (constant 8×8 3-band
+  NON-DYADIC float `[0.1, 0.2, 0.3]` — de-rigs the dyadic fixture: proves the
+  numeric float-parse + eps compare, not a dyadic text match, carries the case),
+  `u16_a.v`, `u16_b.v` (constant 8×8 1-band 16-bit ushort `40000`, sum
+  overflows ushort — INPUTS for the 16-bit-reject error case; no reference output).
 - **Carriers**: `add` output is a 16-bit ushort raster carried as native `.v`
   (a 16-bit PNG encode differs between vips and libviprs; `.v` round-trips
   losslessly on both sides). `getpoint` prints an S3 scalar/vector, captured to
@@ -144,6 +148,12 @@ vips linear cg.v  core/gray_a.png 200 30 --uchar
 vips linear cgv.v core/gray_b.png 200 40 --uchar
 vips black cblk.v 8 8 --bands 3
 vips linear cblk.v core/getpoint_float.v "1 1 1" "0.5 1.25 2.5"
+vips linear cblk.v core/getpoint_float_nd.v "1 1 1" "0.1 0.2 0.3"
+vips black cblk1.v 8 8 --bands 1
+vips linear cblk1.v u16a_f.v 1 40000
+vips cast   u16a_f.v core/u16_a.v ushort
+vips linear cblk1.v u16b_f.v 1 40000
+vips cast   u16b_f.v core/u16_b.v ushort
 ```
 
 References (paths relative to `tests/fixtures/cli/`):
@@ -155,9 +165,14 @@ References (paths relative to `tests/fixtures/cli/`):
 | `core/getpoint_rgb_expected.txt` | EXACT (S3 vector) | `vips getpoint add_a.png 5 2` (3-band pixel) |
 | `core/getpoint_gray_expected.txt` | EXACT (S3 scalar) | `vips getpoint gray_a.png 5 2` (1-band pixel) |
 | `core/getpoint_float_expected.txt` | EXACT (S3 vector, float) | `vips getpoint getpoint_float.v 0 0` (float [0.5 1.25 2.5]) |
+| `core/getpoint_float_nd_expected.txt` | BOUNDED-TOL (S3 vector, float; numeric eps 1e-6) | `vips getpoint getpoint_float_nd.v 0 0` (non-dyadic [0.1 0.2 0.3]; stdout text is §9 out-of-scope, numeric-eps compare carries it) |
 
-`add` rejects float inputs (a later arithmetic batch adds float addition) and a
-dimension / channel-count mismatch with a typed exit-1 error, never a panic;
+`add` rejects float inputs, **16-bit inputs** (core saturates the sum at 65535
+while vips promotes ushort→uint — the `u16_a.v`/`u16_b.v` inputs pin this), and
+a dimension / channel-count mismatch with a typed exit-1 error, never a panic;
 `getpoint` rejects an out-of-bounds coordinate the same way. Those error paths
 are asserted in `cli_core_diff.rs` (nonzero exit + a viprs-side message
-substring; CLI_CONTRACT.md §8) and need no vips reference.
+substring; CLI_CONTRACT.md §8) and need no vips reference. Note: vips `add`
+BAND-BROADCASTS a 1-band operand across a multi-band one; core requires EQUAL
+band counts, so the channel-mismatch case is a documented SUBSET limitation (core
+cannot broadcast without a core change), not a parity claim.

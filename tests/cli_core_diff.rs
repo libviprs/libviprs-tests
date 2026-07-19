@@ -74,6 +74,17 @@ const ADD_B: &str = "core/add_b.png";
 const GRAY_A: &str = "core/gray_a.png";
 const GRAY_B: &str = "core/gray_b.png";
 const FLOAT_IN: &str = "core/getpoint_float.v";
+const FLOAT_ND_IN: &str = "core/getpoint_float_nd.v";
+const U16_A: &str = "core/u16_a.v";
+const U16_B: &str = "core/u16_b.v";
+
+/// Numeric epsilon for the NON-DYADIC float `getpoint` case. core prints
+/// `f64::to_string` of the widened f32 (e.g. `0.10000000149011612`); vips's own
+/// getpoint text form for a non-dyadic float is NOT a contracted surface (§9) and
+/// can differ by value class / vips build. This documented `1e-6` tol proves the
+/// numeric float-parse + eps compare (NOT a dyadic text match) is what carries a
+/// float getpoint case (CLI_CONTRACT.md §3; stdout text is §9 out-of-scope).
+const FLOAT_TEXT_EPS: f64 = 1e-6;
 
 /// Convenience: the absolute string path of a committed fixture.
 fn fx(rel: &str) -> String {
@@ -180,6 +191,26 @@ fn getpoint_float_matches_vips_exact() {
     compare_vec(&got, &parse_vec(&expected_text), EXACT);
 }
 
+#[test]
+fn getpoint_float_nondyadic_matches_vips_within_eps() {
+    if skip_if_no_cli("getpoint_float_nd") {
+        return;
+    }
+    // NON-DYADIC float [0.1, 0.2, 0.3]: none stores exactly in f32. core prints
+    // f64::to_string of the widened f32; vips's getpoint text form for a
+    // non-dyadic float is NOT a contracted surface (§9). This case DE-RIGS the
+    // deliberately-dyadic getpoint_float fixture by proving the numeric
+    // float-parse + epsilon compare (NOT a bit-exact dyadic text match) is what
+    // carries a float getpoint case (CLI_CONTRACT.md §3). The numeric compare at
+    // FLOAT_TEXT_EPS is the real oracle, robust to any text-format difference.
+    let stdout = run_viprs_ok(&["getpoint", &fx(FLOAT_ND_IN), "0", "0"]);
+    let expected_text = std::fs::read_to_string(cli_fixture("core/getpoint_float_nd_expected.txt"))
+        .expect("read getpoint_float_nd reference");
+    let got = parse_vec(&stdout);
+    assert_eq!(got.len(), 3, "expected a 3-band float pixel, got {got:?}");
+    compare_vec(&got, &parse_vec(&expected_text), FLOAT_TEXT_EPS);
+}
+
 // ---------------------------------------------------------------------------
 // §8 error contract — neither op has a try_* core twin (both PANIC on bad
 // input), so the handlers must pre-validate to a typed exit-1 error, NEVER an
@@ -193,6 +224,14 @@ fn add_rejects_channel_mismatch_without_panicking() {
     }
     // 3-band RGB + 1-band gray: core's add asserts on the channel-count mismatch;
     // the handler must turn that into exit 1, not an abort.
+    //
+    // NOTE (documented SUBSET, not a parity claim): vips `add` BAND-BROADCASTS a
+    // 1-band operand across a multi-band one (`vips add rgb gray` → per-band
+    // rgb+gray, exit 0). Core requires EQUAL band counts and cannot broadcast
+    // without a core change, so the CLI keeps this exit-1 rejection as a
+    // documented limitation — moving toward vips broadcasting would be a feature,
+    // NOT a regression against this test. Band-broadcast parity is a core-side
+    // follow-up, not baked into the CLI contract here.
     let out = out_path("add_mismatch.v");
     let res = run_viprs(&["add", &fx(ADD_A), &fx(GRAY_A), out.to_str().unwrap()]);
     assert!(
@@ -230,6 +269,42 @@ fn add_rejects_float_input_without_panicking() {
     assert!(
         stderr.contains("float"),
         "expected a float-unsupported message, got stderr: {stderr}"
+    );
+}
+
+#[test]
+fn add_rejects_16bit_input_without_panicking() {
+    if skip_if_no_cli("add_16bit") {
+        return;
+    }
+    // Two 16-bit (ushort) inputs whose per-pixel sum (40000+40000 = 80000)
+    // OVERFLOWS ushort. vips `add` promotes ushort→uint and returns 80000, but
+    // core keeps the input at 16-bit and SATURATES at 65535 — a SILENTLY WRONG
+    // result. The CLI must therefore REJECT 16-bit inputs (exit 1), never emit a
+    // wrong 65535 "success" (finding #1: uchar-only fixtures structurally hid
+    // this divergence). This asserts the reject, so a future author cannot
+    // silently re-open the saturating path.
+    let out = out_path("add_u16.v");
+    let res = run_viprs(&["add", &fx(U16_A), &fx(U16_B), out.to_str().unwrap()]);
+    assert!(
+        !res.status.success(),
+        "add of two 16-bit inputs must fail (core would saturate at 65535, not \
+         promote like vips) — never a wrong success"
+    );
+    assert_ne!(
+        res.status.code(),
+        Some(101),
+        "add must exit 1 (typed error), never abort (101) on a 16-bit input"
+    );
+    // Guard against a wrong 65535/80000 success leaking to stdout/the output file.
+    assert!(
+        !out.exists(),
+        "add must not write an output for a rejected 16-bit input"
+    );
+    let stderr = String::from_utf8_lossy(&res.stderr);
+    assert!(
+        stderr.contains("16-bit"),
+        "expected a 16-bit-unsupported message, got stderr: {stderr}"
     );
 }
 
