@@ -1087,6 +1087,37 @@ COLOUR="$FIX_ROOT/colour"
 mkdir -p "$COLOUR"
 
 # Ensure the viprs binary exists for the GOLDEN-ONLY dECMC pin.
+# HISTOGRAM FAMILY (per-family Wave-2 lane; OP_MAP.md histogram section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_histogram_diff.rs (which feeds them to `viprs`).
+#
+# Format note (the whole family): vips writes histogram COUNTS as `uint`, but
+# `PixelFormat` has no depth wider than 16 bits, so the core writes `ushort`
+# (saturating at 65535). Every committed count reference is therefore CAST to
+# ushort (a lossless narrowing while no count saturates on these tiny inputs),
+# after which the two agree bit-for-bit (EXACT, tol 0). Count / LUT / histogram
+# outputs are carried as the native `.v` container — vips tags them `histogram`,
+# which pngsave has no colour route for (the `identity` situation); plain b-w
+# images (`hist_equal`, `maplut`) go to PNG.
+#
+# Oracle classes (MEASURED — not hidden by input choice):
+#   EXACT       hist_find (+ --band 0, full-range), hist_find_indexed,
+#               hist_find_ndim, hist_cum, maplut, hist_ismonotonic (bool).
+#   BOUNDED-TOL hist_norm (≤1 LSB), hist_equal (≤1 LSB), hist_entropy (float
+#               scalar, rel eps 1e-6).
+#   GOLDEN-ONLY hist_match, hist_plot, hist_local, percent — the core genuinely
+#               diverges from vips (hist_match uint-vs-uchar LUT diff 254;
+#               hist_plot height max+1 vs max; hist_local window/border algo
+#               diff 51 at 5x5, CLAHE 60; percent definition differs, core =
+#               vips-2 on a dense ramp). Their references are minted by `viprs`
+#               itself (deterministic) and the tests are regression pins, NOT
+#               parity claims. See the wave report's open questions.
+# ===========================================================================
+HIST="$FIX_ROOT/histogram"
+mkdir -p "$HIST"
+
+# `viprs` mints the GOLDEN-ONLY references (no vips oracle); build it if absent.
 if [ ! -x "$VIPRS" ]; then
     echo "    (building $VIPRS: cargo build --release --no-default-features --bin viprs)"
     ( cd "$CLI_DIR" && cargo build --release --no-default-features --bin viprs )
@@ -1202,6 +1233,105 @@ echo "==> [icc_transform] rgb sRGB->sRGB round trip -> device PNG (≤2 LSB, mea
 
 # --- Provenance (append the colour section) ----------------------------------
 echo "==> [provenance] appending colour section to $FIX_ROOT/PROVENANCE.md"
+# --- Common image inputs -----------------------------------------------------
+# `vips grey` is a pure coordinate function (0..1 ramp), so every input is
+# bit-reproducible. gray2/gray3 stay in TMP (only rgb + the histogram derivations
+# use them); gray/rgb/index are the committed image inputs.
+echo "==> [histogram input] gray (16x16 Gray8) + rgb (srgb 3-band) + index (0..3)"
+"$VIPS" grey "$TMP/hg.v" 16 16
+"$VIPS" linear "$TMP/hg.v" "$HIST/gray.png" 255 0 --uchar
+"$VIPS" linear "$TMP/hg.v" "$TMP/hg2.png" 200 10 --uchar
+"$VIPS" rot "$TMP/hg.v" "$TMP/hg_v.v" d90
+# band 2: a 2-D DIAGONAL gradient (x+y), scaled so the far corner reaches 255.
+# A plain VERTICAL ramp (rot d90 of the horizontal ramp) reaches 255 too, but its
+# value histogram is IDENTICAL to band 0's uniform ramp histogram — so a
+# "always reads band 0" bug would still pass a `--band 2` case (the band index is
+# never actually exercised). The diagonal has a TRIANGULAR value histogram (31
+# nonzero bins, counts 1..16..1) that is provably DISTINCT from band 0's (16 bins,
+# each count 16), so `hist_find --band 2` genuinely verifies band-index honouring.
+# It still reaches 255 (round((x+y)*127.5)=255 at the corner), so vips does not
+# trailing-zero-trim and the case stays a genuine EXACT (width 256 both sides).
+"$VIPS" add "$TMP/hg.v" "$TMP/hg_v.v" "$TMP/hg_diag.v"
+"$VIPS" linear "$TMP/hg_diag.v" "$TMP/hg3.png" 127.5 0 --uchar
+"$VIPS" bandjoin "$HIST/gray.png $TMP/hg2.png $TMP/hg3.png" "$TMP/hrgb.v"
+"$VIPS" copy "$TMP/hrgb.v" "$HIST/rgb.png" --interpretation srgb
+# index: a 4-level (0..3) image so hist_find_indexed sums into distinct bins.
+"$VIPS" linear "$TMP/hg.v" "$TMP/hidxf.v" 3 0
+"$VIPS" cast "$TMP/hidxf.v" "$HIST/index.png" uchar
+
+# --- Committed histogram-shaped inputs (consumed by histogram-consuming ops) --
+# Cast the vips uint histograms to ushort so both sides read the SAME committed
+# file at the core's carrier depth. `lut.v` is a real (non-identity) equalisation
+# LUT: norm ∘ cum ∘ find, so `maplut` through it is NON-vacuous.
+echo "==> [histogram input] hist.v / histcum.v / hist2.v (ushort) + lut.v (uchar)"
+"$VIPS" hist_find "$HIST/gray.png" "$TMP/hf_u.v"; "$VIPS" cast "$TMP/hf_u.v" "$HIST/hist.v" ushort
+"$VIPS" hist_cum "$HIST/hist.v" "$TMP/hc_u.v";    "$VIPS" cast "$TMP/hc_u.v" "$HIST/histcum.v" ushort
+"$VIPS" hist_find "$TMP/hg2.png" "$TMP/hf2_u.v";  "$VIPS" cast "$TMP/hf2_u.v" "$HIST/hist2.v" ushort
+"$VIPS" hist_norm "$HIST/histcum.v" "$HIST/lut.v"
+
+# --- EXACT references (vips count outputs cast to ushort) ---------------------
+# NOTE: vips hist_find TRIMS trailing all-zero bins (output width = max sample
+# value + 1) while the core always writes the full 256-bin range. They match
+# bit-for-bit only when the histogrammed data reaches 255 (no trailing zeros to
+# trim). The full-range gray ramp (0..255) satisfies this for both the all-bands
+# case and the `--band 0` case (band 0 IS the gray ramp), so the count
+# comparison is a genuine EXACT — the trailing-zero-trim width difference is a
+# representational nicety, not a count divergence. A band whose max < 255 (e.g.
+# band 1, gray2 max 210 → width 211) would mismatch on width alone; see the wave
+# report's open question. The `--band 2` case pins band-index honouring: band 2
+# is the DIAGONAL gradient (distinct triangular histogram from band 0), so a bug
+# that ignored N and always read band 0 would fail here (band 0 and band 2 both
+# reach 255, so neither is trailing-zero-trimmed — both are genuine EXACT).
+echo "==> [hist_find] gray (all bands) + rgb --band 0 + rgb --band 2 (full 0..255 range) -> ushort .v (EXACT)"
+"$VIPS" hist_find "$HIST/gray.png" "$TMP/rf.v";  "$VIPS" cast "$TMP/rf.v"  "$HIST/hist_find_expected.v" ushort
+"$VIPS" hist_find "$HIST/rgb.png" "$TMP/rfb.v" --band 0
+"$VIPS" cast "$TMP/rfb.v" "$HIST/hist_find_band_expected.v" ushort
+"$VIPS" hist_find "$HIST/rgb.png" "$TMP/rfb2.v" --band 2
+"$VIPS" cast "$TMP/rfb2.v" "$HIST/hist_find_band2_expected.v" ushort
+
+echo "==> [hist_find_indexed] gray + index -> ushort .v (EXACT)"
+"$VIPS" hist_find_indexed "$HIST/gray.png" "$HIST/index.png" "$TMP/ri.v"
+"$VIPS" cast "$TMP/ri.v" "$HIST/hist_find_indexed_expected.v" ushort
+
+echo "==> [hist_find_ndim] rgb --bins 4 -> 4x4x4 ushort .v (EXACT)"
+"$VIPS" hist_find_ndim "$HIST/rgb.png" "$TMP/rn.v" --bins 4
+"$VIPS" cast "$TMP/rn.v" "$HIST/hist_find_ndim_expected.v" ushort
+
+echo "==> [hist_cum] hist.v -> ushort .v (EXACT)"
+"$VIPS" hist_cum "$HIST/hist.v" "$TMP/rc.v"; "$VIPS" cast "$TMP/rc.v" "$HIST/hist_cum_expected.v" ushort
+
+# hist_norm is BOUNDED-TOL (≤1 LSB), NOT EXACT as OP_MAP.md provisionally listed:
+# normalising the CUMULATIVE histogram rounds `(v * (n-1) / max)` independently
+# in the core and in vips, and the two land ±1 apart on some entries (a measured
+# core-vs-vips rounding difference; norming the RAW histogram happens to give 0,
+# but we do NOT switch inputs to fake EXACT — see the wave report open question).
+echo "==> [hist_norm] histcum.v -> uchar .v (BOUNDED-TOL <=1 LSB)"
+"$VIPS" hist_norm "$HIST/histcum.v" "$HIST/hist_norm_expected.v"
+
+echo "==> [hist_equal] gray -> uchar PNG (BOUNDED-TOL <=1 LSB)"
+"$VIPS" hist_equal "$HIST/gray.png" "$HIST/hist_equal_expected.png"
+
+echo "==> [maplut] gray through the equalisation lut -> uchar PNG (EXACT)"
+"$VIPS" maplut "$HIST/gray.png" "$HIST/maplut_expected.png" "$HIST/lut.v"
+
+echo "==> [hist_entropy] hist.v (uniform, log2 16 = 4) + histcum.v (7.76335) (S3, rel eps 1e-6)"
+"$VIPS" hist_entropy "$HIST/hist.v"    > "$HIST/hist_entropy_expected.txt"
+"$VIPS" hist_entropy "$HIST/histcum.v" > "$HIST/hist_entropy_cum_expected.txt"
+
+echo "==> [hist_ismonotonic] hist.v (FALSE) + histcum.v (TRUE) (S3, bool)"
+"$VIPS" hist_ismonotonic "$HIST/hist.v"    > "$HIST/hist_ismonotonic_false_expected.txt"
+"$VIPS" hist_ismonotonic "$HIST/histcum.v" > "$HIST/hist_ismonotonic_true_expected.txt"
+
+# --- GOLDEN-ONLY references (viprs pins — NO vips oracle) ---------------------
+echo "==> [hist_match/hist_plot/hist_local/percent] GOLDEN-ONLY viprs regression pins"
+"$VIPRS" hist_match "$HIST/hist.v" "$HIST/hist2.v" "$HIST/hist_match_golden.v"
+"$VIPRS" hist_plot  "$HIST/hist.v" "$HIST/hist_plot_golden.v"
+"$VIPRS" hist_local "$HIST/gray.png" "$HIST/hist_local_golden.png" 5 5
+"$VIPRS" hist_local "$HIST/gray.png" "$HIST/hist_local_clahe_golden.png" 5 5 --max-slope 3
+"$VIPRS" percent "$HIST/gray.png" 50 > "$HIST/percent_golden.txt"
+
+# --- Provenance (append the histogram section) -------------------------------
+echo "==> [provenance] appending histogram section to $FIX_ROOT/PROVENANCE.md"
 cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
 
 ---
@@ -1340,6 +1470,66 @@ vips bandjoin "cl_c0.png cl_c1.png cl_c2.png" cl_rgb2.v
 vips copy cl_rgb2.v colour/rgb2.png --interpretation srgb
 cp "/System/Library/ColorSync/Profiles/sRGB Profile.icc" colour/sRGB.icc
 vips icc_import colour/rgb.png colour/icc_pcs_lab.v --input-profile colour/sRGB.icc --intent relative
+# histogram family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references (EXACT / BOUNDED-TOL) and
+the \`viprs\`-generated regression pins (GOLDEN-ONLY) the histogram
+CLI-differential suite (\`tests/cli_histogram_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common image inputs** (under \`histogram/\`): \`gray.png\` (16×16 Gray8 ramp),
+  \`rgb.png\` (16×16 sRGB 3-band: band 0 = horizontal ramp, band 1 = a scaled
+  ramp (max 210), band 2 = a DIAGONAL gradient reaching 255 with a triangular
+  histogram distinct from band 0's — so \`--band 2\` pins band-index honouring),
+  \`index.png\` (16×16 Gray8, four levels 0..3).
+- **Committed histogram inputs**: \`hist.v\`/\`hist2.v\` (256×1 ushort histograms
+  of gray/gray2), \`histcum.v\` (256×1 ushort cumulative), \`lut.v\` (256×1 uchar
+  equalisation LUT = norm ∘ cum ∘ find). Fed to BOTH vips and \`viprs\`.
+- **Carriers**: vips writes counts as \`uint\`; the core writes \`ushort\`
+  (\`PixelFormat\` caps at 16 bits, saturating at 65535), so every count
+  reference is CAST to ushort — lossless here (no saturation) — and both sides
+  then agree bit-for-bit. Histogram-tagged outputs → \`.v\`; plain b-w
+  (\`hist_equal\`, \`maplut\`) → PNG.
+
+## Honest oracle classes (MEASURED)
+
+- **EXACT** (tol 0): \`hist_find\` (+ \`--band 0\`, full 0..255 range),
+  \`hist_find_indexed\`, \`hist_find_ndim\`, \`hist_cum\`, \`maplut\`, and the
+  boolean \`hist_ismonotonic\`. (\`hist_find\` matches only where the data
+  reaches 255: vips trims trailing-zero bins to width max+1, the core keeps the
+  full 256 — a representational trim, not a count divergence.)
+- **BOUNDED-TOL**: \`hist_norm\` (≤1 LSB — normalising a cumulative histogram
+  rounds ±1 vs vips); \`hist_equal\` (≤1 LSB equalisation-LUT rounding, measured
+  max-abs-diff 1); \`hist_entropy\` (float log2 scalar, relative eps 1e-6 —
+  matched to 6 places on both a uniform and a non-uniform histogram).
+- **GOLDEN-ONLY** (NO vips cross-oracle — the core genuinely diverges from vips;
+  references minted by \`viprs\`, tests are regression pins): \`hist_match\`
+  (vips emits a \`uint\` LUT with a wholesale-different mapping, measured diff
+  254), \`hist_plot\` (core plots \`max+1\` rows, vips \`max\` — heights never
+  match), \`hist_local\` (window/border algorithm matches vips only for a 3×3
+  window; 5×5 diff 51, CLAHE \`--max-slope\` diff 60 — the coincidental 3×3
+  match is deliberately NOT used as an oracle), \`percent\` (core = "smallest
+  value whose cumulative reaches P%", vips = "threshold above which P% lie";
+  measured core = vips−2 on a dense ramp).
+
+## Exact commands
+
+Inputs (paths relative to \`tests/fixtures/cli/\`):
+
+\`\`\`
+vips grey hg.v 16 16
+vips linear hg.v histogram/gray.png 255 0 --uchar
+vips linear hg.v hg2.png 200 10 --uchar
+vips rot hg.v hg_v.v d90
+vips add hg.v hg_v.v hg_diag.v ; vips linear hg_diag.v hg3.png 127.5 0 --uchar  # band 2 diagonal, reaches 255
+vips bandjoin "histogram/gray.png hg2.png hg3.png" hrgb.v
+vips copy hrgb.v histogram/rgb.png --interpretation srgb
+vips linear hg.v hidxf.v 3 0 ; vips cast hidxf.v histogram/index.png uchar
+vips hist_find histogram/gray.png hf_u.v ; vips cast hf_u.v histogram/hist.v ushort
+vips hist_cum histogram/hist.v hc_u.v ; vips cast hc_u.v histogram/histcum.v ushort
+vips hist_find hg2.png hf2_u.v ; vips cast hf2_u.v histogram/hist2.v ushort
+vips hist_norm histogram/histcum.v histogram/lut.v
 \`\`\`
 
 References (paths relative to \`tests/fixtures/cli/\`):
@@ -1393,6 +1583,33 @@ core result is bit-identical to the vips-double-cast-to-float reference); only t
 | \`colour/icc_export_expected.png\` | BOUNDED-TOL (≤2 LSB) | \`vips icc_export icc_pcs_lab.v icc_export_expected.png --output-profile sRGB.icc --intent relative --depth 8\` |
 | \`colour/icc_export_d16_expected.png\` | BOUNDED-TOL (≤16 LSB @ 16-bit) | \`vips icc_export icc_pcs_lab.v icc_export_d16_expected.png --output-profile sRGB.icc --intent relative --depth 16\` |
 | \`colour/icc_transform_expected.png\` | BOUNDED-TOL (≤2 LSB) | \`vips icc_transform rgb.png icc_transform_expected.png sRGB.icc --input-profile sRGB.icc --intent relative\` |
+| reference | oracle class | command |
+|---|---|---|
+| \`histogram/hist_find_expected.v\` | EXACT | \`vips hist_find gray.png rf.v\` → \`vips cast rf.v … ushort\` |
+| \`histogram/hist_find_band_expected.v\` | EXACT | \`vips hist_find rgb.png rfb.v --band 0\` → cast ushort (band 0 = full 0..255 ramp; vips trims trailing-zero bins so a band with max < 255 would mismatch on width) |
+| \`histogram/hist_find_band2_expected.v\` | EXACT | \`vips hist_find rgb.png rfb2.v --band 2\` → cast ushort (band 2 = diagonal gradient, triangular histogram distinct from band 0 — pins band-index honouring; reaches 255 so no trailing-zero trim) |
+| \`histogram/hist_find_indexed_expected.v\` | EXACT | \`vips hist_find_indexed gray.png index.png ri.v\` → cast ushort |
+| \`histogram/hist_find_ndim_expected.v\` | EXACT | \`vips hist_find_ndim rgb.png rn.v --bins 4\` → cast ushort |
+| \`histogram/hist_cum_expected.v\` | EXACT | \`vips hist_cum hist.v rc.v\` → cast ushort |
+| \`histogram/hist_norm_expected.v\` | BOUNDED-TOL ≤1 LSB | \`vips hist_norm histcum.v hist_norm_expected.v\` (cumulative-norm rounding core-vs-vips ±1) |
+| \`histogram/hist_equal_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips hist_equal gray.png hist_equal_expected.png\` |
+| \`histogram/maplut_expected.png\` | EXACT | \`vips maplut gray.png maplut_expected.png lut.v\` |
+| \`histogram/hist_entropy_expected.txt\` | BOUNDED-TOL (rel 1e-6) | \`vips hist_entropy hist.v\` (uniform → 4.000000) |
+| \`histogram/hist_entropy_cum_expected.txt\` | BOUNDED-TOL (rel 1e-6) | \`vips hist_entropy histcum.v\` (non-uniform → 7.763350) |
+| \`histogram/hist_ismonotonic_false_expected.txt\` | EXACT (bool) | \`vips hist_ismonotonic hist.v\` (FALSE) |
+| \`histogram/hist_ismonotonic_true_expected.txt\` | EXACT (bool) | \`vips hist_ismonotonic histcum.v\` (TRUE) |
+| \`histogram/hist_match_golden.v\` | GOLDEN-ONLY | \`viprs hist_match hist.v hist2.v hist_match_golden.v\` (NO vips oracle) |
+| \`histogram/hist_plot_golden.v\` | GOLDEN-ONLY | \`viprs hist_plot hist.v hist_plot_golden.v\` (NO vips oracle) |
+| \`histogram/hist_local_golden.png\` | GOLDEN-ONLY | \`viprs hist_local gray.png hist_local_golden.png 5 5\` |
+| \`histogram/hist_local_clahe_golden.png\` | GOLDEN-ONLY | \`viprs hist_local gray.png hist_local_clahe_golden.png 5 5 --max-slope 3\` |
+| \`histogram/percent_golden.txt\` | GOLDEN-ONLY | \`viprs percent gray.png 50\` (NO vips oracle) |
+
+\`hist_find\` / \`hist_find_indexed\` / \`hist_find_ndim\` / \`hist_cum\` /
+\`hist_norm\` / \`hist_equal\` / \`hist_local\` / \`maplut\` / \`hist_entropy\` /
+\`hist_ismonotonic\` / \`percent\` all REJECT a float / non-integer input with a
+typed exit-1 error (the core's \`read_flat\` would otherwise abort on a float
+raster; the CLI guards it before touching the core — CLI_CONTRACT.md §8), pinned
+by \`hist_find_rejects_float_input_without_panicking\`.
 EOF
 
 echo "==> Done. Generated fixtures under $FIX_ROOT"
@@ -1411,3 +1628,5 @@ echo "--- matrix ---"
 ls -1 "$MATRIX"
 echo "--- colour ---"
 ls -1 "$COLOUR"
+echo "--- histogram ---"
+ls -1 "$HIST"

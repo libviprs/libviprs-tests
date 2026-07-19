@@ -247,6 +247,39 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "colour/icc_export_expected.png",
     "colour/icc_export_d16_expected.png",
     "colour/icc_transform_expected.png",
+    // ---- histogram family (cli_histogram_diff.rs) ----
+    // Common image inputs + committed histogram-shaped inputs.
+    "histogram/gray.png",
+    "histogram/rgb.png",
+    "histogram/index.png",
+    "histogram/hist.v",
+    "histogram/histcum.v",
+    "histogram/hist2.v",
+    "histogram/lut.v",
+    // EXACT count / LUT references (vips uint cast to ushort).
+    "histogram/hist_find_expected.v",
+    "histogram/hist_find_band_expected.v",
+    // --band 2 (diagonal band, triangular histogram distinct from band 0):
+    // pins band-index honouring, not just the 1-vs-3-band output shape.
+    "histogram/hist_find_band2_expected.v",
+    "histogram/hist_find_indexed_expected.v",
+    "histogram/hist_find_ndim_expected.v",
+    "histogram/hist_cum_expected.v",
+    "histogram/hist_norm_expected.v",
+    // hist_equal (BOUNDED-TOL ≤1) / maplut (EXACT) — plain b-w → PNG.
+    "histogram/hist_equal_expected.png",
+    "histogram/maplut_expected.png",
+    // S3 scalars: hist_entropy (uniform + non-uniform), hist_ismonotonic (F/T).
+    "histogram/hist_entropy_expected.txt",
+    "histogram/hist_entropy_cum_expected.txt",
+    "histogram/hist_ismonotonic_false_expected.txt",
+    "histogram/hist_ismonotonic_true_expected.txt",
+    // GOLDEN-ONLY viprs regression pins (no vips oracle — core diverges).
+    "histogram/hist_match_golden.v",
+    "histogram/hist_plot_golden.v",
+    "histogram/hist_local_golden.png",
+    "histogram/hist_local_clahe_golden.png",
+    "histogram/percent_golden.txt",
 ];
 
 #[test]
