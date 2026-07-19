@@ -898,6 +898,206 @@ band counts, so the channel-mismatch case is a documented SUBSET limitation (cor
 cannot broadcast without a core change), not a parity claim.
 EOF
 
+# ===========================================================================
+# FREQFILT FAMILY (the Wave-2 Fourier lane; OP_MAP.md freqfilt section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_freqfilt_diff.rs (which feeds them to `viprs`), so
+# the two sides compare like against like. EVERY freqfilt op is oracle class
+# FOURIER (CLI_CONTRACT.md §5): FFT-derived floats compared as f64 band-pairs
+# from the native `.v` container at a MEASURED epsilon (the core runs each
+# transform in f64 through pure-Rust `rustfft` and stores f32; the vips oracle
+# runs FFTW in double and stores dpcomplex/double — the two agree to the f32
+# quantisation floor, so a small absolute eps sized to each op's magnitude is
+# the honest tolerance, NOT tol 0). `spectrum` and `freqmult` fold their float
+# result back to a uchar raster and are compared at an integer tolerance.
+#
+# Carrier choice (CRITICAL — the libviprs .v decoder accepts ONLY uchar/ushort/
+# float band formats, and REJECTS vips `dpcomplex`(10) / `double`(8)): every
+# complex vips output (fwfft, invfft) is normalised OFFLINE to a 2-band FLOAT
+# raster via `complexget real` + `complexget imag` + `bandjoin` + `cast float`
+# (band0 = re, band1 = im — the exact (re, im)-pair layout libviprs' fwfft
+# writes), and every real vips output (invfft --real, phasecor) is `cast float`
+# to an f32 `.v`. `spectrum`/`freqmult` are uchar → PNG. This makes every
+# reference libviprs-decodable and compares like-for-like (verified: fwfft
+# max-abs-diff 1.1e-16, invfft 2.8e-14, invfft --real 0, phasecor 0, spectrum 0,
+# freqmult 1).
+#
+# Inputs are chosen DISCRIMINATING (the bands `bandmean` lesson — no vacuous
+# no-op passes): `in.png` is a 2-D gradient varying in BOTH axes so the
+# transforms are non-trivial; the `freqmult` mask is `mask_ideal 0.3` (a low-pass
+# that changes the gradient by max-abs 114 — cutoff 0.1 was measured to change it
+# by only 1, an all-but-no-op, and is deliberately NOT used); `phasecor` uses a
+# wrap-shifted copy so the correlation peak sits at the (3,2) translation, not the
+# origin. `invfft`/`fwfft` on a REAL input are genuine vips oracles (vips casts
+# the real input to complex; the core transforms the real band — identical
+# results). The invfft(fwfft(in)) --real ROUND-TRIP additionally exercises the
+# core's COMPLEX-input path (`viprs invfft` reading its own Fourier-stamped 2-band
+# f32 `.v`), the only differential that does — see the open question about a
+# single-file complex-input carrier (vips dpcomplex vs libviprs f32-pairs are
+# mutually unreadable, so no committed complex INPUT can feed both sides directly).
+# ===========================================================================
+FREQ="$FIX_ROOT/freqfilt"
+mkdir -p "$FREQ"
+
+# --- Common inputs -----------------------------------------------------------
+# in.png: a 16x16 2-D gradient (x*85 + y*170, both axes vary), so every transform
+# is non-vacuous. `vips grey`/`rot` are pure coordinate functions, so the input is
+# bit-for-bit reproducible.
+echo "==> [freqfilt input] 16x16 2-D gradient in.png"
+"$VIPS" grey "$TMP/fg.v" 16 16
+"$VIPS" rot "$TMP/fg.v" "$TMP/fgrot.v" d90
+"$VIPS" linear "$TMP/fg.v"    "$TMP/fgx.v" 85  0
+"$VIPS" linear "$TMP/fgrot.v" "$TMP/fgy.v" 170 0
+"$VIPS" add "$TMP/fgx.v" "$TMP/fgy.v" "$TMP/fgsum.v"
+"$VIPS" cast "$TMP/fgsum.v" "$FREQ/in.png" uchar
+
+# mask.v: an ideal low-pass mask (float, fourier-tagged, 1-band), the 2nd input to
+# freqmult. Cutoff 0.3 changes the gradient by max-abs 114 (discriminating); a
+# cutoff of 0.1 was measured to change it by only 1 (near-no-op) and is NOT used.
+echo "==> [freqfilt input] mask_ideal 16x16 cutoff 0.3 (mask.v, float)"
+"$VIPS" mask_ideal "$FREQ/mask.v" 16 16 0.3
+
+# shifted.png: in.png wrapped by (3,2), so phasecor's peak is the (3,2) shift (a
+# discriminating, non-origin peak; phasecor(in,in) would peak at the origin).
+echo "==> [freqfilt input] wrap-shifted copy shifted.png (x=3 y=2)"
+"$VIPS" wrap "$FREQ/in.png" "$FREQ/shifted.png" --x 3 --y 2
+
+# small.png: an 8x8 Gray8 image, a DIFFERENT size to in.png — the self-contained
+# wrong-size input for the freqmult / phasecor dimension-mismatch error cases
+# (CLI_CONTRACT.md §8: op failure -> exit 1). An error case needs no reference
+# output, only a committed input.
+echo "==> [freqfilt input] 8x8 small.png (dimension-mismatch error input)"
+"$VIPS" grey "$TMP/fsm.v" 8 8
+"$VIPS" linear "$TMP/fsm.v" "$FREQ/small.png" 255 0 --uchar
+
+# --- References — one vips run per differential case -------------------------
+# Helper: normalise a complex vips output (dpcomplex, band format 10 — which the
+# libviprs .v decoder rejects) to a 2-band f32 `.v` (band0 = re, band1 = im).
+freq_complex_to_pair() { # <complex_in.v> <pair_out.v>
+    "$VIPS" complexget "$1" "$TMP/fcre.v" real
+    "$VIPS" complexget "$1" "$TMP/fcim.v" imag
+    "$VIPS" bandjoin "$TMP/fcre.v $TMP/fcim.v" "$TMP/fcpair.v"
+    "$VIPS" cast "$TMP/fcpair.v" "$2" float
+}
+
+echo "==> [fwfft] real in -> complex spectrum -> 2-band f32 .v (FOURIER eps 1e-2)"
+"$VIPS" fwfft "$FREQ/in.png" "$TMP/fwfft_dpc.v"
+freq_complex_to_pair "$TMP/fwfft_dpc.v" "$FREQ/fwfft_expected.v"
+
+echo "==> [invfft] real in -> complex out -> 2-band f32 .v (FOURIER eps 5e-2)"
+"$VIPS" invfft "$FREQ/in.png" "$TMP/invfft_dpc.v"
+freq_complex_to_pair "$TMP/invfft_dpc.v" "$FREQ/invfft_expected.v"
+
+echo "==> [invfft --real] real in -> real out -> 1-band f32 .v (FOURIER eps 5e-2)"
+"$VIPS" invfft "$FREQ/in.png" "$TMP/invfft_real_dbl.v" --real
+"$VIPS" cast "$TMP/invfft_real_dbl.v" "$FREQ/invfft_real_expected.v" float
+
+# Round-trip invfft(fwfft(in)) --real: recovers the input AND exercises the
+# COMPLEX-input path on the viprs side (viprs invfft reads its own Fourier .v).
+echo "==> [invfft roundtrip] invfft(fwfft(in)) --real -> 1-band f32 .v (complex-in path, FOURIER eps 1e-2)"
+"$VIPS" fwfft "$FREQ/in.png" "$TMP/rt_dpc.v"
+"$VIPS" invfft "$TMP/rt_dpc.v" "$TMP/rt_dbl.v" --real
+"$VIPS" cast "$TMP/rt_dbl.v" "$FREQ/roundtrip_expected.v" float
+
+echo "==> [freqmult] in * mask (low-pass) -> uchar PNG (FOURIER, BOUNDED-TOL ≤1 LSB)"
+"$VIPS" freqmult "$FREQ/in.png" "$FREQ/mask.v" "$FREQ/freqmult_expected.png"
+
+echo "==> [spectrum] displayable log-magnitude -> uchar PNG (FOURIER, tol 0)"
+"$VIPS" spectrum "$FREQ/in.png" "$FREQ/spectrum_expected.png"
+
+echo "==> [phasecor] in vs shifted -> real correlation surface -> 1-band f32 .v (FOURIER eps 1e-2)"
+"$VIPS" phasecor "$FREQ/in.png" "$FREQ/shifted.png" "$TMP/phasecor_dbl.v"
+"$VIPS" cast "$TMP/phasecor_dbl.v" "$FREQ/phasecor_expected.v" float
+
+# --- Provenance (append the freqfilt section) --------------------------------
+echo "==> [provenance] appending freqfilt section to $FIX_ROOT/PROVENANCE.md"
+cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
+
+---
+
+# freqfilt family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the freqfilt
+CLI-differential suite (\`tests/cli_freqfilt_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`freqfilt/\`): \`in.png\` (16×16 Gray8 2-D gradient,
+  \`x*85 + y*170\`, varying in BOTH axes so every transform is non-vacuous),
+  \`mask.v\` (\`mask_ideal 16 16 0.3\` — a float low-pass mask that changes the
+  gradient by max-abs 114; the 2nd input to \`freqmult\`), \`shifted.png\`
+  (\`in.png\` wrapped by (3,2), so \`phasecor\`'s peak sits at that translation).
+- **Every op is oracle class FOURIER** (CLI_CONTRACT.md §5). Measured
+  viprs-vs-vips max-abs-diff (release build): fwfft 1.1e-16, invfft 2.8e-14,
+  invfft --real 0, roundtrip 3.8e-6, phasecor 0 (all float \`.v\`); spectrum 0,
+  freqmult 1 (uchar PNG). The float ops are compared at a small absolute eps
+  sized above each op's f32-quantisation floor (fwfft 1e-2 at peak ~127; invfft
+  5e-2 at peak ~3.3e4; phasecor / roundtrip 1e-2); spectrum at tol 0; freqmult at
+  tol 1 (the float round-trip cast back to uchar rounds ±1 vs vips — a genuine,
+  measured BOUNDED-TOL divergence, the same shape as the bands \`bandmean\` and
+  conversion \`gamma\` cases).
+- **Carriers** (CRITICAL): the libviprs \`.v\` decoder accepts ONLY uchar/ushort/
+  float band formats and REJECTS vips \`dpcomplex\`(10) / \`double\`(8). So every
+  complex vips output is normalised OFFLINE to a 2-band float \`.v\` (band0 = re,
+  band1 = im) via \`complexget real\` + \`complexget imag\` + \`bandjoin\` +
+  \`cast float\` — the exact (re, im)-pair layout libviprs' \`fwfft\` writes — and
+  every real vips output is \`cast float\` to an f32 \`.v\`. \`spectrum\`/\`freqmult\`
+  are uchar → PNG.
+
+## Complex-INPUT carrier limitation (flagged; open question)
+
+A single committed \`.v\` cannot feed a COMPLEX input to BOTH sides: vips reads a
+complex image only in its own \`dpcomplex\`/\`complex\` band format (which the
+libviprs decoder rejects), while libviprs treats a Fourier-domain image as an
+even-band FLOAT raster stamped \`fourier\` (which vips reads as N independent real
+bands, not one complex pair). The two complex carriers are mutually unreadable in
+one file. The differential therefore drives the complex-input code path via the
+invfft(fwfft(in)) --real ROUND-TRIP (each side chains its OWN complex carrier),
+which is the only case exercising \`viprs invfft\`'s \`is_fourier_complex\` branch;
+the core's direct complex-input paths are covered by the core crate's own
+freqfilt unit tests. Teaching one decoder to read the other's complex carrier
+(or a shared interchange format) would let a committed complex INPUT feed both.
+
+## Exact commands
+
+Inputs:
+
+\`\`\`
+vips grey fg.v 16 16
+vips rot fg.v fgrot.v d90
+vips linear fg.v fgx.v 85 0 ; vips linear fgrot.v fgy.v 170 0
+vips add fgx.v fgy.v fgsum.v ; vips cast fgsum.v freqfilt/in.png uchar
+vips mask_ideal freqfilt/mask.v 16 16 0.3
+vips wrap freqfilt/in.png freqfilt/shifted.png --x 3 --y 2
+vips grey fsm.v 8 8 ; vips linear fsm.v freqfilt/small.png 255 0 --uchar
+\`\`\`
+
+\`small.png\` (8×8) is the wrong-size input for the \`freqmult\`/\`phasecor\`
+dimension-mismatch error cases (exit 1, no reference output; CLI_CONTRACT.md §8).
+
+Complex→pair normalisation (applied to fwfft/invfft complex outputs):
+
+\`\`\`
+vips complexget <complex.v> re.v real
+vips complexget <complex.v> im.v imag
+vips bandjoin "re.v im.v" pair.v
+vips cast pair.v <expected.v> float
+\`\`\`
+
+References (paths relative to \`tests/fixtures/cli/\`):
+
+| reference | oracle class | vips command |
+|---|---|---|
+| \`freqfilt/fwfft_expected.v\` | FOURIER (2-band f32, eps 1e-2) | \`vips fwfft in.png fwfft_dpc.v\` → complexget/bandjoin/cast float |
+| \`freqfilt/invfft_expected.v\` | FOURIER (2-band f32, eps 5e-2) | \`vips invfft in.png invfft_dpc.v\` → complexget/bandjoin/cast float |
+| \`freqfilt/invfft_real_expected.v\` | FOURIER (1-band f32, eps 5e-2) | \`vips invfft in.png invfft_real_dbl.v --real\` → cast float |
+| \`freqfilt/roundtrip_expected.v\` | FOURIER (1-band f32, eps 1e-2; complex-in path) | \`vips fwfft in.png rt_dpc.v\` → \`vips invfft rt_dpc.v rt_dbl.v --real\` → cast float |
+| \`freqfilt/freqmult_expected.png\` | FOURIER (uchar, BOUNDED-TOL ≤1 LSB) | \`vips freqmult in.png mask.v freqmult_expected.png\` |
+| \`freqfilt/spectrum_expected.png\` | FOURIER (uchar, tol 0) | \`vips spectrum in.png spectrum_expected.png\` |
+| \`freqfilt/phasecor_expected.v\` | FOURIER (1-band f32, eps 1e-2) | \`vips phasecor in.png shifted.png phasecor_dbl.v\` → cast float |
+EOF
+
 echo "==> Done. Generated fixtures under $FIX_ROOT"
 ls -1 "$FIX"
 echo "--- bands ---"
@@ -908,3 +1108,5 @@ echo "--- conversion ---"
 ls -1 "$CONV"
 echo "--- core ---"
 ls -1 "$CORE"
+echo "--- freqfilt ---"
+ls -1 "$FREQ"
