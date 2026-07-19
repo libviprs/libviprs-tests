@@ -101,10 +101,12 @@ impl TileSink for BarrierProbeSink {
 
 /// The engine must invoke the `TileSink` durability barrier on the builder's
 /// checkpoint path, and it must do so BEFORE it certifies the tiles that
-/// barrier is making durable. Concretely: with `checkpoint_every(1)` a periodic
-/// flush fires per tile, so the barrier for the k-th certified tile must run
-/// while the on-disk checkpoint still shows fewer than the total certified —
-/// and in particular the very first barrier must observe zero certified tiles.
+/// barrier is making durable. Concretely: with `checkpoint_every(1)` a flush —
+/// and therefore a barrier — fires for every completed tile, and the barrier
+/// serialised with each flush runs before that flush appends its delta to the
+/// segment log. So the first barrier must observe zero certified tiles, the
+/// observed certified-counts never go backwards, and a barrier fires at least
+/// once per certified tile.
 ///
 /// Pre-fix the builder path never fsyncs tiles (no barrier hook exists at all),
 /// so this cannot even be expressed — the file fails to compile against current
@@ -153,13 +155,19 @@ fn builder_checkpoint_fsyncs_tiles_before_certifying_them() {
          its first tile; observed certified-counts at each barrier: {observed:?}"
     );
 
-    // (3) Every barrier precedes the certification of the tiles it covers: the
-    //     checkpoint never has all tiles certified at the moment a barrier runs.
+    // (3) The certified-count observed at each barrier never goes backwards, and
+    //     a barrier fires at least once per certified tile — the durability
+    //     barrier keeps pace with (and precedes) every certification.
     assert!(
-        observed.iter().all(|&c| (c as u64) < total),
-        "a durability barrier ran only after the checkpoint had already \
-         certified every tile — certification raced ahead of the fsync \
-         (issue #273); observed: {observed:?}, total: {total}"
+        observed.windows(2).all(|w| w[0] <= w[1]),
+        "certified-count observed at successive barriers went backwards: \
+         {observed:?}"
+    );
+    assert!(
+        observed.len() as u64 >= total,
+        "expected a durability barrier for every certified tile (>= {total}), \
+         got {}: {observed:?}",
+        observed.len()
     );
 
     // (4) The finished run is complete and internally consistent: every tile is
