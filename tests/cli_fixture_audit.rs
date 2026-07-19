@@ -221,6 +221,32 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // invertlut (BOUNDED-TOL f32): default size 256 + explicit --size 64.
     "matrix/invertlut_expected.v",
     "matrix/invertlut_size64_expected.v",
+    // ---- colour family (cli_colour_diff.rs) ----
+    // Common inputs: two distinct sRGB images, an sRGB matrix-shaper ICC
+    // profile, and a D50 Lab PCS image (the shared icc_export input).
+    "colour/rgb.png",
+    "colour/rgb2.png",
+    "colour/sRGB.icc",
+    "colour/icc_pcs_lab.v",
+    // colourspace: LAB/XYZ/scRGB float (.v) + the #36 interpretation-aware PNG
+    // save + the --source-space override (uchar PNG).
+    "colour/colourspace_lab_expected.v",
+    "colour/colourspace_xyz_expected.v",
+    "colour/colourspace_scrgb_expected.v",
+    "colour/colourspace_lab_png_expected.png",
+    "colour/colourspace_lab_input_png_expected.png",
+    "colour/colourspace_srcspace_expected.png",
+    // dE76 / dE00 float ΔE (.v); dECMC is a GOLDEN-ONLY viprs pin (vips computes
+    // a different formula — see cli_colour_diff.rs).
+    "colour/dE76_expected.v",
+    "colour/dE00_expected.v",
+    "colour/dECMC_golden.v",
+    // ICC (matrix-shaper sRGB): import Lab PCS (.v), export + transform device
+    // PNG.
+    "colour/icc_import_lab_expected.v",
+    "colour/icc_export_expected.png",
+    "colour/icc_export_d16_expected.png",
+    "colour/icc_transform_expected.png",
 ];
 
 #[test]
