@@ -45,6 +45,33 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // labelregions (S4: mask + segment count).
     "morphology/labelregions_mask_expected.tif",
     "morphology/labelregions_segments_expected.txt",
+    // ---- bands family (cli_bands_diff.rs) ----
+    // Common inputs.
+    "bands/gray.png",
+    "bands/gray2.png",
+    "bands/gray3.png",
+    "bands/rgb.png",
+    "bands/rgba.png",
+    "bands/rgb_eq.png",
+    // bandjoin (S2 variadic) -> 4-band rgba PNG; bandjoin_const (S1 vector) ->
+    // 4-band b-w .v (raw-band carrier; see cli_bands_diff.rs).
+    "bands/bandjoin_expected.png",
+    "bands/bandjoin_const_expected.v",
+    // bandfold (.v, b-w multiband) / bandunfold (1-band PNG).
+    "bands/bandfold_expected.v",
+    "bands/bandunfold_expected.png",
+    // bandmean.
+    "bands/bandmean_expected.png",
+    // bandrank (S2 variadic + --index): median + min.
+    "bands/bandrank_median_expected.png",
+    "bands/bandrank_min_expected.png",
+    // bandbool and|or|eor.
+    "bands/bandbool_and_expected.png",
+    "bands/bandbool_or_expected.png",
+    "bands/bandbool_eor_expected.png",
+    // extract_band: single band + --n consecutive bands.
+    "bands/extract_band1_expected.png",
+    "bands/extract_bandn_expected.png",
 ];
 
 #[test]
