@@ -898,6 +898,159 @@ band counts, so the channel-mismatch case is a documented SUBSET limitation (cor
 cannot broadcast without a core change), not a parity claim.
 EOF
 
+# ===========================================================================
+# RESAMPLE FAMILY (the Wave-2 resample lane; OP_MAP.md resample section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_resample_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. EVERY resample op is oracle class
+# BOUNDED-TOL (the premultiply / rounding campaign #406-418): the core computes
+# the reduce / interpolate masks in f64 per output position while vips quantises
+# the sub-pixel offset into fixed-point tables, so the two agree to ≤1 LSB. The
+# MEASURED per-case max-abs-diff is recorded in the provenance table; all cases
+# land at 0 or 1 LSB EXCEPT `affine … --interpolate bicubic`, which measures 2
+# LSB (the bicubic Catmull-Rom coefficients quantise more coarsely in vips — a
+# genuine, honest core-vs-vips divergence, NOT a CLI bug; see the open question).
+#
+# Carriers: every reference is an integer uchar raster (1-band grad, or sRGB
+# 3-band rgb), so all references round-trip losslessly through PNG. `mapim`'s
+# index is a FLOAT 2-band `.v` coordinate image (committed input, exact). vips
+# PNG inputs only for `thumbnail` (no jpeg shrink-on-load divergence).
+#
+# Inputs are DISCRIMINATING (an identity / no-op op would FAIL): `grad` is a 2-D
+# gradient varying in BOTH axes (so shrinkv / reducev / rot are non-vacuous), and
+# `index.v` maps every output to HALF its source coordinate (a real 2× zoom, not
+# the identity map, so `mapim` moves data — verified: vips mapim vs the original
+# differs by 128).
+# ===========================================================================
+RESAMPLE="$FIX_ROOT/resample"
+mkdir -p "$RESAMPLE"
+
+# --- Common inputs -----------------------------------------------------------
+# `vips grey`/`rot`/`xyz` are pure coordinate functions, so every fixture below
+# is bit-for-bit reproducible.
+echo "==> [resample input] 32x32 grad (2-D gradient) + rgb (2-D sRGB) + index.v (2× map)"
+"$VIPS" grey "$TMP/rg.v" 32 32
+"$VIPS" rot "$TMP/rg.v" "$TMP/rgr.v" d90
+# grad: x*85 + y*170, a genuine 2-D gradient (max ~247, fills uchar).
+"$VIPS" linear "$TMP/rg.v"  "$TMP/rgx.v" 85  0
+"$VIPS" linear "$TMP/rgr.v" "$TMP/rgy.v" 170 0
+"$VIPS" add "$TMP/rgx.v" "$TMP/rgy.v" "$TMP/rgsum.v"
+"$VIPS" cast "$TMP/rgsum.v" "$RESAMPLE/grad.png" uchar
+# rgb: band0 horizontal ramp, band1 scaled+offset, band2 vertical ramp (sRGB).
+"$VIPS" linear "$TMP/rg.v"  "$TMP/rc0.png" 255 0  --uchar
+"$VIPS" linear "$TMP/rg.v"  "$TMP/rc1.png" 200 20 --uchar
+"$VIPS" linear "$TMP/rgr.v" "$TMP/rc2.png" 255 0  --uchar
+"$VIPS" bandjoin "$TMP/rc0.png $TMP/rc1.png $TMP/rc2.png" "$TMP/rcj.v"
+"$VIPS" copy "$TMP/rcj.v" "$RESAMPLE/rgb.png" --interpretation srgb
+# index.v: a FLOAT 2-band coordinate map sampling every output at HALF its source
+# coordinate (band0 = x/2, band1 = y/2) — a 2× zoom of the top-left quadrant with
+# fractional taps, so mapim's interpolation is genuinely exercised (non-vacuous).
+"$VIPS" xyz "$TMP/rxyz.v" 32 32
+"$VIPS" linear "$TMP/rxyz.v" "$TMP/ridxf.v" 0.5 0
+"$VIPS" cast "$TMP/ridxf.v" "$RESAMPLE/index.v" float
+
+# --- References — one vips run per differential case -------------------------
+echo "==> [shrink] grad 2 2 + shrinkh/shrinkv 2 (S1 box shrink, ≤1 LSB)"
+"$VIPS" shrink  "$RESAMPLE/grad.png" "$RESAMPLE/shrink_expected.png"  2 2
+"$VIPS" shrinkh "$RESAMPLE/grad.png" "$RESAMPLE/shrinkh_expected.png" 2
+"$VIPS" shrinkv "$RESAMPLE/grad.png" "$RESAMPLE/shrinkv_expected.png" 2
+
+echo "==> [reduce] rgb 2 2 lanczos3 (default) + cubic (enum) + reduceh/reducev grad 2 (≤1 LSB)"
+"$VIPS" reduce  "$RESAMPLE/rgb.png"  "$RESAMPLE/reduce_lanczos3_expected.png" 2 2
+"$VIPS" reduce  "$RESAMPLE/rgb.png"  "$RESAMPLE/reduce_cubic_expected.png"    2 2 --kernel cubic
+"$VIPS" reduceh "$RESAMPLE/grad.png" "$RESAMPLE/reduceh_expected.png" 2
+"$VIPS" reducev "$RESAMPLE/grad.png" "$RESAMPLE/reducev_expected.png" 2
+
+echo "==> [resize] rgb 0.5 + --vscale + upscale (affine path) + --kernel nearest (≤1 LSB)"
+"$VIPS" resize "$RESAMPLE/rgb.png"  "$RESAMPLE/resize_half_expected.png"    0.5
+"$VIPS" resize "$RESAMPLE/rgb.png"  "$RESAMPLE/resize_vscale_expected.png"  0.5 --vscale 0.75
+"$VIPS" resize "$RESAMPLE/grad.png" "$RESAMPLE/resize_up_expected.png"      2.0
+"$VIPS" resize "$RESAMPLE/rgb.png"  "$RESAMPLE/resize_nearest_expected.png" 0.5 --kernel nearest
+
+echo "==> [affine] rgb 1.5x bilinear (≤1 LSB) + bicubic (2 LSB — noted divergence)"
+"$VIPS" affine "$RESAMPLE/rgb.png" "$RESAMPLE/affine_bilinear_expected.png" "1.5 0 0 1.5"
+"$VIPS" affine "$RESAMPLE/rgb.png" "$RESAMPLE/affine_bicubic_expected.png"  "1.5 0 0 1.5" --interpolate bicubic
+
+echo "==> [similarity] rgb --angle 30 + --scale 1.5 (≤1 LSB)"
+"$VIPS" similarity "$RESAMPLE/rgb.png" "$RESAMPLE/similarity_angle_expected.png" --angle 30
+"$VIPS" similarity "$RESAMPLE/rgb.png" "$RESAMPLE/similarity_scale_expected.png" --scale 1.5
+
+echo "==> [rotate] rgb 30 (≤1 LSB)"
+"$VIPS" rotate "$RESAMPLE/rgb.png" "$RESAMPLE/rotate_expected.png" 30
+
+echo "==> [mapim] rgb + index.v bilinear (default) + bicubic (S2, ≤1 LSB)"
+"$VIPS" mapim "$RESAMPLE/rgb.png" "$RESAMPLE/mapim_bilinear_expected.png" "$RESAMPLE/index.v"
+"$VIPS" mapim "$RESAMPLE/rgb.png" "$RESAMPLE/mapim_bicubic_expected.png"  "$RESAMPLE/index.v" --interpolate bicubic
+
+echo "==> [thumbnail] rgb file 16 + --crop centre; thumbnail_image rgb 16 (≤1 LSB)"
+"$VIPS" thumbnail "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_expected.png"      16
+"$VIPS" thumbnail "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_crop_expected.png" 16 --crop centre
+"$VIPS" thumbnail_image "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_image_expected.png" 16
+
+# --- Provenance (append the resample section) --------------------------------
+echo "==> [provenance] appending resample section to $FIX_ROOT/PROVENANCE.md"
+cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
+
+---
+
+# resample family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the resample
+CLI-differential suite (\`tests/cli_resample_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`resample/\`): \`grad.png\` (32×32 Gray8 2-D gradient
+  \`x*85 + y*170\`, so shrinkv / reducev / rot are non-vacuous), \`rgb.png\` (32×32
+  3-band sRGB with 2-D structure), \`index.v\` (32×32 FLOAT 2-band coordinate map
+  sampling each output at HALF its source coordinate — a real 2× zoom with
+  fractional taps, so \`mapim\` moves data and interpolates).
+- **EVERY op is BOUNDED-TOL** (the premultiply / rounding campaign #406-418): the
+  core computes reduce / interpolate masks in f64 per output position while vips
+  quantises the sub-pixel offset into fixed-point tables, so the two agree to
+  ≤1 LSB. Non-alpha inputs are used deliberately: the core \`reduce\`/\`shrink\`
+  premultiply alpha (a documented divergence from bare \`vips_reduce\`/\`shrink\`),
+  so an alpha input would diverge wholesale — the honest ≤1 LSB oracle needs the
+  no-alpha \`grad\`/\`rgb\`.
+
+## Measured max-abs-diff (per case)
+
+References (paths relative to \`tests/fixtures/cli/\`):
+
+| reference | tol (measured) | vips command |
+|---|---|---|
+| \`resample/shrink_expected.png\` | ≤1 LSB (0) | \`vips shrink grad.png shrink_expected.png 2 2\` |
+| \`resample/shrinkh_expected.png\` | ≤1 LSB (0) | \`vips shrinkh grad.png shrinkh_expected.png 2\` |
+| \`resample/shrinkv_expected.png\` | ≤1 LSB (0) | \`vips shrinkv grad.png shrinkv_expected.png 2\` |
+| \`resample/reduce_lanczos3_expected.png\` | ≤1 LSB (0) | \`vips reduce rgb.png reduce_lanczos3_expected.png 2 2\` (default lanczos3) |
+| \`resample/reduce_cubic_expected.png\` | ≤1 LSB (0) | \`vips reduce rgb.png reduce_cubic_expected.png 2 2 --kernel cubic\` |
+| \`resample/reduceh_expected.png\` | ≤1 LSB (1) | \`vips reduceh grad.png reduceh_expected.png 2\` |
+| \`resample/reducev_expected.png\` | ≤1 LSB (1) | \`vips reducev grad.png reducev_expected.png 2\` |
+| \`resample/resize_half_expected.png\` | ≤1 LSB (0) | \`vips resize rgb.png resize_half_expected.png 0.5\` |
+| \`resample/resize_vscale_expected.png\` | ≤1 LSB (0) | \`vips resize rgb.png resize_vscale_expected.png 0.5 --vscale 0.75\` |
+| \`resample/resize_up_expected.png\` | ≤1 LSB (1) | \`vips resize grad.png resize_up_expected.png 2.0\` (upscale → affine path) |
+| \`resample/resize_nearest_expected.png\` | ≤1 LSB (0) | \`vips resize rgb.png resize_nearest_expected.png 0.5 --kernel nearest\` |
+| \`resample/affine_bilinear_expected.png\` | ≤1 LSB (1) | \`vips affine rgb.png affine_bilinear_expected.png "1.5 0 0 1.5"\` (default bilinear) |
+| \`resample/affine_bicubic_expected.png\` | **2 LSB (2)** | \`vips affine rgb.png affine_bicubic_expected.png "1.5 0 0 1.5" --interpolate bicubic\` (bicubic quantises to 2 LSB — noted divergence) |
+| \`resample/similarity_angle_expected.png\` | ≤1 LSB (1) | \`vips similarity rgb.png similarity_angle_expected.png --angle 30\` |
+| \`resample/similarity_scale_expected.png\` | ≤1 LSB (1) | \`vips similarity rgb.png similarity_scale_expected.png --scale 1.5\` |
+| \`resample/rotate_expected.png\` | ≤1 LSB (1) | \`vips rotate rgb.png rotate_expected.png 30\` |
+| \`resample/mapim_bilinear_expected.png\` | ≤1 LSB (0) | \`vips mapim rgb.png mapim_bilinear_expected.png index.v\` (S2; index is a 2nd input) |
+| \`resample/mapim_bicubic_expected.png\` | ≤1 LSB (1) | \`vips mapim rgb.png mapim_bicubic_expected.png index.v --interpolate bicubic\` |
+| \`resample/thumbnail_expected.png\` | ≤1 LSB (0) | \`vips thumbnail rgb.png thumbnail_expected.png 16\` (FILENAME input) |
+| \`resample/thumbnail_crop_expected.png\` | ≤1 LSB (0) | \`vips thumbnail rgb.png thumbnail_crop_expected.png 16 --crop centre\` |
+| \`resample/thumbnail_image_expected.png\` | ≤1 LSB (0) | \`vips thumbnail_image rgb.png thumbnail_image_expected.png 16\` |
+
+**Open question**: \`affine … --interpolate bicubic\` measures **2 LSB** (not the
+≤1 LSB the rest of the family hits). The core evaluates exact f64 Catmull-Rom
+coefficients while vips's \`VipsInterpolateBicubic\` uses a coarser fixed-point
+coefficient table, so some interior samples land 2 apart. This is a genuine,
+measured core-vs-vips rounding difference (not a CLI bug); the differential
+compares that one case at tol 2. A follow-up could tighten the core bicubic
+coefficient path toward vips's table if exact bicubic parity is ever required.
+EOF
+
 echo "==> Done. Generated fixtures under $FIX_ROOT"
 ls -1 "$FIX"
 echo "--- bands ---"
@@ -908,3 +1061,5 @@ echo "--- conversion ---"
 ls -1 "$CONV"
 echo "--- core ---"
 ls -1 "$CORE"
+echo "--- resample ---"
+ls -1 "$RESAMPLE"

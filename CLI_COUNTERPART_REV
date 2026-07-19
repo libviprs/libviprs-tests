@@ -25,9 +25,10 @@
 # `cargo test --test cli_morphology_diff` against the sibling checkout, and
 # update the label comment below.
 #
-# libviprs-cli cli/w2-extract @ 0f2f16e — adds the Wave-2 extract op family
-# (extract_area/crop/embed/gravity/replicate/zoom/subsample/insert/smartcrop)
-# on top of the Wave-1 morphology reference + Wave-2 bands lane. This is the
-# command surface the morphology, bands, AND extract differential cells
-# exercise.
-9a159773eb44b8486286f76b2c39a0b45f8524bb
+# libviprs-cli cli/w2-resample @ 4797862 — adds the Wave-2 resample op family
+# (shrink/shrinkh/shrinkv, reduce/reduceh/reducev, resize, affine, similarity,
+# rotate, mapim, thumbnail, thumbnail_image) on top of the Wave-1 morphology
+# reference + the Wave-2 bands / extract / conversion / core lanes. This is the
+# command surface the morphology, bands, extract, conversion, core, AND resample
+# differential cells exercise.
+4797862054ae543f8108926112beb6b65c815faa
