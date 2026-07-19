@@ -27,6 +27,14 @@ VIPS="${VIPS:-/opt/homebrew/bin/vips}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# The sibling `viprs` CLI, used ONLY to (re)generate the single GOLDEN-ONLY
+# extract reference (`smartcrop --interesting entropy`), which has no vips oracle
+# (vips's smartcrop-entropy picks a different discrete crop window on the small
+# committed input, so there is nothing to cross-check against — the reference is
+# a libviprs-generated regression pin). Override with VIPRS=/path/to/viprs.
+CLI_DIR="${VIPRS_CLI_DIR:-$REPO_ROOT/../libviprs-cli}"
+VIPRS="${VIPRS:-$CLI_DIR/target/release/viprs}"
+
 FIX_ROOT="$REPO_ROOT/tests/fixtures/cli"
 FIX="$FIX_ROOT/morphology"
 mkdir -p "$FIX"
@@ -309,7 +317,152 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`bands/extract_bandn_expected.png\` | EXACT | \`vips extract_band rgba.png extract_bandn_expected.png 1 --n 3\` |
 EOF
 
+# ===========================================================================
+# EXTRACT FAMILY (per-family Wave-2 lane; OP_MAP.md extract section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_extract_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. Every extract op is oracle class EXACT
+# (integer-in / integer-out, decode-compare tol 0) EXCEPT `smartcrop
+# --interesting entropy`, which is GOLDEN-ONLY: vips's entropy strategy makes a
+# DIFFERENT discrete crop-window choice than the core on the small committed
+# input (measured max-abs-diff 136 — a wholesale different region, not a
+# tolerance), so there is no meaningful cross-oracle. Its reference is generated
+# by `viprs` itself (deterministic across runs) and the test is a regression pin.
+#
+# Carriers: every output is an integer uchar raster with a clean interpretation
+# (1-band, or sRGB-tagged 3-band), so all references round-trip losslessly
+# through PNG (no b-w-multiband promotion, no ≥5-band carrier needed).
+# ===========================================================================
+EXTRACT="$FIX_ROOT/extract"
+mkdir -p "$EXTRACT"
+
+# --- Common inputs -----------------------------------------------------------
+# A 16x16 single-band Gray8 horizontal ramp, a 16x16 3-band sRGB image with TRUE
+# 2-D structure (band0 = horizontal ramp, band1 = a scaled horizontal ramp,
+# band2 = a VERTICAL ramp, so a crop/placement is fully determined in both axes
+# and a wrong offset fails loudly), and a small 6x6 solid sRGB sub-image whose
+# distinct colour stands out wherever `insert` places it. `vips grey`/`rot` are
+# pure coordinate functions, so every fixture is bit-reproducible.
+echo "==> [extract input] 16x16 gray ramp + 16x16 sRGB (2-D) rgb + 6x6 sub"
+"$VIPS" grey "$TMP/egrey.v" 16 16
+"$VIPS" linear "$TMP/egrey.v" "$EXTRACT/gray.png"  255 0 --uchar
+"$VIPS" linear "$TMP/egrey.v" "$TMP/egray2.png" 200 10 --uchar
+"$VIPS" rot "$TMP/egrey.v" "$TMP/egrey_v.v" d90
+"$VIPS" linear "$TMP/egrey_v.v" "$TMP/egray3.png" 255 0 --uchar
+"$VIPS" bandjoin "$EXTRACT/gray.png $TMP/egray2.png $TMP/egray3.png" "$TMP/ergb.v"
+"$VIPS" copy "$TMP/ergb.v" "$EXTRACT/rgb.png" --interpretation srgb
+"$VIPS" black "$TMP/eb.v" 6 6 --bands 3
+"$VIPS" linear "$TMP/eb.v" "$TMP/esub.v" "0 0 0" "200 50 100" --uchar
+"$VIPS" copy "$TMP/esub.v" "$EXTRACT/sub.png" --interpretation srgb
+
+# --- References — one vips run per differential case -------------------------
+echo "==> [extract_area/crop] interior rectangle (S1 EXACT)"
+"$VIPS" extract_area "$EXTRACT/rgb.png" "$EXTRACT/extract_area_expected.png" 3 4 5 6
+"$VIPS" crop         "$EXTRACT/rgb.png" "$EXTRACT/crop_expected.png"         3 4 5 6
+
+echo "==> [embed] black + copy (enum) + background vector (S1 EXACT)"
+"$VIPS" embed "$EXTRACT/rgb.png"  "$EXTRACT/embed_black_expected.png" 2 3 24 24
+"$VIPS" embed "$EXTRACT/rgb.png"  "$EXTRACT/embed_copy_expected.png"  2 3 24 24 --extend copy
+"$VIPS" embed "$EXTRACT/gray.png" "$EXTRACT/embed_bg_expected.png"    1 1 8 8 --extend background --background 128
+
+echo "==> [gravity] centre + south-east (dash-spelled enum) (S1 EXACT)"
+"$VIPS" gravity "$EXTRACT/rgb.png" "$EXTRACT/gravity_centre_expected.png" centre     24 24
+"$VIPS" gravity "$EXTRACT/rgb.png" "$EXTRACT/gravity_se_expected.png"     south-east 24 24
+
+echo "==> [replicate/zoom/subsample] integer geometry (S1 EXACT)"
+"$VIPS" replicate "$EXTRACT/rgb.png"  "$EXTRACT/replicate_expected.png" 2 3
+"$VIPS" zoom      "$EXTRACT/gray.png" "$EXTRACT/zoom_expected.png"      3 2
+"$VIPS" subsample "$EXTRACT/rgb.png"  "$EXTRACT/subsample_expected.png" 2 2
+
+echo "==> [insert] non-expand + expand (canvas grows) (S2 EXACT)"
+"$VIPS" insert "$EXTRACT/rgb.png" "$EXTRACT/sub.png" "$EXTRACT/insert_expected.png"        4 5
+"$VIPS" insert "$EXTRACT/rgb.png" "$EXTRACT/sub.png" "$EXTRACT/insert_expand_expected.png" 13 13 --expand
+
+echo "==> [smartcrop] centre/low/high/attention (S1 EXACT — discriminating geometry + saliency)"
+"$VIPS" smartcrop "$EXTRACT/rgb.png" "$EXTRACT/smartcrop_centre_expected.png"    8 8 --interesting centre
+"$VIPS" smartcrop "$EXTRACT/rgb.png" "$EXTRACT/smartcrop_low_expected.png"       8 8 --interesting low
+"$VIPS" smartcrop "$EXTRACT/rgb.png" "$EXTRACT/smartcrop_high_expected.png"      8 8 --interesting high
+"$VIPS" smartcrop "$EXTRACT/rgb.png" "$EXTRACT/smartcrop_attention_expected.png" 8 8 --interesting attention
+
+# GOLDEN-ONLY (no vips oracle): vips's smartcrop-entropy chooses a DIFFERENT
+# discrete crop window than the core on this input, so the reference is generated
+# by viprs itself (deterministic) as a regression pin. Build the CLI if absent.
+echo "==> [smartcrop] entropy (GOLDEN-ONLY viprs pin — no vips oracle)"
+if [ ! -x "$VIPRS" ]; then
+    echo "    (building $VIPRS: cargo build --release --no-default-features --bin viprs)"
+    ( cd "$CLI_DIR" && cargo build --release --no-default-features --bin viprs )
+fi
+"$VIPRS" smartcrop "$EXTRACT/rgb.png" "$EXTRACT/smartcrop_entropy_golden.png" 8 8 --interesting entropy >/dev/null
+
+# --- Provenance (append the extract section) ---------------------------------
+echo "==> [provenance] appending extract section to $FIX_ROOT/PROVENANCE.md"
+cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
+
+---
+
+# extract family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the extract
+CLI-differential suite (\`tests/cli_extract_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`extract/\`): \`gray.png\` (16×16 Gray8 horizontal
+  ramp), \`rgb.png\` (16×16 3-band sRGB with 2-D structure — band0 horizontal
+  ramp, band1 scaled horizontal ramp, band2 vertical ramp), \`sub.png\` (6×6
+  solid sRGB, the distinct insert payload).
+- **Every op is EXACT** (integer-in / integer-out, decode-compare tol 0) EXCEPT
+  \`smartcrop --interesting entropy\`, which is **GOLDEN-ONLY**: vips's entropy
+  strategy makes a different discrete crop-window choice than the core on this
+  input (measured max-abs-diff 136 — a wholesale different region, not a
+  tolerance), so there is no cross-oracle. Its reference
+  (\`smartcrop_entropy_golden.png\`) is generated by \`viprs\` itself
+  (deterministic across runs) and the test is a regression pin.
+
+## Exact commands
+
+Inputs:
+
+\`\`\`
+vips grey egrey.v 16 16
+vips linear egrey.v extract/gray.png 255 0 --uchar
+vips linear egrey.v egray2.png 200 10 --uchar
+vips rot egrey.v egrey_v.v d90
+vips linear egrey_v.v egray3.png 255 0 --uchar
+vips bandjoin "extract/gray.png egray2.png egray3.png" ergb.v
+vips copy ergb.v extract/rgb.png --interpretation srgb
+vips black eb.v 6 6 --bands 3
+vips linear eb.v esub.v "0 0 0" "200 50 100" --uchar
+vips copy esub.v extract/sub.png --interpretation srgb
+\`\`\`
+
+References (paths relative to \`tests/fixtures/cli/\`):
+
+| reference | oracle class | vips command |
+|---|---|---|
+| \`extract/extract_area_expected.png\` | EXACT | \`vips extract_area rgb.png extract_area_expected.png 3 4 5 6\` |
+| \`extract/crop_expected.png\` | EXACT | \`vips crop rgb.png crop_expected.png 3 4 5 6\` (alias of extract_area) |
+| \`extract/embed_black_expected.png\` | EXACT | \`vips embed rgb.png embed_black_expected.png 2 3 24 24\` |
+| \`extract/embed_copy_expected.png\` | EXACT | \`vips embed rgb.png embed_copy_expected.png 2 3 24 24 --extend copy\` |
+| \`extract/embed_bg_expected.png\` | EXACT | \`vips embed gray.png embed_bg_expected.png 1 1 8 8 --extend background --background 128\` |
+| \`extract/gravity_centre_expected.png\` | EXACT | \`vips gravity rgb.png gravity_centre_expected.png centre 24 24\` |
+| \`extract/gravity_se_expected.png\` | EXACT | \`vips gravity rgb.png gravity_se_expected.png south-east 24 24\` |
+| \`extract/replicate_expected.png\` | EXACT | \`vips replicate rgb.png replicate_expected.png 2 3\` |
+| \`extract/zoom_expected.png\` | EXACT | \`vips zoom gray.png zoom_expected.png 3 2\` |
+| \`extract/subsample_expected.png\` | EXACT | \`vips subsample rgb.png subsample_expected.png 2 2\` |
+| \`extract/insert_expected.png\` | EXACT | \`vips insert rgb.png sub.png insert_expected.png 4 5\` |
+| \`extract/insert_expand_expected.png\` | EXACT | \`vips insert rgb.png sub.png insert_expand_expected.png 13 13 --expand\` (canvas grows to 19×19) |
+| \`extract/smartcrop_centre_expected.png\` | EXACT | \`vips smartcrop rgb.png smartcrop_centre_expected.png 8 8 --interesting centre\` |
+| \`extract/smartcrop_low_expected.png\` | EXACT | \`vips smartcrop rgb.png smartcrop_low_expected.png 8 8 --interesting low\` |
+| \`extract/smartcrop_high_expected.png\` | EXACT | \`vips smartcrop rgb.png smartcrop_high_expected.png 8 8 --interesting high\` |
+| \`extract/smartcrop_attention_expected.png\` | EXACT | \`vips smartcrop rgb.png smartcrop_attention_expected.png 8 8 --interesting attention\` (crop 15,11 — non-vacuous, differs from low/high) |
+| \`extract/smartcrop_entropy_golden.png\` | GOLDEN-ONLY | \`viprs smartcrop rgb.png smartcrop_entropy_golden.png 8 8 --interesting entropy\` (NO vips oracle — vips picks a different discrete window) |
+EOF
+
 echo "==> Done. Generated fixtures under $FIX_ROOT"
 ls -1 "$FIX"
 echo "--- bands ---"
 ls -1 "$BANDS"
+echo "--- extract ---"
+ls -1 "$EXTRACT"

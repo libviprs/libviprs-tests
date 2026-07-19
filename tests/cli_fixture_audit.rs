@@ -73,6 +73,34 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // extract_band: single band + --n consecutive bands.
     "bands/extract_band1_expected.png",
     "bands/extract_bandn_expected.png",
+    // ---- extract family (cli_extract_diff.rs) ----
+    // Common inputs.
+    "extract/gray.png",
+    "extract/rgb.png",
+    "extract/sub.png",
+    // extract_area / crop (alias).
+    "extract/extract_area_expected.png",
+    "extract/crop_expected.png",
+    // embed: black, copy extend enum, background vector.
+    "extract/embed_black_expected.png",
+    "extract/embed_copy_expected.png",
+    "extract/embed_bg_expected.png",
+    // gravity: centre + dash-spelled south-east.
+    "extract/gravity_centre_expected.png",
+    "extract/gravity_se_expected.png",
+    // replicate / zoom / subsample.
+    "extract/replicate_expected.png",
+    "extract/zoom_expected.png",
+    "extract/subsample_expected.png",
+    // insert: non-expand + expand (canvas grows).
+    "extract/insert_expected.png",
+    "extract/insert_expand_expected.png",
+    // smartcrop: EXACT geometry + attention, and the GOLDEN-ONLY entropy pin.
+    "extract/smartcrop_centre_expected.png",
+    "extract/smartcrop_low_expected.png",
+    "extract/smartcrop_high_expected.png",
+    "extract/smartcrop_attention_expected.png",
+    "extract/smartcrop_entropy_golden.png",
 ];
 
 #[test]

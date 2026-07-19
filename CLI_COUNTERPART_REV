@@ -25,8 +25,9 @@
 # `cargo test --test cli_morphology_diff` against the sibling checkout, and
 # update the label comment below.
 #
-# libviprs-cli main @ 5adaee4 — the Wave-1 morphology reference family
-# (morph/rank/countlines/labelregions) + shared io.rs save-cast + matfile
-# loader + __dump-commands. This is the command surface the morphology
-# differential cell exercises.
-b2ebbeb995f5c902235a5f874d100464707c1c07
+# libviprs-cli cli/w2-extract @ 0f2f16e — adds the Wave-2 extract op family
+# (extract_area/crop/embed/gravity/replicate/zoom/subsample/insert/smartcrop)
+# on top of the Wave-1 morphology reference + Wave-2 bands lane. This is the
+# command surface the morphology, bands, AND extract differential cells
+# exercise.
+0f2f16e44b1ef5b2a1969dd8e06baeed4fc89169
