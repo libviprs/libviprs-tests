@@ -80,7 +80,13 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "conversion/gray3.png",
     "conversion/rgb.png",
     "conversion/rgba.png",
-    "conversion/gray16.png",
+    // Discriminating inputs (adversarial-review findings 1/2/3/5): grad (2-D
+    // gradient, for flip/rot/wrap), nb16 (non-palindromic 16-bit, for byteswap),
+    // mb16 (3-band 16-bit, for msb --band), ramp256 (full 0..255 domain, LUT ops).
+    "conversion/grad.png",
+    "conversion/nb16.v",
+    "conversion/mb16.v",
+    "conversion/ramp256.png",
     "conversion/odd.png",
     "conversion/stack.png",
     "conversion/cond.png",

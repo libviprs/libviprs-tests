@@ -112,12 +112,18 @@ output against. Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
 
 - **Oracle**: `vips-8.18.4`
 - **Common inputs** (under `conversion/`): `gray.png`/`gray2.png`/`gray3.png`
-  (16×16 Gray8), `rgb.png`/`rgba.png` (sRGB 3/4-band), `gray16.png` (16×16
-  Gray16 ramp), `odd.png` (15×15 Gray8, for `rot45`), `stack.png` (8×16
-  vertical ramp with distinct tiles, for `grid`), `cond.png`/`cond2.png`
-  (0/255 masks at thresholds 127/63, for `ifthenelse`/`switch`).
+  (16×16 Gray8), `rgb.png`/`rgba.png` (sRGB 3/4-band), `grad.png` (16×16 2-D
+  gradient varying in BOTH axes, for `flip`/`rot`/`wrap` — a Y-constant ramp
+  made the vertical arms no-ops), `nb16.v` (16×16 Gray16, non-palindromic bytes,
+  for `byteswap` — a byte-palindrome would pass a no-op), `mb16.v` (16×16
+  3-band Gray16, band0 != band1, for `msb --band`), `ramp256.png` (256×1 Gray8
+  full 0..255 domain, for the `gamma`/`falsecolour` LUTs), `odd.png` (15×15
+  Gray8, for `rot45`), `stack.png` (8×16 vertical ramp with distinct tiles, for
+  `grid`), `cond.png`/`cond2.png` (0/255 masks at thresholds 127/63, for
+  `ifthenelse`/`switch`).
 - **Carriers**: 1/3/4-band uchar → PNG. `cast`→float and `grey` float ramp →
-  `.v` (float); `byteswap` → `.v` (16-bit byte order PNG would normalise).
+  `.v` (float); `byteswap` → `.v` (16-bit byte order PNG would normalise). The
+  16-bit `nb16`/`mb16` inputs are `.v` (raw byte order / multiband 16-bit).
 
 ## autorot — no vips cross-oracle (a real limitation, flagged)
 
@@ -141,13 +147,22 @@ Inputs:
 vips grey cg.v 16 16
 vips linear cg.v conversion/gray.png  255 0  --uchar
 vips linear cg.v conversion/gray2.png 200 10 --uchar
-vips rot cg.v cg_v.v d90 ; vips linear cg_v.v conversion/gray3.png 255 0 --uchar
+vips rot cg.v cgrot.v d90 ; vips linear cgrot.v conversion/gray3.png 255 0 --uchar
 vips bandjoin "conversion/gray.png conversion/gray2.png conversion/gray3.png" crgb.v
 vips copy crgb.v conversion/rgb.png --interpretation srgb
 vips bandjoin "conversion/rgb.png conversion/gray.png" crgba.v
 vips copy crgba.v conversion/rgba.png --interpretation srgb
-vips linear cg.v cg16.v 65535 0 ; vips cast cg16.v conversion/gray16.png ushort
+# grad: 2-D gradient (x*85 + y*170) so vertical flip / wrap / rot-d180 discriminate
+vips linear cg.v cgx.v 85 0 ; vips linear cgrot.v cgy.v 170 0
+vips add cgx.v cgy.v cgsum.v ; vips cast cgsum.v conversion/grad.png uchar
+# nb16: non-palindromic 16-bit (multiples of 0x1000) so byteswap moves data
+vips linear cg.v cnb16f.v 61440 0 ; vips cast cnb16f.v conversion/nb16.v ushort
+# mb16: 3-band 16-bit with band0 != band1 so msb --band 0 differs from the default
+vips linear cg.v cm16a.v 65535 0 ; vips linear cg.v cm16b.v 40000 0 ; vips linear cgrot.v cm16c.v 50000 0
+vips bandjoin "cm16a.v cm16b.v cm16c.v" cmb16f.v ; vips cast cmb16f.v conversion/mb16.v ushort
 vips grey codd.v 15 15 ; vips linear codd.v conversion/odd.png 255 0 --uchar
+# ramp256: full 0..255 domain so gamma/falsecolour LUTs are fully covered
+vips grey cr256.v 256 1 ; vips linear cr256.v conversion/ramp256.png 255 0 --uchar
 vips grey cs.v 16 8 ; vips rot cs.v cs_v.v d90 ; vips linear cs_v.v conversion/stack.png 255 0 --uchar
 vips relational_const conversion/gray.png conversion/cond.png  more 127
 vips relational_const conversion/gray.png conversion/cond2.png more 63
@@ -162,22 +177,22 @@ References (paths relative to `tests/fixtures/cli/`):
 | `conversion/copy_expected.png` | EXACT | `vips copy rgb.png copy_expected.png --interpretation srgb` |
 | `conversion/cast_ushort_expected.v` | EXACT | `vips cast gray.png cast_ushort_expected.v ushort` (pngsave minimises depth → `.v`) |
 | `conversion/cast_float_expected.v` | EXACT | `vips cast gray.png cast_float_expected.v float` |
-| `conversion/flip_horizontal_expected.png` | EXACT | `vips flip gray.png flip_horizontal_expected.png horizontal` |
-| `conversion/flip_vertical_expected.png` | EXACT | `vips flip gray.png flip_vertical_expected.png vertical` |
-| `conversion/rot_d90_expected.png` | EXACT | `vips rot gray.png rot_d90_expected.png d90` |
-| `conversion/rot_d180_expected.png` | EXACT | `vips rot gray.png rot_d180_expected.png d180` |
+| `conversion/flip_horizontal_expected.png` | EXACT | `vips flip grad.png flip_horizontal_expected.png horizontal` |
+| `conversion/flip_vertical_expected.png` | EXACT | `vips flip grad.png flip_vertical_expected.png vertical` |
+| `conversion/rot_d90_expected.png` | EXACT | `vips rot grad.png rot_d90_expected.png d90` |
+| `conversion/rot_d180_expected.png` | EXACT | `vips rot grad.png rot_d180_expected.png d180` |
 | `conversion/rot45_d45_expected.png` | EXACT | `vips rot45 odd.png rot45_d45_expected.png --angle d45` |
-| `conversion/byteswap_expected.v` | EXACT | `vips byteswap gray16.png byteswap_expected.v` |
-| `conversion/msb_expected.png` | EXACT | `vips msb gray16.png msb_expected.png` |
-| `conversion/msb_band0_expected.png` | EXACT | `vips msb gray16.png msb_band0_expected.png --band 0` |
+| `conversion/byteswap_expected.v` | EXACT | `vips byteswap nb16.v byteswap_expected.v` (non-palindromic 16-bit) |
+| `conversion/msb_expected.png` | EXACT | `vips msb mb16.v msb_expected.png` (3-band) |
+| `conversion/msb_band0_expected.png` | EXACT | `vips msb mb16.v msb_band0_expected.png --band 0` (1-band) |
 | `conversion/grid_expected.png` | EXACT | `vips grid stack.png grid_expected.png 4 2 2` |
 | `conversion/flatten_expected.png` | BOUNDED-TOL ≤1 LSB | `vips flatten rgba.png flatten_expected.png --background "0 0 0"` |
 | `conversion/ifthenelse_expected.png` | EXACT | `vips ifthenelse cond.png gray.png gray2.png ifthenelse_expected.png` |
 | `conversion/autorot_expected.png` | EXACT (golden via rot-d90 identity; see above) | `vips rot autorot_base.png autorot_expected.png d90` |
-| `conversion/wrap_expected.png` | EXACT | `vips wrap gray.png wrap_expected.png` |
-| `conversion/gamma_expected.png` | BOUNDED-TOL ≤1 LSB | `vips gamma gray.png gamma_expected.png` (core vs vips LUT rounding ±1) |
-| `conversion/gamma_exp2_expected.png` | BOUNDED-TOL ≤1 LSB | `vips gamma gray.png gamma_exp2_expected.png --exponent 2.0` |
-| `conversion/falsecolour_expected.png` | EXACT | `vips falsecolour gray.png falsecolour_expected.png` |
+| `conversion/wrap_expected.png` | EXACT | `vips wrap grad.png wrap_expected.png` |
+| `conversion/gamma_expected.png` | BOUNDED-TOL ≤1 LSB | `vips gamma ramp256.png gamma_expected.png` (full domain; core vs vips LUT rounding ±1) |
+| `conversion/gamma_exp2_expected.png` | BOUNDED-TOL ≤1 LSB | `vips gamma ramp256.png gamma_exp2_expected.png --exponent 2.0` (full domain) |
+| `conversion/falsecolour_expected.png` | EXACT | `vips falsecolour ramp256.png falsecolour_expected.png` (full domain) |
 | `conversion/addalpha_expected.png` | EXACT | `vips addalpha rgb.png addalpha_expected.png` |
 | `conversion/arrayjoin_expected.png` | EXACT | `vips arrayjoin "gray.png gray2.png gray3.png" arrayjoin_expected.png --across 2` |
 | `conversion/grey_float_expected.v` | BOUNDED-TOL (float eps 1e-6) | `vips grey grey_float_expected.v 16 16` |

@@ -100,7 +100,18 @@ const GRAY2: &str = "conversion/gray2.png";
 const GRAY3: &str = "conversion/gray3.png";
 const RGB: &str = "conversion/rgb.png";
 const RGBA: &str = "conversion/rgba.png";
-const GRAY16: &str = "conversion/gray16.png";
+/// 2-D gradient varying in BOTH axes — makes `flip vertical`, `wrap`'s vertical
+/// shift and `rot d180` non-vacuous (a Y-constant ramp made them no-ops).
+const GRAD: &str = "conversion/grad.png";
+/// 16-bit input whose high and low bytes DIFFER, so `byteswap` truly moves data
+/// (a byte-palindromic 16-bit input would pass a broken no-op byteswap).
+const NB16: &str = "conversion/nb16.v";
+/// 3-band 16-bit input with band0 != band1, so `msb --band 0` (1 band) is
+/// provably distinct from `msb` default (3 bands).
+const MB16: &str = "conversion/mb16.v";
+/// 256×1 grey ramp spanning the full 0..255 domain, so the `gamma`/`falsecolour`
+/// LUT ops are compared over every entry (a 16-value input sampled only 16/256).
+const RAMP256: &str = "conversion/ramp256.png";
 const ODD: &str = "conversion/odd.png";
 const STACK: &str = "conversion/stack.png";
 const COND: &str = "conversion/cond.png";
@@ -183,7 +194,10 @@ fn cast_to_float_matches_vips_exact() {
 }
 
 // ---------------------------------------------------------------------------
-// flip — S1 enum horizontal|vertical (EXACT).
+// flip — S1 enum horizontal|vertical (EXACT). Input is `grad` (a 2-D gradient):
+// gray.png is a horizontal ramp (constant in Y), so a vertical flip on it is a
+// no-op and a broken `try_flipver` would ship GREEN. `grad` varies in Y too, so
+// BOTH arms discriminate (h diff 85, v diff 170).
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -193,7 +207,7 @@ fn flip_horizontal_matches_vips_exact() {
     }
     run_s1(
         "flip",
-        GRAY,
+        GRAD,
         "flip_h.png",
         "conversion/flip_horizontal_expected.png",
         EXACT,
@@ -208,7 +222,7 @@ fn flip_vertical_matches_vips_exact() {
     }
     run_s1(
         "flip",
-        GRAY,
+        GRAD,
         "flip_v.png",
         "conversion/flip_vertical_expected.png",
         EXACT,
@@ -217,7 +231,9 @@ fn flip_vertical_matches_vips_exact() {
 }
 
 // ---------------------------------------------------------------------------
-// rot — S1 enum d0|d90|d180|d270 (EXACT). d90 (dims swap) + d180 (dims kept).
+// rot — S1 enum d0|d90|d180|d270 (EXACT). d90 (dims swap) + d180 (dims kept), on
+// the 2-D `grad` input: on a Y-constant ramp d180 collapses to a horizontal
+// flip, so `grad` (varies in both axes) keeps d180 genuinely distinct.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -227,7 +243,7 @@ fn rot_d90_matches_vips_exact() {
     }
     run_s1(
         "rot",
-        GRAY,
+        GRAD,
         "rot_d90.png",
         "conversion/rot_d90_expected.png",
         EXACT,
@@ -242,7 +258,7 @@ fn rot_d180_matches_vips_exact() {
     }
     run_s1(
         "rot",
-        GRAY,
+        GRAD,
         "rot_d180.png",
         "conversion/rot_d180_expected.png",
         EXACT,
@@ -270,8 +286,11 @@ fn rot45_matches_vips_exact() {
 }
 
 // ---------------------------------------------------------------------------
-// byteswap — S1 (EXACT). 16-bit input; carried as `.v` (PNG re-encode would
-// normalise byte order). A no-op byteswap on 16-bit data would mismatch.
+// byteswap — S1 (EXACT). Input `nb16` is a 16-bit image whose high and low bytes
+// DIFFER (multiples of 0x1000), carried as `.v` (PNG re-encode would normalise
+// byte order). This is the crux of the fix: the old gray16 ramp was all
+// byte-palindromes (multiples of 0x1111), so a broken byteswap that returned its
+// input unchanged shipped GREEN. On `nb16` byteswap moves data by 61440.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -281,7 +300,7 @@ fn byteswap_matches_vips_exact() {
     }
     run_s1(
         "byteswap",
-        GRAY16,
+        NB16,
         "byteswap.v",
         "conversion/byteswap_expected.v",
         EXACT,
@@ -290,8 +309,11 @@ fn byteswap_matches_vips_exact() {
 }
 
 // ---------------------------------------------------------------------------
-// msb — S1 --band (EXACT). Default (all bands) + explicit --band 0 (flag path).
-// 16-bit input -> Gray8 high byte.
+// msb — S1 --band (EXACT). Input `mb16` is a 3-band 16-bit image with band0 !=
+// band1: `msb` default keeps all 3 bands, `msb --band 0` reduces to band 0's
+// high byte alone. On the old 1-band gray16 the two were byte-identical, so the
+// --band selection path was never exercised; on `mb16` they are provably
+// distinct (band count 3 vs 1).
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -301,7 +323,7 @@ fn msb_default_matches_vips_exact() {
     }
     run_s1(
         "msb",
-        GRAY16,
+        MB16,
         "msb.png",
         "conversion/msb_expected.png",
         EXACT,
@@ -316,7 +338,7 @@ fn msb_band0_matches_vips_exact() {
     }
     run_s1(
         "msb",
-        GRAY16,
+        MB16,
         "msb_band0.png",
         "conversion/msb_band0_expected.png",
         EXACT,
@@ -412,7 +434,9 @@ fn autorot_matches_vips_rot_d90() {
 }
 
 // ---------------------------------------------------------------------------
-// wrap — S1 (EXACT). Default centre shift (w/2, h/2), swapping quadrants.
+// wrap — S1 (EXACT). Default centre shift (w/2, h/2), swapping quadrants. Input
+// `grad` varies in Y so the vertical h/2 shift is actually exercised (a
+// Y-constant ramp left the vertical shift untested).
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -422,7 +446,7 @@ fn wrap_matches_vips_exact() {
     }
     run_s1(
         "wrap",
-        GRAY,
+        GRAD,
         "wrap.png",
         "conversion/wrap_expected.png",
         EXACT,
@@ -431,7 +455,9 @@ fn wrap_matches_vips_exact() {
 }
 
 // ---------------------------------------------------------------------------
-// gamma — S1 --exponent (BOUNDED-TOL ≤1 LSB; measured). Default (1/2.4) + explicit 2.0.
+// gamma — S1 --exponent (BOUNDED-TOL ≤1 LSB; measured). Default (1/2.4) +
+// explicit 2.0, over the full-domain `ramp256` LUT input (256×1, every 0..255
+// value once) so EVERY LUT entry is compared, not just 16 of 256.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -441,7 +467,7 @@ fn gamma_default_matches_vips_bounded_tol() {
     }
     run_s1(
         "gamma",
-        GRAY,
+        RAMP256,
         "gamma.png",
         "conversion/gamma_expected.png",
         GAMMA_TOL,
@@ -456,7 +482,7 @@ fn gamma_exponent_matches_vips_bounded_tol() {
     }
     run_s1(
         "gamma",
-        GRAY,
+        RAMP256,
         "gamma_exp2.png",
         "conversion/gamma_exp2_expected.png",
         GAMMA_TOL,
@@ -465,7 +491,8 @@ fn gamma_exponent_matches_vips_bounded_tol() {
 }
 
 // ---------------------------------------------------------------------------
-// falsecolour — S1 (EXACT). Mono band 0 mapped through the fixed PET LUT -> sRGB.
+// falsecolour — S1 (EXACT). Band 0 mapped through the fixed PET LUT -> sRGB, over
+// the full-domain `ramp256` input so all 256 LUT entries are verified.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -475,7 +502,7 @@ fn falsecolour_matches_vips_exact() {
     }
     run_s1(
         "falsecolour",
-        GRAY,
+        RAMP256,
         "falsecolour.png",
         "conversion/falsecolour_expected.png",
         EXACT,
