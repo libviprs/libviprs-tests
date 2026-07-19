@@ -908,8 +908,11 @@ EOF
 # MEASURED against vips 8.18.4 on the committed inputs (max-abs-diff in raw
 # sample units):
 #
-#   * subtract  → PNG, EXACT-AFTER-CAST tol 0 (float diff, save-cast clips
-#     negatives to 0; integer inputs so no rounding — measured 0).
+#   * subtract  → PNG, EXACT-AFTER-CAST tol 0 (core `try_sub` saturates the diff
+#     at 0 for the unsigned output; integer inputs so no rounding — measured 0).
+#     The a-b case has a clip dead-zone where a<b (both sides pinned at 0), so a
+#     SECOND case subtracts `small` from `a` (a>=small everywhere) to exercise the
+#     full range with no dead-zone (review finding 4).
 #   * multiply  → `.v` ushort, EXACT-AFTER-CAST tol 0 (uchar*uchar widens to
 #     ushort in both — measured 0).
 #   * divide    → `.v` float, EXACT-AFTER-CAST tol 0 (both compute the quotient
@@ -926,22 +929,30 @@ EOF
 #     transcendental; measured 0 on these inputs, tol 1 is the honest bound).
 #   * stdif    → PNG, BOUNDED-TOL. Core CLIPS the window at the image border
 #     while vips MIRRORS, so a genuinely 2-D input (the `eye` zone-plate) diverges
-#     by up to 6 raw units in the border ring (interior is exact). Measured 6 on
-#     eye 3x3 → tol 6, a documented core-vs-vips edge-handling divergence (see
-#     PROVENANCE / cli_arithb_diff.rs; filed as an issue, NOT hidden by picking a
-#     y-degenerate ramp).
+#     by up to 6 raw units in the 1px border ring. The interior is EXACT: the
+#     differential compares the interior (1px margin cropped) at tol 0 and keeps
+#     the tol-6 band ONLY for the whole-image border-inclusive case, so an
+#     interior regression a flat tol 6 would absorb still fails (review finding 2).
+#     Measured 6 whole-image / 0 interior on eye 3x3 — a documented core-vs-vips
+#     edge-handling divergence (core issue #490), NOT hidden by a y-degenerate ramp.
 #   * recomb   → PNG, BOUNDED-TOL 1. OP_MAP predicted EAC, but core rounds &
 #     saturates per output band into the input depth while vips computes in float
 #     and casts once, so they diverge by 1 LSB (measured 1). Honest class is
 #     BOUNDED-TOL — a documented deviation from OP_MAP's EAC prediction.
 #   * premultiply / unpremultiply   → PNG, BOUNDED-TOL 1 (vips emits float, core
 #     rounds into the uchar depth; ≤1 LSB post-cast, measured 1).
-#   * math (sin/cos/atan)           → `.v` float, tol 1e-6 (measured 0).
-#   * math2 atan2                   → `.v` float, tol 1e-6 (measured 0).
-#   * math2 pow                     → `.v` float, BOUNDED-TOL 1. The ONLY
+#   * math (ALL 16 arms)            → `.v` float, FOURIER tol 1e-6 (measured 0).
+#     sin/cos/atan on a.png; the other 13 on in-domain float inputs (msmall for
+#     tan/asin/acos/log/log10/exp/exp10/sinh/cosh/tanh/asinh/atanh, macosh for
+#     acosh) so EVERY dispatch arm has its own reference (review finding 1). The
+#     float `.v` carrier is the honest class, not OP_MAP's EAC prediction (an
+#     EAC-uchar save of sin's [-1,1] output would be near-vacuous).
+#   * math2 atan2                   → `.v` float, FOURIER tol 1e-6 (measured 0).
+#   * math2 pow / wop               → `.v` float, BOUNDED-TOL 1. The ONLY
 #     divergent sample is `pow(0,0)`: Rust's `f64::powf(0,0)=1` vs libvips `0`.
 #     Kept in the input (base and exponent both span 0) so the 0^0 edge is
-#     EXERCISED, not hidden; tol 1, documented + filed as core issue #489.
+#     EXERCISED, not hidden; tol 1, documented + filed as core issue #489. wop
+#     (`right^left`) is the third math2 arm (review finding 1), sharing the edge.
 #   * complexform / complex / complexget → `.v` float band-pairs, FOURIER eps
 #     1e-6 (measured 0). vips complex-format outputs are REINTERPRETED to a
 #     2-band float `.v` (`vips copy … --format float --bands 2`) because the
@@ -978,6 +989,21 @@ echo "==> [arithb input] a/b/c 16x16 Gray8 ramps + rgb/rgba + small/small2 + eye
 # its border clip-vs-mirror divergence from vips — are genuinely exercised.
 "$VIPS" eye "$TMP/eye.v" 16 16
 "$VIPS" linear "$TMP/eye.v" "$ARITHB/eye.png" 127 128 --uchar
+# avert: a.png rotated 90° (a vertical ramp over the SAME 0..255 value set), so
+# `relational a.png avert.png equal` is TRUE on the x==y diagonal (16 pixels) and
+# FALSE elsewhere. This makes the enum-discriminating relational cases non-vacuous:
+# with a non-empty equality set, `lesseq`/`moreeq` provably differ from
+# `less`/`more`, so a `lesseq`<->`less` (or `moreeq`<->`more`) dispatch swap fails
+# (review finding 1 — enum coverage).
+"$VIPS" rot "$ARITHB/a.png" "$ARITHB/avert.png" d90
+# msmall / macosh: float `.v` inputs in the math ops' domains so EVERY math enum
+# arm is compared against its own vips reference (review finding 1). msmall spans
+# (0.1, 0.95): in-domain for asin/acos/atanh (|x|<1), log/log10 (>0), and bounded
+# for exp/exp10/sinh/cosh (O(1) outputs, no f32 overflow), plus small trig angles
+# (tan has no pole here). macosh spans [1, 6] for acosh (domain >=1), which msmall
+# (<1 -> NaN) cannot cover. Both are pure `grey`-ramp linears, bit-reproducible.
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/msmall.v" 0.85 0.1
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/macosh.v" 5 1
 # recomb coefficient matrix (3 output bands x 3 input bands), a vips text matrix.
 printf '3 3\n0.5 0.25 0.25\n0.2 0.6 0.2\n0.1 0.3 0.6\n' > "$ARITHB/recomb.mat"
 # complex input in TWO carriers from complexform(a,b): the complex-format `.v`
@@ -989,6 +1015,14 @@ printf '3 3\n0.5 0.25 0.25\n0.2 0.6 0.2\n0.1 0.3 0.6\n' > "$ARITHB/recomb.mat"
 # --- References — one vips run per differential case -------------------------
 echo "==> [subtract] a - b (EAC, PNG; negatives clip to 0)"
 "$VIPS" subtract "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/subtract_expected.png"
+# a>=b everywhere (a horizontal ramp 0..255, small horizontal ramp 0..15, so a(x)
+# >= small(x) at every pixel): the difference is non-negative across the WHOLE
+# image, so there is no clip dead-zone and the full subtraction range is exercised
+# (review finding 4 — the a<b half of the a-b case is vacuous because BOTH core
+# and vips pin negatives to 0; core's `try_sub` itself saturates at 0, so a `.v`
+# carrier could not recover the negatives — the a>=b case is the honest fix).
+echo "==> [subtract] a - small (EAC, PNG; a>=small everywhere, full range)"
+"$VIPS" subtract "$ARITHB/a.png" "$ARITHB/small.png" "$ARITHB/subtract_pos_expected.png"
 echo "==> [multiply] a * b (EAC, ushort .v)"
 "$VIPS" multiply "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/multiply_expected.v"
 echo "==> [divide] a / b (EAC, float .v)"
@@ -999,17 +1033,40 @@ echo "==> [minpair/maxpair] (EXACT, PNG)"
 echo "==> [sum] a + b + c (>=3 variadic, EAC; vips UINT cast to ushort .v)"
 "$VIPS" sum "$ARITHB/a.png $ARITHB/b.png $ARITHB/c.png" "$TMP/sum_u32.v"
 "$VIPS" cast "$TMP/sum_u32.v" "$ARITHB/sum_expected.v" ushort
-echo "==> [relational] more + less (EXACT, PNG)"
+# ALL SIX relational enum arms (review finding 1): more/less on (a, b); and
+# equal/noteq/lesseq/moreeq on (a, avert), whose x==y diagonal makes equality
+# non-empty so each arm is discriminated (lesseq != less, moreeq != more, equal !=
+# noteq). One vips reference per arm → a dispatch swap in any arm fails.
+echo "==> [relational] more + less on (a,b); equal/noteq/lesseq/moreeq on (a,avert) (EXACT, PNG)"
 "$VIPS" relational "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/relational_more_expected.png" more
 "$VIPS" relational "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/relational_less_expected.png" less
-echo "==> [relational_const] more 128 (EXACT, PNG)"
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/avert.png" "$ARITHB/relational_equal_expected.png" equal
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/avert.png" "$ARITHB/relational_noteq_expected.png" noteq
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/avert.png" "$ARITHB/relational_lesseq_expected.png" lesseq
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/avert.png" "$ARITHB/relational_moreeq_expected.png" moreeq
+# ALL SIX relational_const enum arms (review finding 1): more 128 on a; and
+# equal/noteq/lesseq/moreeq against C=7 on small.png, whose samples are EXACTLY
+# 0..15 so `== 7` is a non-empty column → lesseq != less, equal != noteq.
+echo "==> [relational_const] more 128 on a; equal/noteq/lesseq/moreeq 7 on small (EXACT, PNG)"
 "$VIPS" relational_const "$ARITHB/a.png" "$ARITHB/relational_const_more_expected.png" more 128
-echo "==> [boolean] eor + and (EXACT, PNG)"
+"$VIPS" relational_const "$ARITHB/small.png" "$ARITHB/relational_const_equal_expected.png" equal 7
+"$VIPS" relational_const "$ARITHB/small.png" "$ARITHB/relational_const_noteq_expected.png" noteq 7
+"$VIPS" relational_const "$ARITHB/small.png" "$ARITHB/relational_const_lesseq_expected.png" lesseq 7
+"$VIPS" relational_const "$ARITHB/small.png" "$ARITHB/relational_const_moreeq_expected.png" moreeq 7
+# ALL THREE boolean enum arms (review finding 1): and/eor already; add or.
+echo "==> [boolean] eor + and + or (EXACT, PNG)"
 "$VIPS" boolean "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/boolean_eor_expected.png" eor
 "$VIPS" boolean "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/boolean_and_expected.png" and
-echo "==> [boolean_const] and 200 + lshift 2 (EXACT, PNG)"
+"$VIPS" boolean "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/boolean_or_expected.png" or
+# ALL FIVE boolean_const enum arms (review finding 1): and/lshift already; add
+# or, eor (mask 200) and rshift 2 (the second shift arm, so an rshift-maps-to-
+# lshift bug fails since lshift is also tested).
+echo "==> [boolean_const] and 200 + or 200 + eor 200 + lshift 2 + rshift 2 (EXACT, PNG)"
 "$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_and_expected.png" and 200
+"$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_or_expected.png" or 200
+"$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_eor_expected.png" eor 200
 "$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_lshift_expected.png" lshift 2
+"$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_rshift_expected.png" rshift 2
 echo "==> [scale] linear + --log (BOUNDED-TOL <=1 LSB, PNG)"
 "$VIPS" scale "$ARITHB/rgb.png" "$ARITHB/scale_expected.png"
 "$VIPS" scale "$ARITHB/rgb.png" "$ARITHB/scale_log_expected.png" --log
@@ -1020,13 +1077,35 @@ echo "==> [recomb] 3x3 matrix (BOUNDED-TOL 1, PNG)"
 echo "==> [premultiply/unpremultiply] rgba (BOUNDED-TOL 1, PNG)"
 "$VIPS" premultiply "$ARITHB/rgba.png" "$ARITHB/premultiply_expected.png"
 "$VIPS" unpremultiply "$ARITHB/rgba.png" "$ARITHB/unpremultiply_expected.png"
-echo "==> [math] sin + cos + atan (float .v, eps 1e-6)"
+# ALL SIXTEEN math enum arms (review finding 1): sin/cos/atan on a.png (degrees,
+# defined over 0..255); the other thirteen on the in-domain float inputs so each
+# dispatch arm is compared against its OWN vips reference (a log<->log10,
+# exp<->exp10 or sinh<->cosh swap fails). tan/asin/acos/log/log10/exp/exp10/
+# sinh/cosh/tanh/asinh/atanh on msmall (0.1..0.95); acosh on macosh (>=1).
+echo "==> [math] all 16 arms (float .v, eps 1e-6; measured 0)"
 "$VIPS" math "$ARITHB/a.png" "$ARITHB/math_sin_expected.v" sin
 "$VIPS" math "$ARITHB/a.png" "$ARITHB/math_cos_expected.v" cos
 "$VIPS" math "$ARITHB/a.png" "$ARITHB/math_atan_expected.v" atan
-echo "==> [math2] atan2 (eps 1e-6) + pow (BOUNDED-TOL 1, 0^0 edge; float .v)"
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_tan_expected.v" tan
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_asin_expected.v" asin
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_acos_expected.v" acos
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_log_expected.v" log
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_log10_expected.v" log10
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_exp_expected.v" exp
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_exp10_expected.v" exp10
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_sinh_expected.v" sinh
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_cosh_expected.v" cosh
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_tanh_expected.v" tanh
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_asinh_expected.v" asinh
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_atanh_expected.v" atanh
+"$VIPS" math "$ARITHB/macosh.v" "$ARITHB/math_acosh_expected.v" acosh
+# ALL THREE math2 arms (review finding 1): atan2 + pow already; add wop. wop is
+# `right^left`, so `math2 small2 small wop` = small^small2 (same magnitude as the
+# pow case) and shares the pow(0,0) edge (Rust 1 vs vips 0) at x=0 → tol 1.
+echo "==> [math2] atan2 (eps 1e-6) + pow + wop (BOUNDED-TOL 1, 0^0 edge; float .v)"
 "$VIPS" math2 "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/math2_atan2_expected.v" atan2
 "$VIPS" math2 "$ARITHB/small.png" "$ARITHB/small2.png" "$ARITHB/math2_pow_expected.v" pow
+"$VIPS" math2 "$ARITHB/small2.png" "$ARITHB/small.png" "$ARITHB/math2_wop_expected.v" wop
 echo "==> [complexform] a + i*b (FOURIER, float band-pair .v via reinterpret)"
 "$VIPS" complexform "$ARITHB/a.png" "$ARITHB/b.png" "$TMP/cf_c.v"
 "$VIPS" copy "$TMP/cf_c.v" "$ARITHB/complexform_expected.v" --format float --bands 2
@@ -1059,9 +1138,13 @@ offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
   \`c.png\` (horizontal ramp 20..120; third \`sum\` input), \`rgb.png\` (their
   bandjoin, sRGB) and \`rgba.png\` (\`rgb\` + \`a\` alpha, sRGB) for
   recomb/(un)premultiply, \`small.png\` (0..15) + \`small2.png\` (0..3) for the
-  \`math2 pow\` 0^0 edge, \`eye.png\` (2-D zone-plate) for \`stdif\`, \`recomb.mat\`
-  (3×3 coefficient matrix), and \`complex_in.v\` (a 2-band float reinterpret of
-  \`complexform a b\`, the viprs-side complex input).
+  \`math2 pow\`/\`wop\` 0^0 edge (and \`small\` for \`subtract a - small\` a>=b and
+  the \`relational_const\` == 7 arm), \`avert.png\` (\`a\` rotated d90 → x==y-diagonal
+  equality for the relational enum arms), \`msmall.v\` (16×16 float 0.1..0.95, the
+  math ops' domain) + \`macosh.v\` (16×16 float 1..6, for \`acosh\`), \`eye.png\`
+  (2-D zone-plate) for \`stdif\`, \`recomb.mat\` (3×3 coefficient matrix), and
+  \`complex_in.v\` (a 2-band float reinterpret of \`complexform a b\`, the
+  viprs-side complex input).
 - **Carriers / oracle classes**: PNG + tol 0 for the integer-exact ops
   (subtract EAC, minpair/maxpair EXACT, relational(_const)/boolean(_const)
   EXACT); native \`.v\` for the ushort (\`multiply\`, \`sum\` cast from vips UINT)
@@ -1096,6 +1179,9 @@ vips linear ag.v arithb/small.png 15 0 --uchar
 vips linear ag.v arithb/small2.png 3 0 --uchar
 vips eye eye.v 16 16
 vips linear eye.v arithb/eye.png 127 128 --uchar
+vips rot arithb/a.png arithb/avert.png d90
+vips linear ag.v arithb/msmall.v 0.85 0.1
+vips linear ag.v arithb/macosh.v 5 1
 printf '3 3\\n0.5 0.25 0.25\\n0.2 0.6 0.2\\n0.1 0.3 0.6\\n' > arithb/recomb.mat
 vips complexform arithb/a.png arithb/b.png cpx_c.v
 vips copy cpx_c.v arithb/complex_in.v --format float --bands 2
@@ -1106,6 +1192,7 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | reference | oracle class | vips command |
 |---|---|---|
 | \`arithb/subtract_expected.png\` | EXACT-AFTER-CAST (tol 0) | \`vips subtract a.png b.png subtract_expected.png\` |
+| \`arithb/subtract_pos_expected.png\` | EXACT-AFTER-CAST (tol 0) | \`vips subtract a.png small.png subtract_pos_expected.png\` (a>=small everywhere → no clip dead-zone, full range) |
 | \`arithb/multiply_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips multiply a.png b.png multiply_expected.v\` (ushort) |
 | \`arithb/divide_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips divide a.png b.png divide_expected.v\` (float) |
 | \`arithb/minpair_expected.png\` | EXACT | \`vips minpair a.png b.png minpair_expected.png\` |
@@ -1113,22 +1200,48 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`arithb/sum_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips sum "a.png b.png c.png" sum_u32.v\` then \`vips cast sum_u32.v sum_expected.v ushort\` (>=3 inputs; vips UINT→ushort) |
 | \`arithb/relational_more_expected.png\` | EXACT | \`vips relational a.png b.png relational_more_expected.png more\` |
 | \`arithb/relational_less_expected.png\` | EXACT | \`vips relational a.png b.png relational_less_expected.png less\` |
+| \`arithb/relational_equal_expected.png\` | EXACT | \`vips relational a.png avert.png relational_equal_expected.png equal\` (x==y diagonal) |
+| \`arithb/relational_noteq_expected.png\` | EXACT | \`vips relational a.png avert.png relational_noteq_expected.png noteq\` |
+| \`arithb/relational_lesseq_expected.png\` | EXACT | \`vips relational a.png avert.png relational_lesseq_expected.png lesseq\` (differs from less on the diagonal) |
+| \`arithb/relational_moreeq_expected.png\` | EXACT | \`vips relational a.png avert.png relational_moreeq_expected.png moreeq\` (differs from more on the diagonal) |
 | \`arithb/relational_const_more_expected.png\` | EXACT | \`vips relational_const a.png relational_const_more_expected.png more 128\` |
+| \`arithb/relational_const_equal_expected.png\` | EXACT | \`vips relational_const small.png relational_const_equal_expected.png equal 7\` |
+| \`arithb/relational_const_noteq_expected.png\` | EXACT | \`vips relational_const small.png relational_const_noteq_expected.png noteq 7\` |
+| \`arithb/relational_const_lesseq_expected.png\` | EXACT | \`vips relational_const small.png relational_const_lesseq_expected.png lesseq 7\` |
+| \`arithb/relational_const_moreeq_expected.png\` | EXACT | \`vips relational_const small.png relational_const_moreeq_expected.png moreeq 7\` |
 | \`arithb/boolean_eor_expected.png\` | EXACT | \`vips boolean a.png b.png boolean_eor_expected.png eor\` |
 | \`arithb/boolean_and_expected.png\` | EXACT | \`vips boolean a.png b.png boolean_and_expected.png and\` |
+| \`arithb/boolean_or_expected.png\` | EXACT | \`vips boolean a.png b.png boolean_or_expected.png or\` |
 | \`arithb/boolean_const_and_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_and_expected.png and 200\` |
+| \`arithb/boolean_const_or_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_or_expected.png or 200\` |
+| \`arithb/boolean_const_eor_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_eor_expected.png eor 200\` |
 | \`arithb/boolean_const_lshift_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_lshift_expected.png lshift 2\` |
+| \`arithb/boolean_const_rshift_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_rshift_expected.png rshift 2\` |
 | \`arithb/scale_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips scale rgb.png scale_expected.png\` (linear) |
 | \`arithb/scale_log_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips scale rgb.png scale_log_expected.png --log\` |
 | \`arithb/stdif_expected.png\` | BOUNDED-TOL 6 | \`vips stdif eye.png stdif_expected.png 3 3\` (border clip vs mirror — core issue #490) |
 | \`arithb/recomb_expected.png\` | BOUNDED-TOL 1 | \`vips recomb rgb.png recomb_expected.png recomb.mat\` (per-band round vs float — OP_MAP EAC deviation, core issue #491) |
 | \`arithb/premultiply_expected.png\` | BOUNDED-TOL 1 | \`vips premultiply rgba.png premultiply_expected.png\` |
 | \`arithb/unpremultiply_expected.png\` | BOUNDED-TOL 1 | \`vips unpremultiply rgba.png unpremultiply_expected.png\` |
-| \`arithb/math_sin_expected.v\` | EAC (float, eps 1e-6) | \`vips math a.png math_sin_expected.v sin\` |
-| \`arithb/math_cos_expected.v\` | EAC (float, eps 1e-6) | \`vips math a.png math_cos_expected.v cos\` |
-| \`arithb/math_atan_expected.v\` | EAC (float, eps 1e-6) | \`vips math a.png math_atan_expected.v atan\` |
-| \`arithb/math2_atan2_expected.v\` | EAC (float, eps 1e-6) | \`vips math2 a.png b.png math2_atan2_expected.v atan2\` |
+| \`arithb/math_sin_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math a.png math_sin_expected.v sin\` |
+| \`arithb/math_cos_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math a.png math_cos_expected.v cos\` |
+| \`arithb/math_atan_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math a.png math_atan_expected.v atan\` |
+| \`arithb/math_tan_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_tan_expected.v tan\` |
+| \`arithb/math_asin_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_asin_expected.v asin\` |
+| \`arithb/math_acos_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_acos_expected.v acos\` |
+| \`arithb/math_log_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_log_expected.v log\` |
+| \`arithb/math_log10_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_log10_expected.v log10\` |
+| \`arithb/math_exp_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_exp_expected.v exp\` |
+| \`arithb/math_exp10_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_exp10_expected.v exp10\` |
+| \`arithb/math_sinh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_sinh_expected.v sinh\` |
+| \`arithb/math_cosh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_cosh_expected.v cosh\` |
+| \`arithb/math_tanh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_tanh_expected.v tanh\` |
+| \`arithb/math_asinh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_asinh_expected.v asinh\` |
+| \`arithb/math_atanh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_atanh_expected.v atanh\` |
+| \`arithb/math_acosh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math macosh.v math_acosh_expected.v acosh\` |
+| \`arithb/math2_atan2_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math2 a.png b.png math2_atan2_expected.v atan2\` |
 | \`arithb/math2_pow_expected.v\` | BOUNDED-TOL 1 | \`vips math2 small.png small2.png math2_pow_expected.v pow\` (pow(0,0): Rust 1 vs vips 0 — core issue #489) |
+| \`arithb/math2_wop_expected.v\` | BOUNDED-TOL 1 | \`vips math2 small2.png small.png math2_wop_expected.v wop\` (wop = right^left = small^small2; shares the 0^0 edge — core issue #489) |
 | \`arithb/complexform_expected.v\` | FOURIER (eps 1e-6) | \`vips complexform a.png b.png cf_c.v\` then \`vips copy cf_c.v complexform_expected.v --format float --bands 2\` |
 | \`arithb/complex_polar_expected.v\` | FOURIER (eps 1e-6) | \`vips complex cpx_c.v cpol.v polar\` then reinterpret \`--format float --bands 2\` |
 | \`arithb/complex_rect_expected.v\` | FOURIER (eps 1e-6) | \`vips complex cpx_c.v crect.v rect\` then reinterpret |

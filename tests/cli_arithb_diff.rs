@@ -12,11 +12,13 @@
 //! against vips 8.18.4 on the committed inputs (not a class picked to make a
 //! rigged input pass):
 //!
-//! * **EXACT / EAC, tol 0**: `subtract` (float diff, PNG save-cast clips
-//!   negatives), `multiply` (ushort `.v`), `divide` (float `.v`), `minpair`,
-//!   `maxpair`, `sum` (>=3 variadic, ushort `.v`), `relational(_const)`,
-//!   `boolean(_const)`.
-//! * **FOURIER / float, eps 1e-6**: `math` (sin/cos/atan), `math2 atan2`,
+//! * **EXACT / EAC, tol 0**: `subtract` (core saturates at 0; a-b PLUS an a>=b
+//!   case with no clip dead-zone), `multiply` (ushort `.v`), `divide` (float
+//!   `.v`), `minpair`, `maxpair`, `sum` (>=3 variadic, ushort `.v`),
+//!   `relational(_const)` (ALL SIX enum arms), `boolean` (and/or/eor),
+//!   `boolean_const` (and/or/eor/lshift/rshift).
+//! * **FOURIER / float, eps 1e-6**: `math` (ALL SIXTEEN arms — sin/cos/atan on
+//!   a.png, the other 13 on the in-domain float inputs), `math2 atan2`,
 //!   `complexform`, `complex` (polar/rect/conj), `complexget` (real/imag).
 //!   Measured 0 on the committed inputs; the 1e-6 eps is f32-rounding headroom.
 //! * **BOUNDED-TOL** (a genuine, documented core-vs-vips divergence, NOT hidden
@@ -27,11 +29,13 @@
 //!     documented deviation from OP_MAP's EAC prediction (core issue #491).
 //!   - `premultiply` / `unpremultiply`: ≤1 LSB post-cast (vips emits float, core
 //!     rounds into the uchar depth; measured 1).
-//!   - `stdif`: 6 — core CLIPS the sliding window at the image border while vips
-//!     MIRRORS, so a genuinely 2-D input (the `eye` zone-plate) diverges in the
-//!     border ring (interior exact). Measured 6 on eye 3x3. A documented
-//!     edge-handling divergence (core issue #490).
-//!   - `math2 pow`: 1 — the single `pow(0,0)` sample diverges (Rust
+//!   - `stdif`: whole-image 6 — core CLIPS the sliding window at the image border
+//!     while vips MIRRORS, so a genuinely 2-D input (the `eye` zone-plate) diverges
+//!     in the 1px border ring. The INTERIOR is compared separately at tol 0 (1px
+//!     margin cropped) so a flat tol 6 cannot hide an interior regression. Measured
+//!     6 whole-image / 0 interior on eye 3x3. A documented edge-handling divergence
+//!     (core issue #490).
+//!   - `math2 pow` / `math2 wop`: 1 — the single `pow(0,0)` sample diverges (Rust
 //!     `f64::powf(0,0)=1` vs libvips `0`). The 0^0 edge is EXERCISED (base and
 //!     exponent both span 0), not hidden (core issue #489).
 //!
@@ -45,7 +49,9 @@ mod common;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use common::cli::{cli_available, cli_fixture, decode_compare, run_viprs_ok};
+use common::cli::{
+    cli_available, cli_fixture, decode_compare, decode_compare_interior, run_viprs_ok,
+};
 
 use tempfile::TempDir;
 
@@ -65,8 +71,16 @@ const RECOMB_TOL: f64 = 1.0;
 /// `premultiply` / `unpremultiply`: ≤1 LSB post-cast.
 const PREMULT_TOL: f64 = 1.0;
 
-/// `stdif`: border clip-vs-mirror divergence, measured 6 on eye 3x3.
+/// `stdif`: whole-image border clip-vs-mirror divergence, measured 6 on eye 3x3.
 const STDIF_TOL: f64 = 6.0;
+
+/// `stdif` INTERIOR (1px border ring cropped): the "interior is exact" region —
+/// core's clip and vips's mirror agree away from the border. Measured 0.
+const STDIF_INTERIOR_TOL: f64 = 0.0;
+
+/// The 1px border ring is the divergent zone for a 3x3 window; crop it to
+/// isolate the interior-exact comparison (review finding 2).
+const STDIF_BORDER_MARGIN: usize = 1;
 
 /// `math2 pow`: the single `pow(0,0)` sample (Rust 1 vs vips 0).
 const POW_TOL: f64 = 1.0;
@@ -106,6 +120,13 @@ const SMALL2: &str = "arithb/small2.png";
 const EYE: &str = "arithb/eye.png";
 const MAT: &str = "arithb/recomb.mat";
 const CPX_IN: &str = "arithb/complex_in.v";
+/// `a` rotated d90 (vertical ramp, same 0..255 value set): equal to `a` on the
+/// x==y diagonal, so the relational enum arms are non-vacuously discriminated.
+const AVERT: &str = "arithb/avert.png";
+/// Float input in (0.1, 0.95) — in-domain for the transcendental math ops.
+const MSMALL: &str = "arithb/msmall.v";
+/// Float input in [1, 6] — the `acosh` domain (>=1), which `msmall` (<1) cannot cover.
+const MACOSH: &str = "arithb/macosh.v";
 
 /// Convenience: the absolute string path of a committed fixture.
 fn fx(rel: &str) -> String {
@@ -133,6 +154,26 @@ fn subtract_matches_vips_exact() {
     decode_compare(
         &out_path("subtract.png"),
         &cli_fixture("arithb/subtract_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn subtract_pos_matches_vips_exact() {
+    if skip_if_no_cli("subtract_pos") {
+        return;
+    }
+    // a - small: a (horizontal ramp 0..255) >= small (horizontal ramp 0..15) at
+    // EVERY pixel, so the difference is non-negative across the whole image — no
+    // clip dead-zone. The a-b case pins ~half the pixels at 0 (both core and vips
+    // saturate a<b to 0; core's try_sub itself saturates, so a .v carrier could
+    // not recover them), leaving that region unable to distinguish a bug. This
+    // case exercises the full subtraction range (review finding 4).
+    let out = op("subtract_pos.png");
+    run_viprs_ok(&["subtract", &fx(A), &fx(SMALL), &out]);
+    decode_compare(
+        &out_path("subtract_pos.png"),
+        &cli_fixture("arithb/subtract_pos_expected.png"),
         EXACT,
     );
 }
@@ -264,6 +305,131 @@ fn relational_const_more_matches_vips_exact() {
     );
 }
 
+// The remaining four relational arms on (a, avert): avert = a rotated d90, so
+// equality holds on the x==y diagonal (16 pixels). A non-empty equality set makes
+// each arm distinct — lesseq != less, moreeq != more, equal != noteq — so a
+// dispatch swap in any of these arms fails (review finding 1).
+
+#[test]
+fn relational_equal_matches_vips_exact() {
+    if skip_if_no_cli("relational_equal") {
+        return;
+    }
+    let out = op("relational_equal.png");
+    run_viprs_ok(&["relational", &fx(A), &fx(AVERT), &out, "equal"]);
+    decode_compare(
+        &out_path("relational_equal.png"),
+        &cli_fixture("arithb/relational_equal_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn relational_noteq_matches_vips_exact() {
+    if skip_if_no_cli("relational_noteq") {
+        return;
+    }
+    let out = op("relational_noteq.png");
+    run_viprs_ok(&["relational", &fx(A), &fx(AVERT), &out, "noteq"]);
+    decode_compare(
+        &out_path("relational_noteq.png"),
+        &cli_fixture("arithb/relational_noteq_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn relational_lesseq_matches_vips_exact() {
+    if skip_if_no_cli("relational_lesseq") {
+        return;
+    }
+    // Differs from `less` exactly on the equality diagonal — a lesseq<->less swap
+    // is caught here.
+    let out = op("relational_lesseq.png");
+    run_viprs_ok(&["relational", &fx(A), &fx(AVERT), &out, "lesseq"]);
+    decode_compare(
+        &out_path("relational_lesseq.png"),
+        &cli_fixture("arithb/relational_lesseq_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn relational_moreeq_matches_vips_exact() {
+    if skip_if_no_cli("relational_moreeq") {
+        return;
+    }
+    // Differs from `more` exactly on the equality diagonal — a moreeq<->more swap
+    // is caught here.
+    let out = op("relational_moreeq.png");
+    run_viprs_ok(&["relational", &fx(A), &fx(AVERT), &out, "moreeq"]);
+    decode_compare(
+        &out_path("relational_moreeq.png"),
+        &cli_fixture("arithb/relational_moreeq_expected.png"),
+        EXACT,
+    );
+}
+
+// The remaining four relational_const arms against C=7 on small.png (samples are
+// EXACTLY 0..15, so `== 7` is a non-empty column): lesseq != less, equal != noteq
+// (review finding 1).
+
+#[test]
+fn relational_const_equal_matches_vips_exact() {
+    if skip_if_no_cli("relational_const_equal") {
+        return;
+    }
+    let out = op("relational_const_equal.png");
+    run_viprs_ok(&["relational_const", &fx(SMALL), &out, "equal", "7"]);
+    decode_compare(
+        &out_path("relational_const_equal.png"),
+        &cli_fixture("arithb/relational_const_equal_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn relational_const_noteq_matches_vips_exact() {
+    if skip_if_no_cli("relational_const_noteq") {
+        return;
+    }
+    let out = op("relational_const_noteq.png");
+    run_viprs_ok(&["relational_const", &fx(SMALL), &out, "noteq", "7"]);
+    decode_compare(
+        &out_path("relational_const_noteq.png"),
+        &cli_fixture("arithb/relational_const_noteq_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn relational_const_lesseq_matches_vips_exact() {
+    if skip_if_no_cli("relational_const_lesseq") {
+        return;
+    }
+    let out = op("relational_const_lesseq.png");
+    run_viprs_ok(&["relational_const", &fx(SMALL), &out, "lesseq", "7"]);
+    decode_compare(
+        &out_path("relational_const_lesseq.png"),
+        &cli_fixture("arithb/relational_const_lesseq_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn relational_const_moreeq_matches_vips_exact() {
+    if skip_if_no_cli("relational_const_moreeq") {
+        return;
+    }
+    let out = op("relational_const_moreeq.png");
+    run_viprs_ok(&["relational_const", &fx(SMALL), &out, "moreeq", "7"]);
+    decode_compare(
+        &out_path("relational_const_moreeq.png"),
+        &cli_fixture("arithb/relational_const_moreeq_expected.png"),
+        EXACT,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // boolean / boolean_const — enum variants (and the const shift path).
 // ---------------------------------------------------------------------------
@@ -325,6 +491,66 @@ fn boolean_const_lshift_matches_vips_exact() {
     );
 }
 
+#[test]
+fn boolean_or_matches_vips_exact() {
+    if skip_if_no_cli("boolean_or") {
+        return;
+    }
+    // The third boolean arm (and|or|eor) — an or<->and/eor swap is caught since
+    // all three are now tested (review finding 1).
+    let out = op("boolean_or.png");
+    run_viprs_ok(&["boolean", &fx(A), &fx(B), &out, "or"]);
+    decode_compare(
+        &out_path("boolean_or.png"),
+        &cli_fixture("arithb/boolean_or_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn boolean_const_or_matches_vips_exact() {
+    if skip_if_no_cli("boolean_const_or") {
+        return;
+    }
+    let out = op("boolean_const_or.png");
+    run_viprs_ok(&["boolean_const", &fx(A), &out, "or", "200"]);
+    decode_compare(
+        &out_path("boolean_const_or.png"),
+        &cli_fixture("arithb/boolean_const_or_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn boolean_const_eor_matches_vips_exact() {
+    if skip_if_no_cli("boolean_const_eor") {
+        return;
+    }
+    let out = op("boolean_const_eor.png");
+    run_viprs_ok(&["boolean_const", &fx(A), &out, "eor", "200"]);
+    decode_compare(
+        &out_path("boolean_const_eor.png"),
+        &cli_fixture("arithb/boolean_const_eor_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn boolean_const_rshift_matches_vips_exact() {
+    if skip_if_no_cli("boolean_const_rshift") {
+        return;
+    }
+    // The SECOND shift arm (a >> 2). With lshift also tested, an rshift-maps-to-
+    // lshift bug fails (review finding 1).
+    let out = op("boolean_const_rshift.png");
+    run_viprs_ok(&["boolean_const", &fx(A), &out, "rshift", "2"]);
+    decode_compare(
+        &out_path("boolean_const_rshift.png"),
+        &cli_fixture("arithb/boolean_const_rshift_expected.png"),
+        EXACT,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Windowed: scale (--log flag path) / stdif / recomb / (un)premultiply.
 // ---------------------------------------------------------------------------
@@ -376,6 +602,26 @@ fn stdif_matches_vips_bounded_tol() {
 }
 
 #[test]
+fn stdif_interior_matches_vips_exact() {
+    if skip_if_no_cli("stdif_interior") {
+        return;
+    }
+    // The whole-image tol-6 case above absorbs the border clip-vs-mirror
+    // divergence, but a flat tol 6 would also hide an INTERIOR regression up to 6
+    // raw units. This case crops the 1px border ring (the divergent zone for a
+    // 3x3 window) and holds the interior to tol 0 — restoring the "interior is
+    // exact" guarantee the module header claims (review finding 2). Measured 0.
+    let out = op("stdif_interior.png");
+    run_viprs_ok(&["stdif", &fx(EYE), &out, "3", "3"]);
+    decode_compare_interior(
+        &out_path("stdif_interior.png"),
+        &cli_fixture("arithb/stdif_expected.png"),
+        STDIF_BORDER_MARGIN,
+        STDIF_INTERIOR_TOL,
+    );
+}
+
+#[test]
 fn recomb_matches_vips_bounded_tol() {
     if skip_if_no_cli("recomb") {
         return;
@@ -421,7 +667,11 @@ fn unpremultiply_matches_vips_bounded_tol() {
 }
 
 // ---------------------------------------------------------------------------
-// Math (float → .v): math (sin/cos/atan) / math2 (atan2/pow).
+// Math (float → .v): ALL 16 math arms + all 3 math2 arms (review finding 1).
+// sin/cos/atan on a.png (degrees, defined over 0..255); the other 13 on the
+// in-domain float inputs (msmall in (0.1,0.95); macosh in [1,6] for acosh).
+// Each arm has its OWN vips reference, so a log<->log10, exp<->exp10 or
+// sinh<->cosh dispatch swap fails. Measured max-abs-diff 0 for all math arms.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -467,6 +717,42 @@ fn math_atan_matches_vips_float() {
 }
 
 #[test]
+fn math_remaining_thirteen_arms_match_vips_float() {
+    if skip_if_no_cli("math_remaining") {
+        return;
+    }
+    // The 13 math arms sin/cos/atan do NOT cover — each compared against its own
+    // vips reference so a copy-paste dispatch swap (log<->log10, exp<->exp10,
+    // sinh<->cosh, …) fails (review finding 1). tan/asin/acos/log/log10/exp/exp10/
+    // sinh/cosh/tanh/asinh/atanh run on msmall (0.1..0.95, in-domain and O(1));
+    // acosh runs on macosh (>=1). All measured 0; FLOAT_EPS is f32 headroom.
+    let cases: &[(&str, &str)] = &[
+        ("tan", MSMALL),
+        ("asin", MSMALL),
+        ("acos", MSMALL),
+        ("log", MSMALL),
+        ("log10", MSMALL),
+        ("exp", MSMALL),
+        ("exp10", MSMALL),
+        ("sinh", MSMALL),
+        ("cosh", MSMALL),
+        ("tanh", MSMALL),
+        ("asinh", MSMALL),
+        ("atanh", MSMALL),
+        ("acosh", MACOSH),
+    ];
+    for (opname, input) in cases {
+        let out = op(&format!("math_{opname}.v"));
+        run_viprs_ok(&["math", &fx(input), &out, opname]);
+        decode_compare(
+            &out_path(&format!("math_{opname}.v")),
+            &cli_fixture(&format!("arithb/math_{opname}_expected.v")),
+            FLOAT_EPS,
+        );
+    }
+}
+
+#[test]
 fn math2_atan2_matches_vips_float() {
     if skip_if_no_cli("math2_atan2") {
         return;
@@ -493,6 +779,24 @@ fn math2_pow_matches_vips_bounded_tol() {
     decode_compare(
         &out_path("math2_pow.v"),
         &cli_fixture("arithb/math2_pow_expected.v"),
+        POW_TOL,
+    );
+}
+
+#[test]
+fn math2_wop_matches_vips_bounded_tol() {
+    if skip_if_no_cli("math2_wop") {
+        return;
+    }
+    // The third math2 arm. wop = right^left, so `math2 small2 small wop` =
+    // small^small2 (same magnitude as pow) and shares the pow(0,0) edge at x=0
+    // (Rust f64::powf(0,0)=1 vs libvips 0 → tol 1, core issue #489). A pow<->wop
+    // swap is caught since both are tested (review finding 1).
+    let out = op("math2_wop.v");
+    run_viprs_ok(&["math2", &fx(SMALL2), &fx(SMALL), &out, "wop"]);
+    decode_compare(
+        &out_path("math2_wop.v"),
+        &cli_fixture("arithb/math2_wop_expected.v"),
         POW_TOL,
     );
 }
