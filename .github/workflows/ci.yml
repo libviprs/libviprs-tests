@@ -117,6 +117,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --features ${{ matrix.feature }} -- -D warnings
 
+  cli-differential:
+    name: CLI Differential (morphology)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The CLI-differential harness (tests/common/cli.rs) builds and runs the
+      # `viprs` binary from the libviprs-cli sibling, so BOTH counterparts must
+      # be laid down: the core crate (libviprs-cli depends on it by path) at
+      # COUNTERPART_REV, then libviprs-cli itself at CLI_COUNTERPART_REV.
+      - uses: ./.github/actions/clone-counterpart
+      - uses: ./.github/actions/clone-cli-counterpart
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # No libvips and no pdfium are installed here: the vips references are
+      # committed under tests/fixtures/cli/ (regenerated offline by
+      # tools/gen_cli_expected.sh), and the harness builds the CLI
+      # `--no-default-features` and only exercises morphology ops, which never
+      # touch a PDF path. If the sibling checkout were absent the cell would
+      # skip with a clear message rather than fail (CLI_CONTRACT.md §7).
+      - run: cargo test --test cli_morphology_diff
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

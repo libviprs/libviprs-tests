@@ -1,0 +1,32 @@
+# Pinned revision of the SECOND cross-repo counterpart: libviprs/libviprs-cli
+# (the `viprs` CLI binary the vips-differential suite builds and runs).
+#
+# This is the sibling of COUNTERPART_REV. COUNTERPART_REV pins the core
+# `libviprs` crate this suite depends on as a path-dependency; CLI_COUNTERPART_REV
+# pins the `libviprs-cli` crate the CLI-DIFFERENTIAL harness (tests/common/cli.rs)
+# shells out to. The morphology differential cell (tests/cli_morphology_diff.rs)
+# runs `viprs <op> ...` on a committed input and decode-compares its output
+# against committed vips 8.18.4 references, so it must build the CLI at a
+# KNOWN revision — not "whatever happens to be checked out".
+#
+# CI behaviour: the `cli-differential` job checks libviprs-cli out at EXACTLY
+# this commit next to the core checkout (../libviprs-cli), the same
+# no-branch-guessing / no-silent-fallback discipline COUNTERPART_REV enforces
+# for core (issue #58). The first non-comment, non-blank line below is the
+# authoritative 40-char SHA; the trailing comment is a human label only.
+#
+# LOCAL behaviour: a local run does NOT clone. tests/common/cli.rs builds
+# whatever `../libviprs-cli` (or $VIPRS_CLI_DIR) physically is, and honours a
+# pre-built `$VIPRS_BIN` override. So on a developer machine the harness tests
+# the working tree of the sibling CLI, and this pin only governs CI.
+#
+# Four-repo pin-bump order (CLI_CONTRACT.md §7): core -> cli -> org -> tests.
+# To bump: set this to a libviprs-cli commit SHA, rerun
+# `cargo test --test cli_morphology_diff` against the sibling checkout, and
+# update the label comment below.
+#
+# libviprs-cli main @ 5adaee4 — the Wave-1 morphology reference family
+# (morph/rank/countlines/labelregions) + shared io.rs save-cast + matfile
+# loader + __dump-commands. This is the command surface the morphology
+# differential cell exercises.
+5adaee49291b940399271279fad920f6b725ecbe
