@@ -307,6 +307,109 @@ pub fn decode_compare(actual: &Path, expected: &Path, tol: f64) {
     );
 }
 
+/// Like [`decode_compare`], but ignores a `margin`-pixel border ring on every
+/// side, comparing only the interior rectangle.
+///
+/// This isolates an op whose ONLY core-vs-vips divergence is edge handling
+/// (e.g. `stdif`, where the core CLIPS the sliding window at the image border
+/// while vips MIRRORS): the border ring is compared separately at the wider
+/// documented tolerance, while the interior is held to the strict `tol` the
+/// "interior is exact" claim demands — so an interior regression that a flat
+/// whole-image tolerance would absorb still fails. Same dimension / band-count /
+/// format-class assertions as [`decode_compare`]; panics with a diagnostic diff.
+pub fn decode_compare_interior(actual: &Path, expected: &Path, margin: usize, tol: f64) {
+    let a = decode(actual);
+    let e = decode(expected);
+
+    assert_eq!(
+        (a.width(), a.height()),
+        (e.width(), e.height()),
+        "dimension mismatch: actual {}={}x{}, expected {}={}x{}",
+        actual.display(),
+        a.width(),
+        a.height(),
+        expected.display(),
+        e.width(),
+        e.height(),
+    );
+    assert_eq!(
+        a.format().channels(),
+        e.format().channels(),
+        "band-count mismatch: actual {:?} vs expected {:?}",
+        a.format(),
+        e.format(),
+    );
+    assert_eq!(
+        (a.format().is_float(), a.format().bytes_per_channel()),
+        (e.format().is_float(), e.format().bytes_per_channel()),
+        "format-class mismatch: actual {:?} vs expected {:?}",
+        a.format(),
+        e.format(),
+    );
+    assert!(
+        a.width() as usize > 2 * margin && a.height() as usize > 2 * margin,
+        "interior margin {margin} leaves no interior for a {}x{} image",
+        a.width(),
+        a.height(),
+    );
+
+    let diff = max_abs_diff_interior(&a, &e, margin);
+    assert!(
+        diff <= tol,
+        "interior sample mismatch (margin {margin}): max-abs-diff {diff} > tol {tol}\n  \
+         actual   = {}\n  expected = {}\n  format = {:?}",
+        actual.display(),
+        expected.display(),
+        a.format(),
+    );
+}
+
+/// Max per-sample absolute difference over the interior of two rasters,
+/// excluding a `margin`-pixel border ring on every side. Mirrors
+/// [`max_abs_diff`]'s sample decoding.
+pub fn max_abs_diff_interior(a: &Raster, b: &Raster, margin: usize) -> f64 {
+    let bpc = a.format().bytes_per_channel();
+    let chans = a.format().channels();
+    let (as_, bs_) = (a.stride(), b.stride());
+    let (ad, bd) = (a.data(), b.data());
+    let (w, h) = (a.width() as usize, a.height() as usize);
+    let mut max = 0.0_f64;
+    for y in margin..h.saturating_sub(margin) {
+        for x in margin..w.saturating_sub(margin) {
+            for c in 0..chans {
+                let s = x * chans + c;
+                let (ao, bo) = (y * as_ + s * bpc, y * bs_ + s * bpc);
+                let (av, bv) = match (a.format().is_float(), bpc) {
+                    (false, 1) => (f64::from(ad[ao]), f64::from(bd[bo])),
+                    (false, 2) => (
+                        f64::from(u16::from_ne_bytes([ad[ao], ad[ao + 1]])),
+                        f64::from(u16::from_ne_bytes([bd[bo], bd[bo + 1]])),
+                    ),
+                    (true, 4) => (
+                        f64::from(f32::from_ne_bytes([
+                            ad[ao],
+                            ad[ao + 1],
+                            ad[ao + 2],
+                            ad[ao + 3],
+                        ])),
+                        f64::from(f32::from_ne_bytes([
+                            bd[bo],
+                            bd[bo + 1],
+                            bd[bo + 2],
+                            bd[bo + 3],
+                        ])),
+                    ),
+                    (f, n) => {
+                        panic!("unsupported sample class (is_float={f}, bytes_per_channel={n})")
+                    }
+                };
+                max = max.max((av - bv).abs());
+            }
+        }
+    }
+    max
+}
+
 /// Max per-sample absolute difference between two rasters of identical
 /// dimensions / band-count / format-class (see [`decode_compare`]). Reads
 /// samples as `u8`, `u16` (native-endian), or `f32` per byte depth, honouring

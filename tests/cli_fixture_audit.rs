@@ -467,6 +467,135 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "resample/thumbnail_crop_expected.png",
     "resample/thumbnail_linear_expected.png",
     "resample/thumbnail_image_expected.png",
+    // ---- aritha family (cli_aritha_diff.rs) — arith part-A lane ----
+    // Common inputs: agray (Gray8 ramp), afloat (float crossing zero, for
+    // abs/sign/round), content/content2 (find_trim), pzero (profile), point
+    // (the two hough golden pins).
+    "aritha/agray.png",
+    "aritha/afloat.v",
+    "aritha/content.png",
+    "aritha/content2.png",
+    "aritha/pzero.png",
+    "aritha/point.png",
+    // S3 scalars (numeric compare): avg/deviate + min/max (+ --x --y position).
+    "aritha/avg_expected.txt",
+    "aritha/deviate_expected.txt",
+    "aritha/min_expected.txt",
+    "aritha/max_expected.txt",
+    "aritha/min_xy_expected.txt",
+    "aritha/max_xy_expected.txt",
+    // find_trim: default (white bg) + --background 0 (black bg), 4 ints each.
+    "aritha/find_trim_expected.txt",
+    "aritha/find_trim_bg_expected.txt",
+    // stats/measure: float matrix .v (vips double cast to float; stats cropped
+    // to the 6 core columns).
+    "aritha/stats_expected.v",
+    "aritha/measure_expected.v",
+    // profile/project: ushort .v two-output pairs.
+    "aritha/profile_cols_expected.v",
+    "aritha/profile_rows_expected.v",
+    "aritha/project_cols_expected.v",
+    "aritha/project_rows_expected.v",
+    // const/linear: float linear + uchar linear + remainder + pow.
+    "aritha/linear_expected.v",
+    "aritha/linear_uchar_expected.png",
+    "aritha/remainder_const_expected.png",
+    "aritha/math2_const_pow_expected.v",
+    // unary/rounding on float: abs/sign + round ceil/floor (EXACT vips oracle);
+    // round rint is GOLDEN-ONLY (viprs regression pin — the core half-rounding
+    // rule diverges from vips; see cli_aritha_diff.rs).
+    "aritha/abs_expected.v",
+    "aritha/sign_expected.v",
+    "aritha/round_ceil_expected.v",
+    "aritha/round_floor_expected.v",
+    "aritha/round_rint_golden.v",
+    // clamp (uchar).
+    "aritha/clamp_expected.png",
+    // hough: GOLDEN-ONLY viprs regression pins (no vips oracle — the core Hough
+    // numerics diverge structurally from vips; see cli_aritha_diff.rs).
+    "aritha/hough_line_golden.v",
+    "aritha/hough_circle_golden.v",
+    // ---- arithmetic part-B (cli_arithb_diff.rs) ----
+    // Common inputs: a/b/c Gray8 ramps, rgb/rgba, small/small2 (pow 0^0),
+    // eye (2-D stdif), the recomb matrix, and the 2-band-float complex input.
+    "arithb/a.png",
+    "arithb/b.png",
+    "arithb/c.png",
+    "arithb/rgb.png",
+    "arithb/rgba.png",
+    "arithb/small.png",
+    "arithb/small2.png",
+    "arithb/eye.png",
+    "arithb/avert.png",
+    "arithb/msmall.v",
+    "arithb/macosh.v",
+    "arithb/recomb.mat",
+    "arithb/complex_in.v",
+    // Binary: subtract (PNG) + a>=b full-range case, multiply/divide (.v),
+    // minpair/maxpair (PNG).
+    "arithb/subtract_expected.png",
+    "arithb/subtract_pos_expected.png",
+    "arithb/multiply_expected.v",
+    "arithb/divide_expected.v",
+    "arithb/minpair_expected.png",
+    "arithb/maxpair_expected.png",
+    // sum (>=3 variadic, ushort .v).
+    "arithb/sum_expected.v",
+    // relational / relational_const (ALL SIX enum arms each).
+    "arithb/relational_more_expected.png",
+    "arithb/relational_less_expected.png",
+    "arithb/relational_equal_expected.png",
+    "arithb/relational_noteq_expected.png",
+    "arithb/relational_lesseq_expected.png",
+    "arithb/relational_moreeq_expected.png",
+    "arithb/relational_const_more_expected.png",
+    "arithb/relational_const_equal_expected.png",
+    "arithb/relational_const_noteq_expected.png",
+    "arithb/relational_const_lesseq_expected.png",
+    "arithb/relational_const_moreeq_expected.png",
+    // boolean (and/or/eor) / boolean_const (and/or/eor/lshift/rshift).
+    "arithb/boolean_eor_expected.png",
+    "arithb/boolean_and_expected.png",
+    "arithb/boolean_or_expected.png",
+    "arithb/boolean_const_and_expected.png",
+    "arithb/boolean_const_or_expected.png",
+    "arithb/boolean_const_eor_expected.png",
+    "arithb/boolean_const_lshift_expected.png",
+    "arithb/boolean_const_rshift_expected.png",
+    // Windowed: scale (linear + log), stdif, recomb, (un)premultiply.
+    "arithb/scale_expected.png",
+    "arithb/scale_log_expected.png",
+    "arithb/stdif_expected.png",
+    "arithb/recomb_expected.png",
+    "arithb/premultiply_expected.png",
+    "arithb/unpremultiply_expected.png",
+    // Math (float .v): ALL 16 math arms + math2 atan2/pow/wop.
+    "arithb/math_sin_expected.v",
+    "arithb/math_cos_expected.v",
+    "arithb/math_atan_expected.v",
+    "arithb/math_tan_expected.v",
+    "arithb/math_asin_expected.v",
+    "arithb/math_acos_expected.v",
+    "arithb/math_log_expected.v",
+    "arithb/math_log10_expected.v",
+    "arithb/math_exp_expected.v",
+    "arithb/math_exp10_expected.v",
+    "arithb/math_sinh_expected.v",
+    "arithb/math_cosh_expected.v",
+    "arithb/math_tanh_expected.v",
+    "arithb/math_asinh_expected.v",
+    "arithb/math_atanh_expected.v",
+    "arithb/math_acosh_expected.v",
+    "arithb/math2_atan2_expected.v",
+    "arithb/math2_pow_expected.v",
+    "arithb/math2_wop_expected.v",
+    // Complex (FOURIER float band-pairs .v): complexform, complex, complexget.
+    "arithb/complexform_expected.v",
+    "arithb/complex_polar_expected.v",
+    "arithb/complex_rect_expected.v",
+    "arithb/complex_conj_expected.v",
+    "arithb/complexget_real_expected.v",
+    "arithb/complexget_imag_expected.v",
 ];
 
 #[test]
