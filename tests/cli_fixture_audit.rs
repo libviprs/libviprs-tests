@@ -204,6 +204,17 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "composite/composite2_difference_expected.png",
     "composite/composite2_exclusion_expected.png",
     "composite/composite2_colourdodge_expected.png",
+    // Remaining 9 modes on OPAQUE inputs (real vips oracle, tol 1) — every one of
+    // the 25 VipsBlendMode spellings is discriminated, closing the wiring hole.
+    "composite/composite2_clear_expected.png",
+    "composite/composite2_out_expected.png",
+    "composite/composite2_dest_expected.png",
+    "composite/composite2_dest_in_expected.png",
+    "composite/composite2_dest_out_expected.png",
+    "composite/composite2_dest_atop_expected.png",
+    "composite/composite2_lighten_expected.png",
+    "composite/composite2_colourburn_expected.png",
+    "composite/composite2_softlight_expected.png",
     // GOLDEN-ONLY translucent divergence pins (viprs-generated, no vips oracle).
     "composite/composite2_multiply_translucent_golden.png",
     "composite/composite2_atop_translucent_golden.png",

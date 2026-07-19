@@ -9,8 +9,8 @@
 //! morphology reference cells exactly, including the skip-guard /
 //! `VIPRS_REQUIRE_CLI` discipline.
 //!
-//! # Honest oracle split (a measured core-vs-vips divergence — see the wave
-//! report open question)
+//! # Honest oracle split (a measured core-vs-vips divergence — tracked as a
+//! filed GitHub issue, not a comment-only open question)
 //!
 //! The core op (`try_composite2`) blends exactly two images with one blend mode;
 //! both vips nicknames (`composite` array form, `composite2` pair form) map onto
@@ -30,12 +30,19 @@
 //!   **translucent** inputs (real oracle, arbitrary alpha, tol 1).
 //! * PDF separable blends are cross-checked against vips on the **opaque**
 //!   inputs (real oracle, non-vacuous blend-function coverage, tol 1).
+//! * The remaining nine modes (clear/out/dest/dest-in/dest-out/dest-atop/
+//!   lighten/colour-burn/soft-light) are cross-checked against vips on the
+//!   **opaque** inputs (tol 1) so that every one of the 25 VipsBlendMode
+//!   spellings is discriminated against a real vips oracle — a mode->variant
+//!   mis-wiring cannot pass CI unnoticed.
 //! * The translucent divergence is captured separately as **GOLDEN-ONLY**
 //!   `viprs` regression pins (multiply/atop/saturate on the translucent inputs):
 //!   there is NO cross-oracle for translucent blend compositing, so the
 //!   reference is `viprs`-generated (deterministic) and the test is a regression
 //!   pin recording the measured vips divergence (the smartcrop-entropy
-//!   GOLDEN-ONLY precedent).
+//!   GOLDEN-ONLY precedent). This divergence is tracked as a filed GitHub issue,
+//!   NOT a comment-only open question; a core translucent-blend fix that lands
+//!   requires REGENERATING these pins, not reverting.
 //!
 //! The four core-only non-separable modes (hue/saturation/colour/luminosity)
 //! have no vips oracle and are not exposed by the CLI; the error-case tests pin
@@ -356,12 +363,154 @@ fn composite2_colourdodge_opaque_matches_vips_bounded_tol() {
 }
 
 // ---------------------------------------------------------------------------
+// composite2 — the remaining 9 modes on OPAQUE RGB (real vips oracle, tol 1).
+// These close the mode->CompositeMode wiring hole: with the 8 PDF/Porter-Duff
+// modes above they make every one of the 25 VipsBlendMode spellings discriminated
+// against a real vips oracle, so a swap to a valid-but-wrong variant (e.g.
+// lighten->Darken, colour-burn->ColourDodge, out->In) fails CI instead of passing
+// unnoticed. All nine agree with vips ≤1 LSB on opaque inputs (measured: clear/
+// out/dest/dest-in/dest-out/dest-atop/lighten = 0, colour-burn/soft-light = 1).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn composite2_clear_opaque_matches_vips_bounded_tol() {
+    if skip_if_no_cli("composite2_clear") {
+        return;
+    }
+    let out = out_path("c2_clear.png");
+    run_composite2(BASE_OP, OVERLAY_OP, &out, "clear");
+    decode_compare(
+        &out,
+        &cli_fixture("composite/composite2_clear_expected.png"),
+        BOUNDED_TOL,
+    );
+}
+
+#[test]
+fn composite2_out_opaque_matches_vips_bounded_tol() {
+    if skip_if_no_cli("composite2_out") {
+        return;
+    }
+    let out = out_path("c2_out.png");
+    run_composite2(BASE_OP, OVERLAY_OP, &out, "out");
+    decode_compare(
+        &out,
+        &cli_fixture("composite/composite2_out_expected.png"),
+        BOUNDED_TOL,
+    );
+}
+
+#[test]
+fn composite2_dest_opaque_matches_vips_bounded_tol() {
+    if skip_if_no_cli("composite2_dest") {
+        return;
+    }
+    let out = out_path("c2_dest.png");
+    run_composite2(BASE_OP, OVERLAY_OP, &out, "dest");
+    decode_compare(
+        &out,
+        &cli_fixture("composite/composite2_dest_expected.png"),
+        BOUNDED_TOL,
+    );
+}
+
+#[test]
+fn composite2_dest_in_opaque_matches_vips_bounded_tol() {
+    if skip_if_no_cli("composite2_dest_in") {
+        return;
+    }
+    let out = out_path("c2_dest_in.png");
+    run_composite2(BASE_OP, OVERLAY_OP, &out, "dest-in");
+    decode_compare(
+        &out,
+        &cli_fixture("composite/composite2_dest_in_expected.png"),
+        BOUNDED_TOL,
+    );
+}
+
+#[test]
+fn composite2_dest_out_opaque_matches_vips_bounded_tol() {
+    if skip_if_no_cli("composite2_dest_out") {
+        return;
+    }
+    let out = out_path("c2_dest_out.png");
+    run_composite2(BASE_OP, OVERLAY_OP, &out, "dest-out");
+    decode_compare(
+        &out,
+        &cli_fixture("composite/composite2_dest_out_expected.png"),
+        BOUNDED_TOL,
+    );
+}
+
+#[test]
+fn composite2_dest_atop_opaque_matches_vips_bounded_tol() {
+    if skip_if_no_cli("composite2_dest_atop") {
+        return;
+    }
+    let out = out_path("c2_dest_atop.png");
+    run_composite2(BASE_OP, OVERLAY_OP, &out, "dest-atop");
+    decode_compare(
+        &out,
+        &cli_fixture("composite/composite2_dest_atop_expected.png"),
+        BOUNDED_TOL,
+    );
+}
+
+#[test]
+fn composite2_lighten_opaque_matches_vips_bounded_tol() {
+    if skip_if_no_cli("composite2_lighten") {
+        return;
+    }
+    let out = out_path("c2_lighten.png");
+    run_composite2(BASE_OP, OVERLAY_OP, &out, "lighten");
+    decode_compare(
+        &out,
+        &cli_fixture("composite/composite2_lighten_expected.png"),
+        BOUNDED_TOL,
+    );
+}
+
+#[test]
+fn composite2_colourburn_opaque_matches_vips_bounded_tol() {
+    if skip_if_no_cli("composite2_colourburn") {
+        return;
+    }
+    let out = out_path("c2_colourburn.png");
+    run_composite2(BASE_OP, OVERLAY_OP, &out, "colour-burn");
+    decode_compare(
+        &out,
+        &cli_fixture("composite/composite2_colourburn_expected.png"),
+        BOUNDED_TOL,
+    );
+}
+
+#[test]
+fn composite2_softlight_opaque_matches_vips_bounded_tol() {
+    if skip_if_no_cli("composite2_softlight") {
+        return;
+    }
+    let out = out_path("c2_softlight.png");
+    run_composite2(BASE_OP, OVERLAY_OP, &out, "soft-light");
+    decode_compare(
+        &out,
+        &cli_fixture("composite/composite2_softlight_expected.png"),
+        BOUNDED_TOL,
+    );
+}
+
+// ---------------------------------------------------------------------------
 // GOLDEN-ONLY translucent divergence pins (NO vips oracle). On the translucent
 // inputs these modes diverge WHOLESALE from vips (measured max-abs-diff:
 // multiply 38, atop 191, saturate 37 — a different translucent blend-composite
 // formula, not a tolerance). The reference is viprs-generated; the test pins the
 // core's current translucent behaviour so a regression is caught, and EXPOSES
-// the divergence (filed as an open question) rather than hiding it.
+// the divergence (tracked as a filed GitHub issue) rather than hiding it.
+//
+// IMPORTANT — these are NOT "known-good vs vips" pins. If a future core change
+// ALIGNS the translucent blend-composite formula with libvips, these three tests
+// WILL fail. That failure is EXPECTED and correct: REGENERATE the goldens
+// (`tools/gen_cli_expected.sh`) and re-bless them (and promote them to real
+// vips-oracle differentials) — do NOT revert the core change to make them pass.
 // ---------------------------------------------------------------------------
 
 #[test]

@@ -353,8 +353,15 @@ libvips'. Accordingly:
   non-vacuous blend-function coverage, tol 1).
 - The translucent divergence is pinned separately as **GOLDEN-ONLY** `viprs`
   regression pins (multiply/atop/saturate on the translucent inputs) — there is
-  no cross-oracle for translucent blend compositing. See the open question about
-  aligning the core's translucent blend-composite formula with libvips.
+  no cross-oracle for translucent blend compositing. This is tracked as a filed
+  GitHub issue (aligning the core's translucent blend-composite formula with
+  libvips), NOT a comment-only open question. If a core translucent-blend fix
+  lands, these pins are EXPECTED to fail: REGENERATE and re-bless them, do not
+  revert the core change.
+- The remaining nine modes (clear/out/dest/dest-in/dest-out/dest-atop/lighten/
+  colour-burn/soft-light) are pinned on the **opaque** inputs (real vips oracle,
+  tol 1) so that every one of the 25 `VipsBlendMode` spellings is discriminated
+  against vips — a mode->variant mis-wiring cannot pass CI unnoticed.
 
 ## Exact commands
 
@@ -393,9 +400,18 @@ References (paths relative to `tests/fixtures/cli/`):
 | `composite/composite2_difference_expected.png`  | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_difference_expected.png difference` |
 | `composite/composite2_exclusion_expected.png`   | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_exclusion_expected.png exclusion` |
 | `composite/composite2_colourdodge_expected.png` | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_colourdodge_expected.png colour-dodge` |
-| `composite/composite2_multiply_translucent_golden.png` | GOLDEN-ONLY | `viprs composite2 base.png overlay.png composite2_multiply_translucent_golden.png multiply` (NO vips oracle — translucent divergence ~38) |
-| `composite/composite2_atop_translucent_golden.png`     | GOLDEN-ONLY | `viprs composite2 base.png overlay.png composite2_atop_translucent_golden.png atop` (NO vips oracle — translucent divergence ~191) |
-| `composite/composite2_saturate_translucent_golden.png` | GOLDEN-ONLY | `viprs composite2 base.png overlay.png composite2_saturate_translucent_golden.png saturate` (NO vips oracle — translucent divergence ~37) |
+| `composite/composite2_clear_expected.png`     | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_clear_expected.png clear` |
+| `composite/composite2_out_expected.png`       | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_out_expected.png out` |
+| `composite/composite2_dest_expected.png`      | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_dest_expected.png dest` |
+| `composite/composite2_dest_in_expected.png`   | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_dest_in_expected.png dest-in` |
+| `composite/composite2_dest_out_expected.png`  | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_dest_out_expected.png dest-out` |
+| `composite/composite2_dest_atop_expected.png` | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_dest_atop_expected.png dest-atop` |
+| `composite/composite2_lighten_expected.png`   | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_lighten_expected.png lighten` |
+| `composite/composite2_colourburn_expected.png`| BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_colourburn_expected.png colour-burn` |
+| `composite/composite2_softlight_expected.png` | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_softlight_expected.png soft-light` |
+| `composite/composite2_multiply_translucent_golden.png` | GOLDEN-ONLY | `viprs composite2 base.png overlay.png composite2_multiply_translucent_golden.png multiply` (NO vips oracle — translucent divergence ~38; a core translucent-blend fix requires REGENERATING this pin, not reverting) |
+| `composite/composite2_atop_translucent_golden.png`     | GOLDEN-ONLY | `viprs composite2 base.png overlay.png composite2_atop_translucent_golden.png atop` (NO vips oracle — translucent divergence ~191; a core translucent-blend fix requires REGENERATING this pin, not reverting) |
+| `composite/composite2_saturate_translucent_golden.png` | GOLDEN-ONLY | `viprs composite2 base.png overlay.png composite2_saturate_translucent_golden.png saturate` (NO vips oracle — translucent divergence ~37; a core translucent-blend fix requires REGENERATING this pin, not reverting) |
 
 Error cases (asserted in `cli_composite_diff.rs`, no vips reference): a size /
 band-count mismatch is a typed exit-1 error; an unknown or core-only
