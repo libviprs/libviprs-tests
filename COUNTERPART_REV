@@ -45,4 +45,4 @@
 # (they never had prior state; the stopgap now refuses resume+dedupe/checksum),
 # and the new resume_dedupe_unsupported / dedupe_deterministic_layout cells
 # build and pass against this counterpart.
-10db4b71a4d95415e665d60d706d30de4f417029
+23bf079651a2305e31c94815c68c5a71b67e0613
