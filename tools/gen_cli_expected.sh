@@ -1118,6 +1118,120 @@ HIST="$FIX_ROOT/histogram"
 mkdir -p "$HIST"
 
 # `viprs` mints the GOLDEN-ONLY references (no vips oracle); build it if absent.
+# MOSAICING FAMILY (Wave-2 mosaicing lane; OP_MAP.md mosaicing section).
+#
+# The same committed inputs feed BOTH this generator (to make the references)
+# and tests/cli_mosaicing_diff.rs (which feeds them to `viprs`). `merge` and
+# `mosaic` are oracle class EXACT (decode-compare tol 0): their integer feather
+# ramp (`merge`) and DISCRETE tie-point search (`mosaic`) must agree with vips
+# bit-for-bit or the whole output diverges — the differential doubles as the pin
+# on that agreement (empirically verified max-abs-diff 0 on these fixtures).
+# `globalbalance` is GOLDEN-ONLY: the core reads the `mosaic-join-tree` metadata
+# blob that only viprs merge/mosaic outputs carry, while vips's globalbalance
+# reads its own filename-based image history — the two channels are mutually
+# unreadable, so there is NO vips cross-oracle. Its input (`balance_input.v`,
+# carrying the blob) is minted by `viprs merge`, and its reference
+# (`balance_expected.v`) by `viprs globalbalance` — a deterministic regression
+# pin (like smartcrop-entropy and autorot).
+#
+# Carriers: `merge`/`mosaic` outputs are 1-band uchar (b-w) → PNG (round-trips).
+# `globalbalance` output is always float → the native `.v` container.
+#
+# vips's CLI parses a bare leading `-` as an option, so a negative `merge` DX/DY
+# is passed after a `--` separator (`vips merge … horizontal -- -28 0`); `viprs`
+# accepts the negative positional directly (clap `allow_negative_numbers`). Both
+# sides therefore see the SAME displacement.
+#
+# `mosaic` needs a LARGE overlap: its tie-point search splits the overlap into 3
+# strips and requires 20 high-contrast 11x11 windows PER strip, so the inputs are
+# ~100x150 (much bigger than the §7 "≤64x64 canonical" guideline — an inherent
+# property of the op, not a fixture-design choice). `vips gaussnoise --seed` is a
+# deterministic high-contrast texture; the committed crops are cut from ONE noise
+# scene so ref/sec share a pixel-exact overlap the correlation locks onto.
+# ===========================================================================
+MOS="$FIX_ROOT/mosaicing"
+mkdir -p "$MOS"
+
+# --- merge inputs: two DIFFERENT 40x32 textures (distinct seeds) so the seam
+#     blend is non-vacuous (a no-blend paste would diverge). ------------------
+echo "==> [mosaicing input] merge_ref / merge_sec (40x32 gaussnoise, distinct seeds)"
+"$VIPS" gaussnoise "$TMP/mg1.v" 40 32 --seed 1 --mean 140 --sigma 45
+"$VIPS" cast "$TMP/mg1.v" "$MOS/merge_ref.png" uchar
+"$VIPS" gaussnoise "$TMP/mg2.v" 40 32 --seed 2 --mean 130 --sigma 45
+"$VIPS" cast "$TMP/mg2.v" "$MOS/merge_sec.png" uchar
+# A 3-band RGB (same geometry) for the format-mismatch error case AND — reused —
+# as the REF of the RGB (multi-band) merge case (adversarial-review finding 1:
+# the committed merge/mosaic fixtures were all single-band Gray8, leaving the
+# multi-band render_merge band-handling path unpinned).
+echo "==> [mosaicing input] merge_rgb (40x32 sRGB) — mismatch SEC + RGB-merge REF"
+"$VIPS" gaussnoise "$TMP/mg3a.v" 40 32 --seed 5 --mean 128 --sigma 45
+"$VIPS" gaussnoise "$TMP/mg3b.v" 40 32 --seed 6 --mean 128 --sigma 45
+"$VIPS" gaussnoise "$TMP/mg3c.v" 40 32 --seed 7 --mean 128 --sigma 45
+"$VIPS" cast "$TMP/mg3a.v" "$TMP/mg3a.png" uchar
+"$VIPS" cast "$TMP/mg3b.v" "$TMP/mg3b.png" uchar
+"$VIPS" cast "$TMP/mg3c.v" "$TMP/mg3c.png" uchar
+"$VIPS" bandjoin "$TMP/mg3a.png $TMP/mg3b.png $TMP/mg3c.png" "$TMP/mrgb.v"
+"$VIPS" copy "$TMP/mrgb.v" "$MOS/merge_rgb.png" --interpretation srgb
+# A second, distinct-seed 40x32 sRGB image = the SEC of the RGB merge case.
+echo "==> [mosaicing input] merge_rgb_sec (40x32 sRGB, distinct seeds) — RGB-merge SEC"
+"$VIPS" gaussnoise "$TMP/ms3a.v" 40 32 --seed 31 --mean 120 --sigma 45
+"$VIPS" gaussnoise "$TMP/ms3b.v" 40 32 --seed 32 --mean 135 --sigma 45
+"$VIPS" gaussnoise "$TMP/ms3c.v" 40 32 --seed 33 --mean 145 --sigma 45
+"$VIPS" cast "$TMP/ms3a.v" "$TMP/ms3a.png" uchar
+"$VIPS" cast "$TMP/ms3b.v" "$TMP/ms3b.png" uchar
+"$VIPS" cast "$TMP/ms3c.v" "$TMP/ms3c.png" uchar
+"$VIPS" bandjoin "$TMP/ms3a.png $TMP/ms3b.png $TMP/ms3c.png" "$TMP/msrgb.v"
+"$VIPS" copy "$TMP/msrgb.v" "$MOS/merge_rgb_sec.png" --interpretation srgb
+
+# --- mosaic HORIZONTAL inputs: two 100x150 crops of a 110x150 noise scene, sec
+#     offset +10 in x (overlap 90x150, exceeds the 3-strip search geometry). ---
+echo "==> [mosaicing input] mosaic_h_ref / mosaic_h_sec (100x150 crops of a 110x150 scene, x-offset 10)"
+"$VIPS" gaussnoise "$TMP/mbh.v" 110 150 --seed 7 --mean 128 --sigma 60
+"$VIPS" cast "$TMP/mbh.v" "$TMP/mbh.png" uchar
+"$VIPS" extract_area "$TMP/mbh.png" "$MOS/mosaic_h_ref.png" 0 0 100 150
+"$VIPS" extract_area "$TMP/mbh.png" "$MOS/mosaic_h_sec.png" 10 0 100 150
+
+# --- mosaic VERTICAL inputs: two 150x100 crops of a 150x110 noise scene, sec
+#     offset +10 in y (the tb-search path, distinct from the lr path). --------
+echo "==> [mosaicing input] mosaic_v_ref / mosaic_v_sec (150x100 crops of a 150x110 scene, y-offset 10)"
+"$VIPS" gaussnoise "$TMP/mbv.v" 150 110 --seed 11 --mean 128 --sigma 60
+"$VIPS" cast "$TMP/mbv.v" "$TMP/mbv.png" uchar
+"$VIPS" extract_area "$TMP/mbv.png" "$MOS/mosaic_v_ref.png" 0 0 150 100
+"$VIPS" extract_area "$TMP/mbv.png" "$MOS/mosaic_v_sec.png" 0 10 150 100
+
+# --- References — merge (EXACT). Negative DX/DY after a `--` separator. -------
+echo "==> [merge] horizontal (dx -28) + vertical (dy -22) (EXACT, Gray8 PNG)"
+"$VIPS" merge "$MOS/merge_ref.png" "$MOS/merge_sec.png" "$MOS/merge_h_expected.png" horizontal -- -28 0
+"$VIPS" merge "$MOS/merge_ref.png" "$MOS/merge_sec.png" "$MOS/merge_v_expected.png" vertical   -- 0 -22
+
+# --- References — merge, multi-band + insert-fallback paths (EXACT; finding 1).
+# RGB (3-band) horizontal merge pins the multi-band render_merge band-handling
+# path the single-band Gray8 fixtures left unprotected (verified max-abs-diff 0).
+echo "==> [merge] RGB 3-band horizontal (dx -28) (EXACT, sRGB PNG)"
+"$VIPS" merge "$MOS/merge_rgb.png" "$MOS/merge_rgb_sec.png" "$MOS/merge_rgb_expected.png" horizontal -- -28 0
+# A POSITIVE dx (dx>0) takes the wrong-side/disjoint INSERT-FALLBACK branch
+# (`merge_impl`: paste both, no blend, output sized by `rarea.union(&sarea)`) —
+# a distinct code path from the feathered blend, previously unpinned. vips falls
+# back to vips_insert identically here (verified max-abs-diff 0, 52x32 union).
+echo "==> [merge] insert-fallback, positive dx 12 (EXACT, Gray8 PNG)"
+"$VIPS" merge "$MOS/merge_ref.png" "$MOS/merge_sec.png" "$MOS/merge_fallback_expected.png" horizontal 12 0
+
+# --- References — mosaic (EXACT). Tie-point = the true correspondence; the full
+#     discrete search still runs and must agree with vips bit-for-bit. ---------
+echo "==> [mosaic] horizontal + vertical tie-point search (EXACT, Gray8 PNG)"
+# horizontal: sec(40,75) == scene(50,75) == ref(50,75).
+"$VIPS" mosaic "$MOS/mosaic_h_ref.png" "$MOS/mosaic_h_sec.png" "$MOS/mosaic_h_expected.png" \
+    horizontal 50 75 40 75
+# vertical: sec(75,40) == scene(75,50) == ref(75,50).
+"$VIPS" mosaic "$MOS/mosaic_v_ref.png" "$MOS/mosaic_v_sec.png" "$MOS/mosaic_v_expected.png" \
+    vertical 75 50 75 40
+
+# --- References — globalbalance (GOLDEN-ONLY, viprs pipeline; no vips oracle). -
+# The input is a viprs `merge` of two 60x50 textures with DIFFERENT brightness
+# (mean 100 vs 160) and a 20-column overlap (20x50 = 1000 px > the 20x20=400
+# significance threshold), so the balance factors are non-trivial. It carries the
+# join-tree blob only viprs writes, and the blob survives the `.v` JSON trailer.
+echo "==> [globalbalance] viprs merge -> viprs globalbalance pipeline pin (GOLDEN-ONLY .v)"
 if [ ! -x "$VIPRS" ]; then
     echo "    (building $VIPRS: cargo build --release --no-default-features --bin viprs)"
     ( cd "$CLI_DIR" && cargo build --release --no-default-features --bin viprs )
@@ -1588,6 +1702,16 @@ echo "==> [phasecor] in vs shifted -> real correlation surface -> 1-band f32 .v 
 
 # --- Provenance (append the freqfilt section) --------------------------------
 echo "==> [provenance] appending freqfilt section to $FIX_ROOT/PROVENANCE.md"
+"$VIPS" gaussnoise "$TMP/gb1.v" 60 50 --seed 3 --mean 100 --sigma 20
+"$VIPS" cast "$TMP/gb1.v" "$TMP/gb1.png" uchar
+"$VIPS" gaussnoise "$TMP/gb2.v" 60 50 --seed 4 --mean 160 --sigma 20
+"$VIPS" cast "$TMP/gb2.v" "$TMP/gb2.png" uchar
+# dx = overlap(20) - ref.width(60) = -40 -> a 100x50 mosaic, overlap 20x50.
+"$VIPRS" merge "$TMP/gb1.png" "$TMP/gb2.png" "$MOS/balance_input.v" horizontal -40 0
+"$VIPRS" globalbalance "$MOS/balance_input.v" "$MOS/balance_expected.v" >/dev/null
+
+# --- Provenance (append the mosaicing section) -------------------------------
+echo "==> [provenance] appending mosaicing section to $FIX_ROOT/PROVENANCE.md"
 cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
 
 ---
@@ -1791,6 +1915,40 @@ which is the only case exercising \`viprs invfft\`'s \`is_fourier_complex\` bran
 the core's direct complex-input paths are covered by the core crate's own
 freqfilt unit tests. Teaching one decoder to read the other's complex carrier
 (or a shared interchange format) would let a committed complex INPUT feed both.
+# mosaicing family CLI-differential reference provenance
+
+These fixtures are the committed references the mosaicing CLI-differential suite
+(\`tests/cli_mosaicing_diff.rs\`) decode-compares \`viprs\` output against.
+Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **\`merge\` / \`mosaic\` are EXACT** (decode-compare tol 0): the integer feather
+  ramp and the DISCRETE tie-point search agree with vips bit-for-bit on these
+  inputs (verified max-abs-diff 0). vips's CLI needs a \`--\` separator to pass a
+  negative \`merge\` displacement (\`vips merge … horizontal -- -28 0\`); \`viprs\`
+  takes the negative positional directly, so both see the same DX/DY.
+- **\`globalbalance\` is GOLDEN-ONLY**: NO vips cross-oracle exists — the core
+  reads the \`mosaic-join-tree\` blob only viprs merge/mosaic writes, while vips's
+  globalbalance reads its own filename-based history (mutually unreadable). The
+  input \`balance_input.v\` is minted by \`viprs merge\` and the reference
+  \`balance_expected.v\` by \`viprs globalbalance\` — a deterministic regression
+  pin, not a parity check.
+- **Common inputs** (under \`mosaicing/\`): \`merge_ref.png\`/\`merge_sec.png\`
+  (40x32 Gray8, distinct-seed textures for the non-vacuous seam blend),
+  \`merge_rgb.png\` (40x32 sRGB — the format-mismatch error SEC AND the RGB-merge
+  REF), \`merge_rgb_sec.png\` (40x32 sRGB, distinct seeds — the RGB-merge SEC),
+  \`mosaic_h_ref.png\`/\`mosaic_h_sec.png\` (100x150 crops of a 110x150 noise
+  scene, x-offset 10 → 90x150 overlap), \`mosaic_v_ref.png\`/\`mosaic_v_sec.png\`
+  (150x100 crops of a 150x110 scene, y-offset 10). \`mosaic\` inputs are large
+  because its search needs 3 strips × 20 high-contrast windows — an inherent
+  property of the op, not a fixture choice. \`balance_input.v\` is a viprs mosaic
+  (INPUT only, carries the blob).
+- **Multi-band + insert-fallback merge coverage** (adversarial-review finding 1):
+  the single-band Gray8 fixtures left the multi-band \`render_merge\` band path
+  and the wrong-side/disjoint INSERT-FALLBACK branch (paste both, no blend,
+  output sized by \`rarea.union(&sarea)\`) unpinned. \`merge_rgb_expected.png\`
+  (RGB horizontal) pins the former and \`merge_fallback_expected.png\` (positive
+  dx 12) the latter — both verified bit-exact vs vips (max-abs-diff 0).
 
 ## Exact commands
 
@@ -1903,6 +2061,17 @@ vips complexget <complex.v> re.v real
 vips complexget <complex.v> im.v imag
 vips bandjoin "re.v im.v" pair.v
 vips cast pair.v <expected.v> float
+vips gaussnoise mg1.v 40 32 --seed 1 --mean 140 --sigma 45 ; vips cast mg1.v mosaicing/merge_ref.png uchar
+vips gaussnoise mg2.v 40 32 --seed 2 --mean 130 --sigma 45 ; vips cast mg2.v mosaicing/merge_sec.png uchar
+# merge_rgb: bandjoin of three distinct-seed 40x32 grays, re-tagged sRGB
+vips gaussnoise mbh.v 110 150 --seed 7  --mean 128 --sigma 60 ; vips cast mbh.v mbh.png uchar
+vips extract_area mbh.png mosaicing/mosaic_h_ref.png 0  0 100 150
+vips extract_area mbh.png mosaicing/mosaic_h_sec.png 10 0 100 150
+vips gaussnoise mbv.v 150 110 --seed 11 --mean 128 --sigma 60 ; vips cast mbv.v mbv.png uchar
+vips extract_area mbv.png mosaicing/mosaic_v_ref.png 0 0  150 100
+vips extract_area mbv.png mosaicing/mosaic_v_sec.png 0 10 150 100
+# globalbalance input (minted by viprs, carries the join-tree blob):
+viprs merge gb1.png gb2.png mosaicing/balance_input.v horizontal -40 0
 \`\`\`
 
 References (paths relative to \`tests/fixtures/cli/\`):
@@ -2022,6 +2191,31 @@ are clap usage exit-2 errors (CLI_CONTRACT.md §8).
 | \`freqfilt/freqmult_expected.png\` | FOURIER (uchar, BOUNDED-TOL ≤1 LSB) | \`vips freqmult in.png mask.v freqmult_expected.png\` |
 | \`freqfilt/spectrum_expected.png\` | FOURIER (uchar, tol 0) | \`vips spectrum in.png spectrum_expected.png\` |
 | \`freqfilt/phasecor_expected.v\` | FOURIER (1-band f32, eps 1e-2) | \`vips phasecor in.png shifted.png phasecor_dbl.v\` → cast float |
+| reference | oracle class | command |
+|---|---|---|
+| \`mosaicing/merge_h_expected.png\` | EXACT | \`vips merge merge_ref.png merge_sec.png merge_h_expected.png horizontal -- -28 0\` |
+| \`mosaicing/merge_v_expected.png\` | EXACT | \`vips merge merge_ref.png merge_sec.png merge_v_expected.png vertical -- 0 -22\` |
+| \`mosaicing/merge_rgb_expected.png\` | EXACT | \`vips merge merge_rgb.png merge_rgb_sec.png merge_rgb_expected.png horizontal -- -28 0\` (3-band multi-band path) |
+| \`mosaicing/merge_fallback_expected.png\` | EXACT | \`vips merge merge_ref.png merge_sec.png merge_fallback_expected.png horizontal 12 0\` (positive dx → insert-fallback, no blend) |
+| \`mosaicing/mosaic_h_expected.png\` | EXACT | \`vips mosaic mosaic_h_ref.png mosaic_h_sec.png mosaic_h_expected.png horizontal 50 75 40 75\` |
+| \`mosaicing/mosaic_v_expected.png\` | EXACT | \`vips mosaic mosaic_v_ref.png mosaic_v_sec.png mosaic_v_expected.png vertical 75 50 75 40\` |
+| \`mosaicing/balance_expected.v\` | GOLDEN-ONLY | \`viprs globalbalance balance_input.v balance_expected.v\` (NO vips oracle) |
+
+\`merge\` rejects a format mismatch (a Gray8 REF + an sRGB SEC) with a typed
+exit-1 error, and \`globalbalance\` rejects an input without the join-tree blob
+(a plain PNG) the same way; both are asserted in \`cli_mosaicing_diff.rs\`
+(nonzero exit + a viprs-side message substring; CLI_CONTRACT.md §8) and need no
+reference output.
+
+**\`merge --mblend\` — a deliberate CLI-surface divergence from vips (finding 2):**
+vips \`merge\` honours \`--mblend N\` and produces a valid, different blend for any
+N; \`viprs merge\` exposes the flag for parity but the core public \`try_merge\`
+fixes the blend width at the vips default 10 and offers no API to vary it, so
+\`viprs\` **exits 1 on any non-default \`--mblend\`** where vips would succeed. This
+is intentional (loud-fail beats a silently-wrong "success"; the \`add\` 16-bit
+lesson) but IS a real divergence from the oracle — recorded here so a parity
+auditor is not surprised, and left uncovered by the differential precisely
+because the core cannot reproduce what vips does at a non-default mblend.
 EOF
 
 echo "==> Done. Generated fixtures under $FIX_ROOT"
@@ -2046,3 +2240,5 @@ echo "--- composite ---"
 ls -1 "$COMP"
 echo "--- freqfilt ---"
 ls -1 "$FREQ"
+echo "--- mosaicing ---"
+ls -1 "$MOS"

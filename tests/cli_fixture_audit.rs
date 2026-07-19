@@ -339,6 +339,31 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "freqfilt/spectrum_expected.png",
     // phasecor — real correlation surface, 1-band f32 `.v`.
     "freqfilt/phasecor_expected.v",
+    // ---- mosaicing family (cli_mosaicing_diff.rs) ----
+    // Common inputs: merge textures (distinct seeds) + an sRGB for the
+    // format-mismatch error case; mosaic crops of a common noise scene (large,
+    // as the tie-point search needs 3 strips × 20 contrast windows); and the
+    // viprs-minted globalbalance input carrying the join-tree blob.
+    "mosaicing/merge_ref.png",
+    "mosaicing/merge_sec.png",
+    "mosaicing/merge_rgb.png",
+    "mosaicing/merge_rgb_sec.png",
+    "mosaicing/mosaic_h_ref.png",
+    "mosaicing/mosaic_h_sec.png",
+    "mosaicing/mosaic_v_ref.png",
+    "mosaicing/mosaic_v_sec.png",
+    "mosaicing/balance_input.v",
+    // merge (EXACT): horizontal (lr) + vertical (tb) feathered blend, the RGB
+    // multi-band path, and the positive-dx insert-fallback (no-blend) path.
+    "mosaicing/merge_h_expected.png",
+    "mosaicing/merge_v_expected.png",
+    "mosaicing/merge_rgb_expected.png",
+    "mosaicing/merge_fallback_expected.png",
+    // mosaic (EXACT): horizontal (lr) + vertical (tb) tie-point search.
+    "mosaicing/mosaic_h_expected.png",
+    "mosaicing/mosaic_v_expected.png",
+    // globalbalance (GOLDEN-ONLY): viprs merge → globalbalance pipeline pin.
+    "mosaicing/balance_expected.v",
 ];
 
 #[test]
