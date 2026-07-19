@@ -7,9 +7,16 @@ rust-version = "1.85"
 publish = false
 
 [features]
-default = []
+# `test-util` is on by default: this crate *is* the external stress suite the
+# core `test-util` feature exists to serve, so `libviprs::sink::SlowSink` must
+# be reachable in a plain `cargo test` run. See
+# `tests/public_api_no_test_doubles.rs` (libviprs#299).
+default = ["test-util"]
 pdfium = ["libviprs/pdfium", "dep:pdfium-render"]
 ported_tests = []
+# Activates the core crate's `test-util` feature so its test-only sink doubles
+# (`SlowSink`) are exposed to this suite. See libviprs#299.
+test-util = ["libviprs/test-util"]
 # Enables the Phase 3 object-store sink integration tests
 # (`tests/sink_object_store_stub_contract.rs` and the S3 leg of
 # `tests/phase3_validation_stress.rs`). Activates the `object-store-sink`
