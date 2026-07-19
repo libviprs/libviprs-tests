@@ -3378,6 +3378,129 @@ reconcile them.
 | \`arithb/complexget_imag_expected.v\` | FOURIER (eps 1e-6) | \`vips complexget cpx_c.v complexget_imag_expected.v imag\` |
 EOF
 
+# ===========================================================================
+# io save-path cleanup (libviprs-cli #37 / #38) — cli_iocleanup_diff.rs
+# ===========================================================================
+IOCLEAN="$FIX_ROOT/iocleanup"
+mkdir -p "$IOCLEAN"
+
+# Strip vips's non-pixel `#vips2ppm - <timestamp>` header comment so the committed
+# PNM reference is deterministic (no wall-clock churn) and the differential can do
+# a whole-file BYTE compare. The pixel payload and the w/h/maxval tokens are vips's
+# own bytes — only the timestamp comment line is removed. Author-run only (python3
+# on the oracle machine); NEVER runs at test time.
+ppm_strip_comment() {
+    python3 - "$1" "$2" <<'PY'
+import sys
+raw = open(sys.argv[1], "rb").read()
+assert raw[:2] in (b"P5", b"P6"), raw[:2]
+def read_tokens(buf, start, n):
+    toks, i = [], start
+    while len(toks) < n:
+        while i < len(buf) and buf[i:i+1].isspace():
+            i += 1
+        if buf[i:i+1] == b"#":          # comment: to end of line
+            while i < len(buf) and buf[i:i+1] != b"\n":
+                i += 1
+            continue
+        j = i
+        while j < len(buf) and not buf[j:j+1].isspace():
+            j += 1
+        toks.append(buf[i:j]); i = j
+    return toks, i
+(w, h, mx), i = read_tokens(raw, 2, 3)
+assert raw[i:i+1].isspace(), "one whitespace must follow maxval"
+data = raw[i+1:]                        # exactly one whitespace, then raw samples
+open(sys.argv[2], "wb").write(raw[:2] + b"\n" + w + b" " + h + b"\n" + mx + b"\n" + data)
+PY
+}
+
+# --- Common inputs (read by BOTH this generator and `viprs`) -----------------
+# 8×8 8-bit rgb (three DISTINCT grey ramps joined, re-tagged srgb) + its 1-band
+# gray, then the same scaled to the FULL 0..65535 range (×257) and cast ushort so
+# the 16-bit samples exceed 255 — a silent 8-bit downcast is then caught on value
+# as well as on format-class. `vips grey` is a pure coordinate function, so every
+# fixture is bit-reproducible.
+echo "==> [iocleanup input] 8x8 rgb/gray (8-bit) + rgb16/gray16 (>255 samples)"
+"$VIPS" grey "$TMP/iogrey.v" 8 8
+"$VIPS" linear "$TMP/iogrey.v" "$IOCLEAN/gray.png"  255 0  --uchar
+"$VIPS" linear "$TMP/iogrey.v" "$TMP/iog2.v"        200 10 --uchar
+"$VIPS" rot "$TMP/iogrey.v" "$TMP/iogrey_v.v" d90
+"$VIPS" linear "$TMP/iogrey_v.v" "$TMP/iog3.v" 255 0 --uchar
+"$VIPS" bandjoin "$IOCLEAN/gray.png $TMP/iog2.v $TMP/iog3.v" "$TMP/iorgb.v"
+"$VIPS" copy "$TMP/iorgb.v" "$IOCLEAN/rgb.png" --interpretation srgb
+# 16-bit inputs (×257 maps 0..255 → 0..65535).
+"$VIPS" linear "$IOCLEAN/rgb.png"  "$TMP/iorgb16f.v" 257 0
+"$VIPS" cast   "$TMP/iorgb16f.v"   "$TMP/iorgb16u.v" ushort
+"$VIPS" copy   "$TMP/iorgb16u.v"   "$IOCLEAN/rgb16.v" --interpretation rgb16
+"$VIPS" linear "$IOCLEAN/gray.png" "$TMP/iog16f.v" 257 0
+"$VIPS" cast   "$TMP/iog16f.v"     "$TMP/iog16u.v" ushort
+"$VIPS" copy   "$TMP/iog16u.v"     "$IOCLEAN/gray16.v" --interpretation grey16
+
+# --- #38 PNM references (byte-exact; comment stripped) -----------------------
+echo "==> [iocleanup] PNM references (P6/P5 × 8/16-bit)"
+# P6 8-bit: flip horizontal on rgb.
+"$VIPS" flip "$IOCLEAN/rgb.png" "$TMP/io_flip.ppm" horizontal
+ppm_strip_comment "$TMP/io_flip.ppm" "$IOCLEAN/flip_ppm_expected.ppm"
+# P5 8-bit: flip horizontal on gray.
+"$VIPS" flip "$IOCLEAN/gray.png" "$TMP/io_flip.pgm" horizontal
+ppm_strip_comment "$TMP/io_flip.pgm" "$IOCLEAN/flip_pgm_expected.pgm"
+# P6 16-bit: copy of rgb16 (big-endian, maxval 65535).
+"$VIPS" copy "$IOCLEAN/rgb16.v" "$TMP/io_copy16.ppm"
+ppm_strip_comment "$TMP/io_copy16.ppm" "$IOCLEAN/copy_ppm16_expected.ppm"
+# P5 16-bit: copy of gray16.
+"$VIPS" copy "$IOCLEAN/gray16.v" "$TMP/io_copy16.pgm"
+ppm_strip_comment "$TMP/io_copy16.pgm" "$IOCLEAN/copy_pgm16_expected.pgm"
+
+# --- #37 16-bit PNG save-path reference (decode-compare, EXACT) --------------
+echo "==> [iocleanup] 16-bit PNG passthrough reference (copy rgb16 -> png)"
+"$VIPS" copy "$IOCLEAN/rgb16.v" "$IOCLEAN/copy_png16_expected.png"
+
+echo "==> [provenance] appending iocleanup section to $FIX_ROOT/PROVENANCE.md"
+cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
+
+# iocleanup — io save-path cleanup (libviprs-cli #37 / #38)
+
+Consumed by \`libviprs-tests/tests/cli_iocleanup_diff.rs\`. Exercises the shared
+save harness (\`libviprs-cli/src/ops/io.rs\`), not one op family.
+
+## #38 — PNM (.ppm/.pgm) sink, BYTE-exact
+
+PNM is uncompressed and canonical (fixed \`Pn\n<w> <h>\n<maxval>\n\` header then raw
+**big-endian** samples), so a conformant encoder that agrees on the pixels emits
+byte-identical files. These references are therefore whole-file BYTE-compared
+(stronger than the decode-compare PNG/TIFF need). Each was produced by the vips
+command below and then had its single non-pixel \`#vips2ppm - <timestamp>\` header
+comment line removed (\`ppm_strip_comment\`, python3) so the committed fixture is
+deterministic; the pixel payload and the w/h/maxval tokens are vips's own bytes.
+
+| fixture | magic | oracle command (pre-strip) |
+|---|---|---|
+| \`iocleanup/flip_ppm_expected.ppm\`   | P6 8-bit  | \`vips flip rgb.png  out.ppm horizontal\` |
+| \`iocleanup/flip_pgm_expected.pgm\`   | P5 8-bit  | \`vips flip gray.png out.pgm horizontal\` |
+| \`iocleanup/copy_ppm16_expected.ppm\` | P6 16-bit | \`vips copy rgb16.v  out.ppm\` (maxval 65535, big-endian) |
+| \`iocleanup/copy_pgm16_expected.pgm\` | P5 16-bit | \`vips copy gray16.v out.pgm\` (maxval 65535, big-endian) |
+
+Note: vips's \`.ppm\` suffix ALWAYS writes P6 (a 1-band image is upsampled to
+3-band srgb); its \`.pgm\` suffix writes P5. \`viprs\` instead chooses the magic by
+band count (1 → P5, 3 → P6) regardless of suffix, so the gray P5 references use
+\`.pgm\`. For 3-band inputs both sides agree on P6 and the byte compare holds.
+
+## #37 — 16-bit depth on the integer PNG sink
+
+vips's pngsave picks bit depth from the raster INTERPRETATION (grey16/rgb16 →
+16-bit; b-w/multiband/srgb → 8-bit — even for a ushort raster), which
+\`io::save\` mirrors. The honest limitation (verified on this oracle): libviprs'
+EXACT-AFTER-CAST ops drop grey16→multiband on their float result, so a float EAC
+op → .png saves 8-bit end-to-end (unlike vips) — 16-bit EAC is covered losslessly
+by \`.v\` (\`core/add_gray_expected.v\`). What IS pinned as a .png here is the 16-bit
+save PATH through a format-preserving op that keeps rgb16:
+
+| fixture | class | oracle command |
+|---|---|---|
+| \`iocleanup/copy_png16_expected.png\` | EXACT (decode) | \`vips copy rgb16.v out.png\` (stays 16-bit) |
+EOF
+
 echo "==> Done. Generated fixtures under $FIX_ROOT"
 ls -1 "$FIX"
 echo "--- bands ---"
@@ -3412,3 +3535,5 @@ echo "--- aritha ---"
 ls -1 "$ARITHA"
 echo "--- arithb ---"
 ls -1 "$ARITHB"
+echo "--- iocleanup ---"
+ls -1 "$IOCLEAN"

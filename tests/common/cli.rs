@@ -456,6 +456,38 @@ fn decode(path: &Path) -> Raster {
         .unwrap_or_else(|e| panic!("failed to decode {} via libviprs: {e}", path.display()))
 }
 
+/// Raw **byte** compare of two files (libviprs-cli #38).
+///
+/// Reserved for canonical uncompressed formats — **PNM** (`.ppm` / `.pgm`) — where
+/// two conformant encoders that agree on the pixels emit byte-identical files.
+/// Unlike PNG (whose filter / deflate choices differ between encoders and force a
+/// [`decode_compare`]), a PNM payload is the raw big-endian samples after a fixed
+/// `Pn\n<w> <h>\n<maxval>\n` header, so a byte compare is the strongest possible
+/// assertion that `viprs` encodes exactly what the vips oracle does. The committed
+/// reference is the vips output with its non-pixel `#vips2ppm - <timestamp>`
+/// comment line stripped by `tools/gen_cli_expected.sh` (see `PROVENANCE.md`); the
+/// pixel payload and the `w`/`h`/`maxval` tokens are vips's own bytes, untouched.
+pub fn byte_compare(actual: &Path, expected: &Path) {
+    let a =
+        std::fs::read(actual).unwrap_or_else(|e| panic!("cannot read {}: {e}", actual.display()));
+    let e = std::fs::read(expected)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", expected.display()));
+    if a != e {
+        let first = a.iter().zip(e.iter()).position(|(x, y)| x != y);
+        panic!(
+            "PNM byte mismatch:\n  actual   = {} ({} bytes)\n  expected = {} ({} bytes)\n  \
+             first differing offset = {:?}\n  actual[..16]   = {:?}\n  expected[..16] = {:?}",
+            actual.display(),
+            a.len(),
+            expected.display(),
+            e.len(),
+            first,
+            &a[..a.len().min(16)],
+            &e[..e.len().min(16)],
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Scalar (S3) compare.
 // ---------------------------------------------------------------------------
