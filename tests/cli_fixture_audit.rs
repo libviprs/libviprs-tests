@@ -321,6 +321,24 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "composite/composite2_multiply_translucent_golden.png",
     "composite/composite2_atop_translucent_golden.png",
     "composite/composite2_saturate_translucent_golden.png",
+    // ---- freqfilt family (cli_freqfilt_diff.rs) ----
+    // Common inputs: 2-D gradient `in`, low-pass `mask`, (3,2)-shifted copy, and
+    // an 8×8 `small` (the wrong-size dimension-mismatch error input).
+    "freqfilt/in.png",
+    "freqfilt/mask.v",
+    "freqfilt/shifted.png",
+    "freqfilt/small.png",
+    // fwfft / invfft (complex + --real) / round-trip — complex outputs normalised
+    // to 2-band f32 `.v` (band0 re, band1 im); real outputs cast to 1-band f32.
+    "freqfilt/fwfft_expected.v",
+    "freqfilt/invfft_expected.v",
+    "freqfilt/invfft_real_expected.v",
+    "freqfilt/roundtrip_expected.v",
+    // freqmult / spectrum — uchar PNG (BOUNDED-TOL ≤1 LSB / tol 0).
+    "freqfilt/freqmult_expected.png",
+    "freqfilt/spectrum_expected.png",
+    // phasecor — real correlation surface, 1-band f32 `.v`.
+    "freqfilt/phasecor_expected.v",
 ];
 
 #[test]
