@@ -364,6 +364,50 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "mosaicing/mosaic_v_expected.png",
     // globalbalance (GOLDEN-ONLY): viprs merge → globalbalance pipeline pin.
     "mosaicing/balance_expected.v",
+    // ---- create family (cli_create_diff.rs) ----
+    // Common input: a buildlut control-point matrix (read by both sides), plus a
+    // >=3-point non-collinear matrix pinning multi-segment interpolation.
+    "create/buildlut_points.mat",
+    "create/buildlut_points3.mat",
+    // EXACT (tol 0): black (+--bands), xyz (vips uint→float).
+    "create/black_expected.v",
+    "create/black_bands3_expected.v",
+    "create/xyz_expected.v",
+    // BOUNDED-TOL float creators: eye (+--uchar), zone, sines, buildlut, tonelut.
+    "create/eye_expected.v",
+    "create/eye_uchar_expected.png",
+    "create/zone_expected.v",
+    "create/sines_expected.v",
+    "create/buildlut_expected.v",
+    "create/buildlut3_expected.v",
+    "create/tonelut_expected.v",
+    // BOUNDED-TOL frequency-domain masks (ideal/gaussian/butterworth/fractal),
+    // incl. --nodc and --uchar --optical flag paths.
+    "create/mask_ideal_expected.v",
+    "create/mask_ideal_nodc_expected.v",
+    "create/mask_ideal_ring_expected.v",
+    "create/mask_ideal_band_expected.v",
+    "create/mask_gaussian_expected.v",
+    "create/mask_gaussian_nodc_expected.v",
+    "create/mask_gaussian_ring_expected.v",
+    "create/mask_gaussian_band_expected.v",
+    "create/mask_butterworth_expected.v",
+    "create/mask_butterworth_uchar_expected.png",
+    "create/mask_butterworth_optical_expected.v",
+    "create/mask_butterworth_ring_expected.v",
+    "create/mask_butterworth_band_expected.v",
+    "create/mask_fractal_expected.v",
+    // BOUNDED-TOL signed distance fields (every shape).
+    "create/sdf_circle_expected.v",
+    "create/sdf_box_expected.v",
+    "create/sdf_line_expected.v",
+    "create/sdf_rounded_expected.v",
+    // GOLDEN-ONLY viprs pins (no vips oracle: PRNG / Pango differ even seeded).
+    "create/gaussnoise_golden.v",
+    "create/perlin_golden.v",
+    "create/worley_golden.v",
+    "create/fractsurf_golden.v",
+    "create/text_golden.png",
 ];
 
 #[test]

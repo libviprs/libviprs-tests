@@ -817,3 +817,74 @@ is intentional (loud-fail beats a silently-wrong "success"; the `add` 16-bit
 lesson) but IS a real divergence from the oracle — recorded here so a parity
 auditor is not surprised, and left uncovered by the differential precisely
 because the core cannot reproduce what vips does at a non-default mblend.
+# create family CLI-differential reference provenance
+
+These fixtures are the committed references the create CLI-differential suite
+(`tests/cli_create_diff.rs`) decode-compares `viprs` output against. The EXACT
+and BOUNDED-TOL references are the **vips 8.18.4 oracle**; the GOLDEN-ONLY
+references are **`viprs`-generated regression pins** (no vips oracle exists —
+PRNG / Pango differ even seeded). Generated offline by `tools/gen_cli_expected.sh`,
+NEVER by CI.
+
+- **Oracle**: `vips-8.18.4`
+- **Common input** (under `create/`): `buildlut_points.mat` — a 2-point control
+  matrix (`0->0`, `255->100`) in the vips text-matrix format, read by BOTH
+  `vips buildlut` (matrix image) and `viprs buildlut` (MatFile loader); and
+  `buildlut_points3.mat` — a >=3-point NON-COLLINEAR matrix (`0->0`, `128->200`,
+  `255->255`) that pins multi-segment interpolation + control-point sort (a
+  2-point single-segment matrix cannot; create finding 2).
+- **Carriers**: float creators → `.v`; `--uchar` variants → PNG; `tonelut`
+  (Gray16) → `.v`. vips `xyz` (uint) and `buildlut` (double) are cast to
+  `float` before the reference `.v` is written, because the libviprs `.v`
+  decoder reads only uchar/ushort/float band formats — the cast is lossless (the
+  values are integer coordinates / f32-exact LUT entries).
+
+## Oracle classes and measured tolerances
+
+- **EXACT (tol 0)**: `black`, `xyz`.
+- **BOUNDED-TOL (f32)**: `eye`, `zone`, `sines`, `sdf` — measured max-abs-diff
+  <= 4e-6 (f32 trig / hypot rounding); every `mask_*` op, `buildlut` and
+  `tonelut` measured **exactly 0**, but are classified BOUNDED-TOL (float
+  trig/exp/pow) and compared with a small f32 epsilon as an honest upper bound.
+- **GOLDEN-ONLY (tol 0 vs the viprs pin)**: `gaussnoise`, `perlin`, `worley`,
+  `fractsurf`, `text`.
+
+## Exact commands
+
+References (paths relative to `tests/fixtures/cli/`):
+
+| reference | oracle class | command |
+|---|---|---|
+| `create/black_expected.v` | EXACT | `vips black black_expected.v 8 8` |
+| `create/black_bands3_expected.v` | EXACT | `vips black black_bands3_expected.v 8 8 --bands 3` |
+| `create/xyz_expected.v` | EXACT | `vips xyz xyz_u.v 16 16` then `vips cast xyz_u.v xyz_expected.v float` |
+| `create/eye_expected.v` | BOUNDED-TOL | `vips eye eye_expected.v 32 32` |
+| `create/eye_uchar_expected.png` | BOUNDED-TOL (<=1 LSB) | `vips eye eye_uchar_expected.png 32 32 --uchar` |
+| `create/zone_expected.v` | BOUNDED-TOL | `vips zone zone_expected.v 32 32` |
+| `create/sines_expected.v` | BOUNDED-TOL | `vips sines sines_expected.v 32 32` |
+| `create/buildlut_expected.v` | BOUNDED-TOL | `vips buildlut buildlut_points.mat buildlut_d.v` then `vips cast buildlut_d.v buildlut_expected.v float` |
+| `create/buildlut3_expected.v` | BOUNDED-TOL | `vips buildlut buildlut_points3.mat buildlut3_d.v` then `vips cast buildlut3_d.v buildlut3_expected.v float` (>=3-point multi-segment) |
+| `create/tonelut_expected.v` | BOUNDED-TOL (measured 0) | `vips tonelut tonelut_expected.v` |
+| `create/mask_ideal_expected.v` | BOUNDED-TOL | `vips mask_ideal mask_ideal_expected.v 64 64 0.5` |
+| `create/mask_ideal_nodc_expected.v` | BOUNDED-TOL | `vips mask_ideal mask_ideal_nodc_expected.v 64 64 0.5 --nodc` |
+| `create/mask_ideal_ring_expected.v` | BOUNDED-TOL | `vips mask_ideal_ring mask_ideal_ring_expected.v 64 64 0.5 0.2` |
+| `create/mask_ideal_band_expected.v` | BOUNDED-TOL | `vips mask_ideal_band mask_ideal_band_expected.v 64 64 0.3 0.3 0.1` |
+| `create/mask_gaussian_expected.v` | BOUNDED-TOL | `vips mask_gaussian mask_gaussian_expected.v 64 64 0.4 0.6` (distinct fc != ac) |
+| `create/mask_gaussian_nodc_expected.v` | BOUNDED-TOL | `vips mask_gaussian mask_gaussian_nodc_expected.v 64 64 0.4 0.6 --nodc` (isolated --nodc) |
+| `create/mask_gaussian_ring_expected.v` | BOUNDED-TOL | `vips mask_gaussian_ring mask_gaussian_ring_expected.v 64 64 0.4 0.6 0.2` |
+| `create/mask_gaussian_band_expected.v` | BOUNDED-TOL | `vips mask_gaussian_band mask_gaussian_band_expected.v 64 64 0.3 0.3 0.1 0.5` |
+| `create/mask_butterworth_expected.v` | BOUNDED-TOL | `vips mask_butterworth mask_butterworth_expected.v 64 64 2 0.4 0.6` (distinct fc != ac) |
+| `create/mask_butterworth_uchar_expected.png` | BOUNDED-TOL (<=1 LSB) | `vips mask_butterworth mask_butterworth_uchar_expected.png 64 64 2 0.5 0.5 --uchar --optical` |
+| `create/mask_butterworth_optical_expected.v` | BOUNDED-TOL | `vips mask_butterworth mask_butterworth_optical_expected.v 64 64 2 0.4 0.6 --optical` (isolated --optical on float .v) |
+| `create/mask_butterworth_ring_expected.v` | BOUNDED-TOL | `vips mask_butterworth_ring mask_butterworth_ring_expected.v 64 64 2 0.4 0.6 0.2` |
+| `create/mask_butterworth_band_expected.v` | BOUNDED-TOL | `vips mask_butterworth_band mask_butterworth_band_expected.v 64 64 2 0.3 0.3 0.1 0.5` |
+| `create/mask_fractal_expected.v` | BOUNDED-TOL | `vips mask_fractal mask_fractal_expected.v 64 64 2.5` |
+| `create/sdf_circle_expected.v` | BOUNDED-TOL | `vips sdf sdf_circle_expected.v 64 64 circle --a "32 32" --r 16` |
+| `create/sdf_box_expected.v` | BOUNDED-TOL | `vips sdf sdf_box_expected.v 64 64 box --a "10 10" --b "50 40"` |
+| `create/sdf_line_expected.v` | BOUNDED-TOL | `vips sdf sdf_line_expected.v 64 64 line --a "10 10" --b "50 40"` |
+| `create/sdf_rounded_expected.v` | BOUNDED-TOL | `vips sdf sdf_rounded_expected.v 64 64 rounded-box --a "10 10" --b "50 40" --corners "20 0 0 0"` |
+| `create/gaussnoise_golden.v` | GOLDEN-ONLY | `viprs gaussnoise gaussnoise_golden.v 16 16 --seed 42 --sigma 10 --mean 128` (no vips oracle) |
+| `create/perlin_golden.v` | GOLDEN-ONLY | `viprs perlin perlin_golden.v 64 64 --seed 7` (no vips oracle) |
+| `create/worley_golden.v` | GOLDEN-ONLY | `viprs worley worley_golden.v 64 64 --seed 7` (no vips oracle) |
+| `create/fractsurf_golden.v` | GOLDEN-ONLY | `viprs fractsurf fractsurf_golden.v 64 48 2.5` (no vips oracle) |
+| `create/text_golden.png` | GOLDEN-ONLY | `viprs text text_golden.png "Hi" --dpi 72` (no vips oracle — Pango differs) |
