@@ -898,6 +898,263 @@ band counts, so the channel-mismatch case is a documented SUBSET limitation (cor
 cannot broadcast without a core change), not a parity claim.
 EOF
 
+# ===========================================================================
+# ARITHA FAMILY — arith part-A lane (statistics / const-linear / unary-rounding
+# / hough; OP_MAP.md arithmetic section, part A rows).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_aritha_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. `vips grey`/`linear`/`black`/`embed`/
+# `insert` are pure functions, so every fixture is bit-reproducible.
+#
+# Honest oracle classes (measured against vips 8.18.4):
+#  - S3 scalars (avg/deviate/min/max/find_trim) — numeric compare; min/max are
+#    integer-exact on an integer input, avg/deviate a rational mean at S3 rel-eps.
+#  - stats/measure — a double matrix; vips has no f64 PNG route and libviprs no
+#    f64 pixel format, so the reference is `vips … ; vips cast … float` → `.v`
+#    (f32). `stats` also drops vips's 4 position columns (6..10): the core
+#    computes only the first 6 (min/max/sum/sum2/mean/sd), a documented subset,
+#    so the reference is cropped to 6 columns. Both measured max-abs-diff 0.
+#  - profile/project — 16-bit; vips emits INT/UINT, cast to ushort (lossless for
+#    the small position/sum values) to match the core's ushort carrier. `.v`.
+#  - linear (float `.v` + `--uchar` PNG), remainder_const/clamp (PNG),
+#    math2_const pow / abs / sign / round (float `.v`) — all measured 0.
+#  - HOUGH — hough_line and hough_circle GENUINELY diverge from vips (a one-cell
+#    distance-binning offset that amplifies at a peak — a horizontal line
+#    measured max-abs-diff 32 — and a different circle vote model: a single
+#    point yields core max 1 vs vips max 4). Neither is a bounded tolerance, so
+#    both are carried GOLDEN-ONLY: a viprs-generated regression pin with NO vips
+#    oracle. A core issue is filed to reconcile the Hough numerics with vips.
+# ===========================================================================
+ARITHA="$FIX_ROOT/aritha"
+mkdir -p "$ARITHA"
+
+# `viprs` is needed to mint the two GOLDEN-ONLY hough references (no vips oracle).
+VIPRS="${VIPRS:-${CLI_DIR:-$REPO_ROOT/../libviprs-cli}/target/release/viprs}"
+if [ ! -x "$VIPRS" ]; then
+    echo "    (building $VIPRS: cargo build --release --no-default-features --bin viprs)"
+    ( cd "${CLI_DIR:-$REPO_ROOT/../libviprs-cli}" && cargo build --release --no-default-features --bin viprs )
+fi
+
+# --- Common inputs -----------------------------------------------------------
+echo "==> [aritha input] agray (16x16 Gray8 ramp) + afloat (16x16 float, -255..255)"
+"$VIPS" grey "$TMP/ag.v" 16 16
+"$VIPS" linear "$TMP/ag.v" "$ARITHA/agray.png" 255 0 --uchar
+# afloat crosses zero with fractional parts: 510*grey - 255 → -255..223.125.
+# The trailing space on " -255" keeps GOption from parsing it as an option.
+"$VIPS" linear "$TMP/ag.v" "$ARITHA/afloat.v" 510 " -255"
+
+# find_trim content: a black 6x7 block embedded at (4,5) into a 20x20 WHITE
+# background (default background 255 → the block is content). find_trim must
+# return left=4 top=5 width=6 height=7 (a non-vacuous interior box).
+echo "==> [aritha input] content (black block on white, for find_trim default)"
+"$VIPS" black "$TMP/blk.v" 6 7 --bands 1
+"$VIPS" linear "$TMP/blk.v" "$TMP/blk.png" 0 0 --uchar
+"$VIPS" embed "$TMP/blk.png" "$ARITHA/content.png" 4 5 20 20 --extend white
+
+# find_trim --background 0 content: a white 5x4 block inserted at (3,2) into a
+# 20x20 BLACK background (background 0 → the white block is content).
+echo "==> [aritha input] content2 (white block on black, for find_trim --background 0)"
+"$VIPS" black "$TMP/blkbg.v" 20 20 --bands 1
+"$VIPS" linear "$TMP/blkbg.v" "$TMP/blkbg.png" 0 0 --uchar
+"$VIPS" black "$TMP/wblk.v" 5 4 --bands 1
+"$VIPS" linear "$TMP/wblk.v" "$TMP/wblk.png" 0 255 --uchar
+"$VIPS" insert "$TMP/blkbg.png" "$TMP/wblk.png" "$ARITHA/content2.png" 3 2
+
+# profile input: an 8x8 all-zero image with a 3x3 white block at (2,3), so the
+# first-non-zero column/row positions are discriminating (columns 2..4 → row 3;
+# rows 3..5 → column 2; every other line has no non-zero and reports 8).
+echo "==> [aritha input] pzero (8x8 zero + 3x3 block at 2,3, for profile)"
+"$VIPS" black "$TMP/pz.v" 8 8 --bands 1
+"$VIPS" linear "$TMP/pz.v" "$TMP/pz.png" 0 0 --uchar
+"$VIPS" black "$TMP/pblk.v" 3 3 --bands 1
+"$VIPS" linear "$TMP/pblk.v" "$TMP/pblk.png" 0 255 --uchar
+"$VIPS" insert "$TMP/pz.png" "$TMP/pblk.png" "$ARITHA/pzero.png" 2 3
+
+# hough input: a 32x32 black image with a single white pixel at (10,6). A single
+# voting point is a discriminating, non-vacuous Hough input (it votes for every
+# line through it / every circle centred one radius away).
+echo "==> [aritha input] point (32x32 black, one white pixel at 10,6, for hough)"
+"$VIPS" black "$TMP/hb.v" 32 32 --bands 1
+"$VIPS" linear "$TMP/hb.v" "$TMP/hblack.png" 0 0 --uchar
+"$VIPS" black "$TMP/pt.v" 1 1 --bands 1
+"$VIPS" linear "$TMP/pt.v" "$TMP/pt.png" 0 255 --uchar
+"$VIPS" insert "$TMP/hblack.png" "$TMP/pt.png" "$ARITHA/point.png" 10 6
+
+# --- References — one vips run per differential case -------------------------
+echo "==> [avg/deviate/min/max] S3 scalars"
+"$VIPS" avg     "$ARITHA/agray.png"          > "$ARITHA/avg_expected.txt"
+"$VIPS" deviate "$ARITHA/agray.png"          > "$ARITHA/deviate_expected.txt"
+"$VIPS" min     "$ARITHA/agray.png"          > "$ARITHA/min_expected.txt"
+"$VIPS" max     "$ARITHA/agray.png"          > "$ARITHA/max_expected.txt"
+# min/max with --x --y print x, then y, then the value (three lines).
+"$VIPS" min     "$ARITHA/agray.png" --x --y  > "$ARITHA/min_xy_expected.txt"
+"$VIPS" max     "$ARITHA/agray.png" --x --y  > "$ARITHA/max_xy_expected.txt"
+
+echo "==> [find_trim] default (white bg) + --background 0 (black bg), 4 ints each"
+"$VIPS" find_trim "$ARITHA/content.png"                 > "$ARITHA/find_trim_expected.txt"
+"$VIPS" find_trim "$ARITHA/content2.png" --background 0 > "$ARITHA/find_trim_bg_expected.txt"
+
+# stats: vips emits a 10-column double matrix (cols 6..10 are min/max positions
+# the core does not compute); crop to the first 6 columns (min/max/sum/sum2/mean/
+# sd) and cast to float so the reference matches the core's f32 6-col matrix.
+echo "==> [stats] 6-column per-band matrix -> float .v"
+"$VIPS" stats "$ARITHA/agray.png" "$TMP/st.v"
+"$VIPS" extract_area "$TMP/st.v" "$TMP/st6.v" 0 0 6 2
+"$VIPS" cast "$TMP/st6.v" "$ARITHA/stats_expected.v" float
+
+echo "==> [measure] 2x2 patch means -> float .v"
+"$VIPS" measure "$ARITHA/agray.png" "$TMP/ms.v" 2 2
+"$VIPS" cast "$TMP/ms.v" "$ARITHA/measure_expected.v" float
+
+echo "==> [profile] first non-zero position per col/row -> ushort .v"
+"$VIPS" profile "$ARITHA/pzero.png" "$TMP/pcol.v" "$TMP/prow.v"
+"$VIPS" cast "$TMP/pcol.v" "$ARITHA/profile_cols_expected.v" ushort
+"$VIPS" cast "$TMP/prow.v" "$ARITHA/profile_rows_expected.v" ushort
+
+echo "==> [project] col/row sums -> ushort .v (sums < 65535)"
+"$VIPS" project "$ARITHA/agray.png" "$TMP/qcol.v" "$TMP/qrow.v"
+"$VIPS" cast "$TMP/qcol.v" "$ARITHA/project_cols_expected.v" ushort
+"$VIPS" cast "$TMP/qrow.v" "$ARITHA/project_rows_expected.v" ushort
+
+echo "==> [linear] scalar a·in+b: float .v + --uchar PNG"
+"$VIPS" linear "$ARITHA/agray.png" "$ARITHA/linear_expected.v"      2 10
+"$VIPS" linear "$ARITHA/agray.png" "$ARITHA/linear_uchar_expected.png" 2 10 --uchar
+
+echo "==> [remainder_const] c=100 -> PNG (format-preserving int)"
+"$VIPS" remainder_const "$ARITHA/agray.png" "$ARITHA/remainder_const_expected.png" 100
+
+# The core `pow_const` rounds-and-saturates into a ushort (16-bit) output, while
+# vips `math2_const pow` emits float; cast the vips reference to ushort to match
+# the core carrier. On the integer input pow(v,2) is an exact integer (<=65025),
+# so no rounding occurs and the comparison is bit-exact (EXACT-AFTER-CAST, tol 0).
+echo "==> [math2_const] pow 2 -> ushort .v (core rounds pow into ushort)"
+"$VIPS" math2_const "$ARITHA/agray.png" "$TMP/pow.v" pow 2
+"$VIPS" cast "$TMP/pow.v" "$ARITHA/math2_const_pow_expected.v" ushort
+
+# `abs` on a float input stays float. `sign` on a float input: vips emits a
+# SIGNED CHAR (-1/0/1) the libviprs decoder cannot read; cast it to float (which
+# preserves -1/0/1) to match the core's float sign output — and to exercise the
+# NEGATIVE-sign parity that a uchar `.v` would clip to 0 (the #283 gap).
+echo "==> [abs] on afloat (crosses zero) -> float .v"
+"$VIPS" abs  "$ARITHA/afloat.v" "$ARITHA/abs_expected.v"
+echo "==> [sign] on afloat -> float .v (vips emits signed char; cast to float)"
+"$VIPS" sign "$ARITHA/afloat.v" "$TMP/sign.v"
+"$VIPS" cast "$TMP/sign.v" "$ARITHA/sign_expected.v" float
+
+echo "==> [round] rint/ceil/floor on afloat -> float .v"
+"$VIPS" round "$ARITHA/afloat.v" "$ARITHA/round_rint_expected.v"  rint
+"$VIPS" round "$ARITHA/afloat.v" "$ARITHA/round_ceil_expected.v"  ceil
+"$VIPS" round "$ARITHA/afloat.v" "$ARITHA/round_floor_expected.v" floor
+
+echo "==> [clamp] --min 50 --max 200 on agray -> PNG"
+"$VIPS" clamp "$ARITHA/agray.png" "$ARITHA/clamp_expected.png" --min 50 --max 200
+
+# GOLDEN-ONLY (no vips oracle): the core Hough numerics diverge structurally from
+# vips 8.18.4 (see the header), so these references are generated by `viprs`
+# itself (deterministic) as regression pins, NOT cross-checked against vips.
+echo "==> [hough_line] GOLDEN-ONLY viprs pin (256x256 accumulator .v)"
+"$VIPRS" hough_line "$ARITHA/point.png" "$ARITHA/hough_line_golden.v" >/dev/null
+echo "==> [hough_circle] GOLDEN-ONLY viprs pin (radii 2..4, scale 1, .v)"
+"$VIPRS" hough_circle "$ARITHA/point.png" "$ARITHA/hough_circle_golden.v" 2 4 >/dev/null
+
+# --- Provenance (append the aritha section) ----------------------------------
+echo "==> [provenance] appending aritha section to $FIX_ROOT/PROVENANCE.md"
+cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
+
+---
+
+# aritha family (arith part-A) CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references (and two viprs GOLDEN-ONLY
+pins) the aritha CLI-differential suite (\`tests/cli_aritha_diff.rs\`) compares
+\`viprs\` output against. Generated offline by \`tools/gen_cli_expected.sh\`,
+NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`aritha/\`): \`agray.png\` (16×16 Gray8 ramp),
+  \`afloat.v\` (16×16 float, −255..223.125, crosses zero — for abs/sign/round),
+  \`content.png\` (black 6×7 block on white 20×20, for \`find_trim\`),
+  \`content2.png\` (white 5×4 block on black 20×20, for \`find_trim --background 0\`),
+  \`pzero.png\` (8×8 zero + 3×3 block at 2,3, for \`profile\`), \`point.png\` (32×32
+  black, one white pixel at 10,6, for the hough golden pins).
+- **Carriers**: S3 scalars → \`.txt\` (numeric compare, never text). \`stats\`/
+  \`measure\` double matrices → \`vips … ; vips cast … float\` \`.v\` (libviprs has no
+  f64 pixel format); \`stats\` is cropped to the 6 core columns (min/max/sum/sum2/
+  mean/sd — vips's 4 position columns 6..10 are a documented core subset gap).
+  \`profile\`/\`project\` are 16-bit — vips emits INT/UINT, cast to ushort (lossless
+  for the small values) to match the core's ushort carrier — \`.v\`. \`linear\`
+  (float), \`math2_const\`, \`abs\`, \`sign\`, \`round\` → float \`.v\`; \`linear --uchar\`,
+  \`remainder_const\`, \`clamp\` → PNG.
+
+## Hough divergence (GOLDEN-ONLY, a real core limitation)
+
+\`hough_line\` and \`hough_circle\` GENUINELY diverge from vips 8.18.4 — not a
+bounded tolerance. \`hough_line\`'s distance binning is offset by one accumulator
+cell: ≤1 per independent vote, but a horizontal line (many collinear votes)
+concentrates into an adjacent peak cell for a measured max-abs-diff of **32**.
+\`hough_circle\` uses a different per-cell vote model: a single voting point yields
+a core per-cell max of **1** but a vips per-cell max of **4**. There is thus no
+meaningful vips tolerance oracle, so the references \`hough_line_golden.v\` /
+\`hough_circle_golden.v\` are minted by \`viprs\` itself (deterministic) and the
+tests are regression pins. **A core issue is filed to reconcile the Hough
+binning / vote model with vips.**
+
+## Exact commands
+
+Inputs:
+
+\`\`\`
+vips grey ag.v 16 16
+vips linear ag.v aritha/agray.png 255 0 --uchar
+vips linear ag.v aritha/afloat.v 510 " -255"
+vips black blk.v 6 7 --bands 1 ; vips linear blk.v blk.png 0 0 --uchar
+vips embed blk.png aritha/content.png 4 5 20 20 --extend white
+vips black blkbg.v 20 20 --bands 1 ; vips linear blkbg.v blkbg.png 0 0 --uchar
+vips black wblk.v 5 4 --bands 1 ; vips linear wblk.v wblk.png 0 255 --uchar
+vips insert blkbg.png wblk.png aritha/content2.png 3 2
+vips black pz.v 8 8 --bands 1 ; vips linear pz.v pz.png 0 0 --uchar
+vips black pblk.v 3 3 --bands 1 ; vips linear pblk.v pblk.png 0 255 --uchar
+vips insert pz.png pblk.png aritha/pzero.png 2 3
+vips black hb.v 32 32 --bands 1 ; vips linear hb.v hblack.png 0 0 --uchar
+vips black pt.v 1 1 --bands 1 ; vips linear pt.v pt.png 0 255 --uchar
+vips insert hblack.png pt.png aritha/point.png 10 6
+\`\`\`
+
+References (paths relative to \`tests/fixtures/cli/\`):
+
+| reference | oracle class | vips command |
+|---|---|---|
+| \`aritha/avg_expected.txt\` | EXACT (S3, rational mean → rel-eps) | \`vips avg agray.png\` |
+| \`aritha/deviate_expected.txt\` | BOUNDED-TOL (S3, rel-eps) | \`vips deviate agray.png\` |
+| \`aritha/min_expected.txt\` | EXACT (S3, integer) | \`vips min agray.png\` |
+| \`aritha/max_expected.txt\` | EXACT (S3, integer) | \`vips max agray.png\` |
+| \`aritha/min_xy_expected.txt\` | EXACT (S3, x/y/value) | \`vips min agray.png --x --y\` |
+| \`aritha/max_xy_expected.txt\` | EXACT (S3, x/y/value) | \`vips max agray.png --x --y\` |
+| \`aritha/find_trim_expected.txt\` | EXACT (S3, 4 ints) | \`vips find_trim content.png\` |
+| \`aritha/find_trim_bg_expected.txt\` | EXACT (S3, 4 ints) | \`vips find_trim content2.png --background 0\` |
+| \`aritha/stats_expected.v\` | BOUNDED-TOL (matrix, meas. 0) | \`vips stats agray.png st.v\` → \`extract_area … 0 0 6 2\` → \`cast … float\` |
+| \`aritha/measure_expected.v\` | BOUNDED-TOL (matrix, meas. 0) | \`vips measure agray.png ms.v 2 2\` → \`cast … float\` |
+| \`aritha/profile_cols_expected.v\` / \`_rows_\` | EXACT | \`vips profile pzero.png pcol.v prow.v\` → \`cast … ushort\` |
+| \`aritha/project_cols_expected.v\` / \`_rows_\` | EXACT | \`vips project agray.png qcol.v qrow.v\` → \`cast … ushort\` |
+| \`aritha/linear_expected.v\` | EXACT-AFTER-CAST (float, meas. 0) | \`vips linear agray.png linear_expected.v 2 10\` |
+| \`aritha/linear_uchar_expected.png\` | EXACT | \`vips linear agray.png linear_uchar_expected.png 2 10 --uchar\` |
+| \`aritha/remainder_const_expected.png\` | EXACT | \`vips remainder_const agray.png remainder_const_expected.png 100\` |
+| \`aritha/math2_const_pow_expected.v\` | EXACT-AFTER-CAST (ushort, meas. 0) | \`vips math2_const agray.png pow.v pow 2\` → \`cast … ushort\` (core rounds pow into ushort) |
+| \`aritha/abs_expected.v\` | EXACT (float) | \`vips abs afloat.v abs_expected.v\` |
+| \`aritha/sign_expected.v\` | EXACT-AFTER-CAST (float) | \`vips sign afloat.v sign.v\` → \`cast … float\` (vips emits signed char; float preserves −1/0/1) |
+| \`aritha/round_rint_expected.v\` / \`_ceil_\` / \`_floor_\` | EXACT (float) | \`vips round afloat.v … rint\|ceil\|floor\` |
+| \`aritha/clamp_expected.png\` | EXACT | \`vips clamp agray.png clamp_expected.png --min 50 --max 200\` |
+| \`aritha/hough_line_golden.v\` | GOLDEN-ONLY (no vips oracle) | \`viprs hough_line point.png hough_line_golden.v\` (core binning diverges from vips) |
+| \`aritha/hough_circle_golden.v\` | GOLDEN-ONLY (no vips oracle) | \`viprs hough_circle point.png hough_circle_golden.v 2 4\` (core vote model diverges from vips) |
+
+The two hough references are viprs-generated regression pins, not vips oracles:
+the core's Hough distance-binning (line) and circle vote model differ
+structurally from vips 8.18.4 (measured max-abs-diff 32 on a line; a core per-cell
+max of 1 vs a vips max of 4 for a single point). A core issue is filed to
+reconcile them.
+EOF
+
 echo "==> Done. Generated fixtures under $FIX_ROOT"
 ls -1 "$FIX"
 echo "--- bands ---"
@@ -908,3 +1165,5 @@ echo "--- conversion ---"
 ls -1 "$CONV"
 echo "--- core ---"
 ls -1 "$CORE"
+echo "--- aritha ---"
+ls -1 "$ARITHA"

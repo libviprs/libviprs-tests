@@ -178,6 +178,52 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "core/getpoint_gray_expected.txt",
     "core/getpoint_float_expected.txt",
     "core/getpoint_float_nd_expected.txt",
+    // ---- aritha family (cli_aritha_diff.rs) — arith part-A lane ----
+    // Common inputs: agray (Gray8 ramp), afloat (float crossing zero, for
+    // abs/sign/round), content/content2 (find_trim), pzero (profile), point
+    // (the two hough golden pins).
+    "aritha/agray.png",
+    "aritha/afloat.v",
+    "aritha/content.png",
+    "aritha/content2.png",
+    "aritha/pzero.png",
+    "aritha/point.png",
+    // S3 scalars (numeric compare): avg/deviate + min/max (+ --x --y position).
+    "aritha/avg_expected.txt",
+    "aritha/deviate_expected.txt",
+    "aritha/min_expected.txt",
+    "aritha/max_expected.txt",
+    "aritha/min_xy_expected.txt",
+    "aritha/max_xy_expected.txt",
+    // find_trim: default (white bg) + --background 0 (black bg), 4 ints each.
+    "aritha/find_trim_expected.txt",
+    "aritha/find_trim_bg_expected.txt",
+    // stats/measure: float matrix .v (vips double cast to float; stats cropped
+    // to the 6 core columns).
+    "aritha/stats_expected.v",
+    "aritha/measure_expected.v",
+    // profile/project: ushort .v two-output pairs.
+    "aritha/profile_cols_expected.v",
+    "aritha/profile_rows_expected.v",
+    "aritha/project_cols_expected.v",
+    "aritha/project_rows_expected.v",
+    // const/linear: float linear + uchar linear + remainder + pow.
+    "aritha/linear_expected.v",
+    "aritha/linear_uchar_expected.png",
+    "aritha/remainder_const_expected.png",
+    "aritha/math2_const_pow_expected.v",
+    // unary/rounding on float: abs/sign + round rint/ceil/floor.
+    "aritha/abs_expected.v",
+    "aritha/sign_expected.v",
+    "aritha/round_rint_expected.v",
+    "aritha/round_ceil_expected.v",
+    "aritha/round_floor_expected.v",
+    // clamp (uchar).
+    "aritha/clamp_expected.png",
+    // hough: GOLDEN-ONLY viprs regression pins (no vips oracle — the core Hough
+    // numerics diverge structurally from vips; see cli_aritha_diff.rs).
+    "aritha/hough_line_golden.v",
+    "aritha/hough_circle_golden.v",
 ];
 
 #[test]
