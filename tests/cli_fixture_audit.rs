@@ -191,6 +191,7 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "colour/colourspace_xyz_expected.v",
     "colour/colourspace_scrgb_expected.v",
     "colour/colourspace_lab_png_expected.png",
+    "colour/colourspace_lab_input_png_expected.png",
     "colour/colourspace_srcspace_expected.png",
     // dE76 / dE00 float ΔE (.v); dECMC is a GOLDEN-ONLY viprs pin (vips computes
     // a different formula — see cli_colour_diff.rs).
@@ -201,6 +202,7 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // PNG.
     "colour/icc_import_lab_expected.v",
     "colour/icc_export_expected.png",
+    "colour/icc_export_d16_expected.png",
     "colour/icc_transform_expected.png",
 ];
 

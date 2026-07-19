@@ -986,6 +986,16 @@ echo "==> [colourspace] srgb -> lab / xyz / scrgb (.v float, eps 1e-4)"
 echo "==> [colourspace] srgb -> lab written to PNG (#36 interp-aware save; ≤1 LSB)"
 "$VIPS" colourspace "$COLOUR/rgb.png" "$COLOUR/colourspace_lab_png_expected.png" lab
 
+# #36 discriminator strengthener: a GENUINELY Lab-tagged input (icc_pcs_lab.v, a
+# D50 Lab PCS image) converted to sRGB and written to PNG. Unlike the round-trip
+# above (whose reference equals rgb.png, so an identity colourspace would still
+# pass), here the reference DIFFERS from the input — a no-op / raw-cast
+# colourspace would garble it — so the PNG path discriminates the colourspace
+# transform itself, not only the interpretation-aware save. uchar, ≤1 LSB
+# (measured 1).
+echo "==> [colourspace] LAB-tagged input -> srgb PNG (non-round-trip discriminator; ≤1 LSB)"
+"$VIPS" colourspace "$COLOUR/icc_pcs_lab.v" "$COLOUR/colourspace_lab_input_png_expected.png" srgb
+
 # --source-space override: force the sRGB-tagged input to be read as LAB, then
 # convert to sRGB. Genuinely discriminating (vs the srgb->srgb identity the flag
 # would collapse to if ignored: 255 apart). uchar, ≤1 LSB (measured 1).
@@ -1017,6 +1027,14 @@ echo "==> [icc_export] Lab PCS through sRGB -> device PNG (≤2 LSB, measured 0)
 "$VIPS" icc_export "$COLOUR/icc_pcs_lab.v" "$COLOUR/icc_export_expected.png" \
     --output-profile "$COLOUR/sRGB.icc" --intent relative --depth 8
 
+# icc_export --depth 16: pin the 16-bit device-output path. At 16-bit precision
+# the native moxcms engine and vips's lcms2 diverge by ~13/65535 on the matrix
+# -shaper sRGB profile (the 8-bit case rounds that away to 0) — a real, measured
+# cross-CMS BOUNDED-TOL, NOT a bug. 16-bit PNG, compared at ≤16 LSB (measured 13).
+echo "==> [icc_export] Lab PCS through sRGB -> 16-bit device PNG (--depth 16; ≤16 LSB, measured 13)"
+"$VIPS" icc_export "$COLOUR/icc_pcs_lab.v" "$COLOUR/icc_export_d16_expected.png" \
+    --output-profile "$COLOUR/sRGB.icc" --intent relative --depth 16
+
 # icc_transform: sRGB device -> sRGB device in one step (import+export). Matrix
 # -shaper round trip matches vips EXACTLY (measured 0); compared at ≤2 LSB.
 echo "==> [icc_transform] rgb sRGB->sRGB round trip -> device PNG (≤2 LSB, measured 0)"
@@ -1046,10 +1064,12 @@ output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
 - **Oracle classes**: every case is **BOUNDED-TOL** at a MEASURED tolerance
   EXCEPT \`dECMC\`, which is **GOLDEN-ONLY**. Measured max-abs-diff per case:
   colourspace LAB 4.6e-5 / XYZ 1.5e-5 / scRGB 1e-6 (float, tol 1e-4); the #36
-  LAB→PNG save 0 and the \`--source-space\` override 1 (uchar, tol 1 = ≤1 LSB);
-  dE76 / dE00 6.5e-5 (float, tol 1e-4); icc_import 0.303 (Lab float, tol 0.35 —
+  LAB→PNG save 0, the LAB-tagged-input→sRGB PNG non-round-trip discriminator 1,
+  and the \`--source-space\` override 1 (uchar, tol 1 = ≤1 LSB); dE76 / dE00
+  6.5e-5 (float, tol 1e-4); icc_import 0.303 (Lab float, tol 0.35 —
   moxcms-vs-lcms2 matrix-shaper divergence, NOT a bug); icc_export / icc_transform
-  0 (uchar, tol 2 = ≤2 LSB margin for cross-CMS / cross-arch).
+  0 (uchar, tol 2 = ≤2 LSB margin for cross-CMS / cross-arch); icc_export --depth
+  16 13 (16-bit, tol 16 — the moxcms-vs-lcms2 divergence the 8-bit path rounds away).
 
 ## dECMC — no vips cross-oracle (a real formula difference, GOLDEN-ONLY)
 
@@ -1099,12 +1119,14 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`colour/colourspace_xyz_expected.v\` | BOUNDED-TOL (1e-4) | \`vips colourspace rgb.png colourspace_xyz_expected.v xyz\` |
 | \`colour/colourspace_scrgb_expected.v\` | BOUNDED-TOL (1e-4) | \`vips colourspace rgb.png colourspace_scrgb_expected.v scrgb\` |
 | \`colour/colourspace_lab_png_expected.png\` | BOUNDED-TOL (≤1 LSB) | \`vips colourspace rgb.png colourspace_lab_png_expected.png lab\` (#36 interp-aware save) |
+| \`colour/colourspace_lab_input_png_expected.png\` | BOUNDED-TOL (≤1 LSB) | \`vips colourspace icc_pcs_lab.v colourspace_lab_input_png_expected.png srgb\` (#36 non-round-trip discriminator) |
 | \`colour/colourspace_srcspace_expected.png\` | BOUNDED-TOL (≤1 LSB) | \`vips colourspace rgb.png colourspace_srcspace_expected.png srgb --source-space lab\` |
 | \`colour/dE76_expected.v\` | BOUNDED-TOL (1e-4) | \`vips dE76 rgb.png rgb2.png dE76_expected.v\` |
 | \`colour/dE00_expected.v\` | BOUNDED-TOL (1e-4) | \`vips dE00 rgb.png rgb2.png dE00_expected.v\` (vips_col_dE00 parity) |
 | \`colour/dECMC_golden.v\` | GOLDEN-ONLY | \`viprs dECMC rgb.png rgb2.png dECMC_golden.v\` (NO vips oracle — vips computes a different formula) |
 | \`colour/icc_import_lab_expected.v\` | BOUNDED-TOL (~0.31) | \`vips icc_import rgb.png icc_import_lab_expected.v --input-profile sRGB.icc --intent relative\` |
 | \`colour/icc_export_expected.png\` | BOUNDED-TOL (≤2 LSB) | \`vips icc_export icc_pcs_lab.v icc_export_expected.png --output-profile sRGB.icc --intent relative --depth 8\` |
+| \`colour/icc_export_d16_expected.png\` | BOUNDED-TOL (≤16 LSB @ 16-bit) | \`vips icc_export icc_pcs_lab.v icc_export_d16_expected.png --output-profile sRGB.icc --intent relative --depth 16\` |
 | \`colour/icc_transform_expected.png\` | BOUNDED-TOL (≤2 LSB) | \`vips icc_transform rgb.png icc_transform_expected.png sRGB.icc --input-profile sRGB.icc --intent relative\` |
 EOF
 

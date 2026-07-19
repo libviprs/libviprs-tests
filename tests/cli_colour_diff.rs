@@ -24,12 +24,14 @@
 //! | `colourspace … xyz`   | `.v` float | 1e-4 | 1.5e-5 |
 //! | `colourspace … scrgb` | `.v` float | 1e-4 | 1.0e-6 |
 //! | `colourspace … lab` → PNG (#36) | PNG uchar | 1 (≤1 LSB) | 0 |
+//! | `colourspace icc_pcs_lab.v … srgb` → PNG (#36 non-round-trip) | PNG uchar | 1 (≤1 LSB) | 1 |
 //! | `colourspace --source-space lab` → PNG | PNG uchar | 1 (≤1 LSB) | 1 |
 //! | `dE76` | `.v` float | 1e-4 | 6.5e-5 |
 //! | `dE00` | `.v` float | 1e-4 | 6.5e-5 |
 //! | `dECMC` (GOLDEN-ONLY) | `.v` float | 1e-3 | 0 (viprs self-pin) |
 //! | `icc_import` | `.v` float | 0.35 | 0.303 |
 //! | `icc_export` | PNG uchar | 2 (≤2 LSB) | 0 |
+//! | `icc_export --depth 16` | 16-bit PNG | 16 (≤16 LSB) | 13 |
 //! | `icc_transform` | PNG uchar | 2 (≤2 LSB) | 0 |
 //!
 //! The `.v` carrier is mandatory for the float LAB/XYZ/scRGB/ΔE/Lab-PCS outputs
@@ -68,6 +70,13 @@ const UCHAR_1LSB: f64 = 1.0;
 /// output EXACTLY here (measured 0); the ≤2-LSB band is margin for a
 /// cross-CMS / cross-arch rounding wobble (OP_MAP.md colour ICC caveat).
 const UCHAR_2LSB: f64 = 2.0;
+
+/// BOUNDED-TOL for the 16-bit `icc_export --depth 16` device output: at 16-bit
+/// precision the native moxcms engine and vips's lcms2 diverge by ~13/65535 on
+/// the matrix-shaper sRGB profile (the 8-bit path rounds that away to 0) — a
+/// real, measured cross-CMS BOUNDED-TOL, NOT a bug. Compared in 16-bit sample
+/// space (0..65535); measured 13, banded to ≤16 LSB for cross-arch margin.
+const U16_16LSB: f64 = 16.0;
 
 /// BOUNDED-TOL for `icc_import`'s Lab PCS output: the moxcms native ICC engine
 /// and vips's lcms2 evaluate the matrix-shaper sRGB profile on the same exact
@@ -183,6 +192,36 @@ fn colourspace_lab_to_png_runs_interpretation_aware_save() {
     decode_compare(
         &out,
         &cli_fixture("colour/colourspace_lab_png_expected.png"),
+        UCHAR_1LSB,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// colourspace #36 (non-round-trip discriminator) — a GENUINELY Lab-tagged input
+// (icc_pcs_lab.v, a D50 Lab PCS image) converted to sRGB and written to PNG. The
+// plain #36 case above happens to round-trip to the input (its reference equals
+// rgb.png), so an identity/no-op colourspace would still pass it; here the
+// reference DIFFERS from the input, so a raw-cast / no-op colourspace would
+// garble the output. This makes the PNG path discriminate the colourspace
+// transform itself, not just the interpretation-aware save. uchar ≤1 LSB
+// (measured 1).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn colourspace_lab_input_to_png_discriminates_the_transform() {
+    if skip_if_no_cli("colourspace_lab_input_png") {
+        return;
+    }
+    let out = out_path("colourspace_lab_input.png");
+    run_viprs_ok(&[
+        "colourspace",
+        &fx(ICC_PCS_LAB),
+        out.to_str().unwrap(),
+        "srgb",
+    ]);
+    decode_compare(
+        &out,
+        &cli_fixture("colour/colourspace_lab_input_png_expected.png"),
         UCHAR_1LSB,
     );
 }
@@ -319,6 +358,37 @@ fn icc_export_srgb_matrix_shaper_matches_vips() {
 }
 
 // ---------------------------------------------------------------------------
+// icc_export --depth 16 — the 16-bit device-output path. `--depth 16` is
+// clap-valid AND core-realised (only 10/12/14 land in ColourError::UnsupportedDepth);
+// at 16-bit precision moxcms vs lcms2 diverge by ~13/65535 (the 8-bit path rounds
+// that to 0), a measured cross-CMS BOUNDED-TOL. 16-bit PNG, ≤16 LSB (measured 13).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn icc_export_depth_16_matches_vips_bounded_tol() {
+    if skip_if_no_cli("icc_export_d16") {
+        return;
+    }
+    let out = out_path("icc_export_d16.png");
+    run_viprs_ok(&[
+        "icc_export",
+        &fx(ICC_PCS_LAB),
+        out.to_str().unwrap(),
+        "--output-profile",
+        &fx(SRGB_ICC),
+        "--intent",
+        "relative",
+        "--depth",
+        "16",
+    ]);
+    decode_compare(
+        &out,
+        &cli_fixture("colour/icc_export_d16_expected.png"),
+        U16_16LSB,
+    );
+}
+
+// ---------------------------------------------------------------------------
 // icc_transform — S1 device -> device PNG in one step (positional output profile
 // + `--input-profile`, both real vips flags). sRGB->sRGB round trip matches vips
 // EXACTLY (measured 0); compared at ≤2 LSB. Exercises the composed
@@ -385,6 +455,59 @@ fn icc_import_without_a_profile_exits_1() {
         "icc_import with no available profile must exit non-zero"
     );
     assert_eq!(res.status.code(), Some(1), "an op error is exit 1");
+}
+
+#[test]
+fn icc_transform_without_input_profile_exits_1() {
+    if skip_if_no_cli("icc_transform_noprofile") {
+        return;
+    }
+    // No --input-profile and rgb.png carries no decoder-readable embedded
+    // profile: the composed import step (try_icc_import_with with input_profile
+    // = None, reading the embedded profile) fails NoProfile -> exit 1, NOT a
+    // panic. This exercises the embedded-profile (input_profile = None) arm of
+    // the unified icc_transform composition (libviprs-cli colour fix #1) — the
+    // only path that reaches try_icc_import_with(None) inside icc_transform.
+    let out = out_path("icc_transform_noprofile.png");
+    let res = run_viprs(&[
+        "icc_transform",
+        &fx(RGB),
+        out.to_str().unwrap(),
+        &fx(SRGB_ICC),
+    ]);
+    assert!(
+        !res.status.success(),
+        "icc_transform with no available input profile must exit non-zero"
+    );
+    assert_eq!(res.status.code(), Some(1), "an op error is exit 1");
+}
+
+#[test]
+fn icc_export_in_range_but_core_unsupported_depth_exits_1() {
+    if skip_if_no_cli("icc_export_depth_10") {
+        return;
+    }
+    // --depth 10 is INSIDE clap's 8..=16 range (so NOT a usage error), but the
+    // core only realises 8 or 16 -> ColourError::UnsupportedDepth -> exit 1
+    // (op error), NOT the clap usage exit 2 and NOT a panic. This pins the
+    // distinction between the clap-usage rejection (exit 2, --depth 4) and the
+    // core-op rejection (exit 1, an in-range-but-unsupported --depth).
+    let out = out_path("icc_export_depth10.png");
+    let res = run_viprs(&[
+        "icc_export",
+        &fx(ICC_PCS_LAB),
+        out.to_str().unwrap(),
+        "--output-profile",
+        &fx(SRGB_ICC),
+        "--depth",
+        "10",
+    ]);
+    assert!(!res.status.success());
+    assert_eq!(
+        res.status.code(),
+        Some(1),
+        "an in-range but core-unsupported --depth is an op error (exit 1), not a usage error"
+    );
 }
 
 #[test]
