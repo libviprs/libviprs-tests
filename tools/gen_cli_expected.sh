@@ -898,6 +898,179 @@ band counts, so the channel-mismatch case is a documented SUBSET limitation (cor
 cannot broadcast without a core change), not a parity claim.
 EOF
 
+# ===========================================================================
+# DRAW FAMILY (the Wave-2 draw lane; OP_MAP.md draw section).
+#
+# EVERY draw op is GOLDEN-ONLY: `vips draw_*` are in-place mutators whose CLI
+# DISCARDS the mutated image (the op returns nothing to save), so there is NO
+# vips CLI oracle to cross-check against. Each reference is therefore generated
+# ONCE by `viprs` itself (deterministic) and committed; the differential cell
+# (tests/cli_draw_diff.rs) is a REGRESSION PIN that says so, NOT a parity claim.
+#
+# The COMMON inputs are still built with vips (a deterministic function of pixel
+# coordinates — `grey`/`eye`/`black` — so every input is bit-reproducible) and
+# committed; they are consumed only as `viprs` INPUTS (never as an oracle). The
+# inputs are chosen so each draw is DISCRIMINATING: a no-op / broken draw would
+# fail the pin (the cell also asserts each output differs from its input, and
+# that outline≠fill and bounded-flood≠blob-flood).
+# ===========================================================================
+DRAW="$FIX_ROOT/draw"
+mkdir -p "$DRAW"
+
+# `viprs` mints EVERY draw reference (there is no vips oracle). Build it if the
+# release binary is absent, exactly as the smartcrop-entropy golden pin does.
+if [ ! -x "$VIPRS" ]; then
+    echo "    (building $VIPRS: cargo build --release --no-default-features --bin viprs)"
+    ( cd "$CLI_DIR" && cargo build --release --no-default-features --bin viprs )
+fi
+
+# --- Common inputs -----------------------------------------------------------
+# rgb: a 32x32 sRGB 2-D gradient (band0 = horizontal ramp, band1 = a scaled
+# VERTICAL ramp, band2 = a third horizontal ramp), so a solid-ink shape drawn
+# over it changes pixels in a fully 2-D-determined way. sRGB-tagged so the 3-band
+# PNG saves as clean RGB (not a b-w image vips would alpha-pad).
+echo "==> [draw input] 32x32 sRGB 2-D gradient (rgb.png) — circle/rect/line/mask/image base"
+"$VIPS" grey "$TMP/dg.v" 32 32
+"$VIPS" linear "$TMP/dg.v" "$TMP/dgx.png" 255 0 --uchar
+"$VIPS" rot "$TMP/dg.v" "$TMP/dgv.v" d90
+"$VIPS" linear "$TMP/dgv.v" "$TMP/dgy.png" 200 20 --uchar
+"$VIPS" linear "$TMP/dg.v" "$TMP/dgz.png" 120 60 --uchar
+"$VIPS" bandjoin "$TMP/dgx.png $TMP/dgy.png $TMP/dgz.png" "$TMP/drgb.v"
+"$VIPS" copy "$TMP/drgb.v" "$DRAW/rgb.png" --interpretation srgb
+
+# flood: a 32x32 Gray8 image of THREE FLAT vertical stripes (values 0 / 100 /
+# 200), so the flood ops pick a genuine bounded region. A bounded flood from the
+# left (0) stripe with ink 100 fills the 0 stripe up to the 100 wall (→ 100 100
+# 200 — it STOPS, leaving the 200 stripe untouched: a broken flood that filled
+# everything would fail). A blob flood (--equal) recolours only the seed's own
+# equal-valued (0) stripe (→ 50 100 200). The two are distinct and region-limited.
+echo "==> [draw input] 32x32 Gray8 three flat stripes 0/100/200 (flood.png)"
+"$VIPS" linear "$TMP/dg.v" "$TMP/dramp.v" 255 0 --uchar
+"$VIPS" relational_const "$TMP/dramp.v" "$TMP/dr1.v" moreeq 85
+"$VIPS" relational_const "$TMP/dramp.v" "$TMP/dr2.v" moreeq 170
+"$VIPS" add "$TMP/dr1.v" "$TMP/dr2.v" "$TMP/dr12.v"
+# (0,255,510) * (100/255) = (0,100,200), exact.
+"$VIPS" linear "$TMP/dr12.v" "$DRAW/flood.png" 0.39215686274509803 0 --uchar
+
+# mask: a 16x16 single-band Gray8 horizontal ramp (0..255), used as the
+# draw_mask OPACITY stencil (0 = no paint, 255 = full ink, partial blend between).
+echo "==> [draw input] 16x16 Gray8 ramp stencil (mask.png)"
+"$VIPS" grey "$TMP/dm.v" 16 16
+"$VIPS" linear "$TMP/dm.v" "$DRAW/mask.png" 255 0 --uchar
+
+# sub: an 8x8 SOLID magenta sRGB sub-image whose distinct colour stands out
+# wherever draw_image pastes it. Must share rgb.png's RGB8 format (the core paste
+# is a no-op on a format mismatch), so it is 3-band sRGB like the base.
+echo "==> [draw input] 8x8 solid magenta sRGB sub-image (sub.png)"
+"$VIPS" black "$TMP/db.v" 8 8 --bands 3
+"$VIPS" linear "$TMP/db.v" "$TMP/dsub.v" "0 0 0" "255 0 255" --uchar
+"$VIPS" copy "$TMP/dsub.v" "$DRAW/sub.png" --interpretation srgb
+
+# smudge: a 16x16 Gray8 HIGH-FREQUENCY pattern (a thresholded `eye` zone-plate,
+# 0/255) so the 3x3 box-blur genuinely changes many pixels. A smooth gradient
+# would be a near-no-op in its interior (the mean of a linear ramp ≈ its centre),
+# which would make the smudge pin vacuous — the high-frequency input avoids that.
+echo "==> [draw input] 16x16 Gray8 high-frequency thresholded eye (smudge.png)"
+"$VIPS" eye "$TMP/de.v" 16 16
+"$VIPS" relational_const "$TMP/de.v" "$DRAW/smudge.png" more 0.0
+
+# --- References — every one minted by `viprs` (GOLDEN-ONLY, no vips oracle) ---
+echo "==> [draw_circle] outline + --fill disc, red ink (GOLDEN-ONLY)"
+"$VIPRS" draw_circle "$DRAW/rgb.png" "$DRAW/draw_circle_golden.png"      16 16 8 --ink "255 0 0" >/dev/null
+"$VIPRS" draw_circle "$DRAW/rgb.png" "$DRAW/draw_circle_fill_golden.png" 16 16 8 --ink "255 0 0" --fill >/dev/null
+
+echo "==> [draw_rect] outline + --fill, green ink (GOLDEN-ONLY)"
+"$VIPRS" draw_rect "$DRAW/rgb.png" "$DRAW/draw_rect_golden.png"      4 4 20 16 --ink "0 255 0" >/dev/null
+"$VIPRS" draw_rect "$DRAW/rgb.png" "$DRAW/draw_rect_fill_golden.png" 4 4 20 16 --ink "0 255 0" --fill >/dev/null
+
+echo "==> [draw_line] diagonal, blue ink (GOLDEN-ONLY)"
+"$VIPRS" draw_line "$DRAW/rgb.png" "$DRAW/draw_line_golden.png" 0 0 31 31 --ink "0 0 255" >/dev/null
+
+echo "==> [draw_flood] bounded (ink 100) + blob --equal (ink 50) on the stripes (GOLDEN-ONLY)"
+"$VIPRS" draw_flood "$DRAW/flood.png" "$DRAW/draw_flood_golden.png"      0 0 --ink "100" >/dev/null
+"$VIPRS" draw_flood "$DRAW/flood.png" "$DRAW/draw_flood_blob_golden.png" 0 0 --ink "50" --equal >/dev/null
+
+echo "==> [draw_mask] yellow ink through the ramp stencil at (8,8) (GOLDEN-ONLY)"
+"$VIPRS" draw_mask "$DRAW/rgb.png" "$DRAW/draw_mask_golden.png" "$DRAW/mask.png" 8 8 --ink "255 255 0" >/dev/null
+
+echo "==> [draw_smudge] box-blur a rect over the high-frequency input (GOLDEN-ONLY)"
+"$VIPRS" draw_smudge "$DRAW/smudge.png" "$DRAW/draw_smudge_golden.png" 4 4 8 8 >/dev/null
+
+echo "==> [draw_image] paste the magenta sub-image at (10,10) (GOLDEN-ONLY)"
+"$VIPRS" draw_image "$DRAW/rgb.png" "$DRAW/draw_image_golden.png" "$DRAW/sub.png" 10 10 >/dev/null
+
+# --- Provenance (append the draw section) ------------------------------------
+echo "==> [provenance] appending draw section to $FIX_ROOT/PROVENANCE.md"
+cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
+
+---
+
+# draw family CLI-differential reference provenance (GOLDEN-ONLY)
+
+Every \`draw_*\` op is **GOLDEN-ONLY**: \`vips draw_*\` are in-place mutators whose
+CLI **discards** the mutated image, so there is **NO vips CLI oracle**. Each
+reference below is generated **once by \`viprs\` itself** (deterministic) and
+committed; the differential cell (\`tests/cli_draw_diff.rs\`) is a **regression
+pin** that states there is no vips cross-oracle — NOT a parity claim.
+
+- **Generator**: \`viprs\` (\`$VIPRS\`), built \`--release --no-default-features\`.
+- **Oracle**: none (GOLDEN-ONLY). The vips version above is recorded only because
+  the COMMON INPUTS are built with vips as a deterministic coordinate function
+  (\`grey\`/\`eye\`/\`black\`); vips is never used to produce a draw reference.
+- **Common inputs** (under \`draw/\`): \`rgb.png\` (32×32 sRGB 2-D gradient),
+  \`flood.png\` (32×32 Gray8 three flat stripes 0/100/200), \`mask.png\` (16×16
+  Gray8 ramp opacity stencil), \`sub.png\` (8×8 solid magenta sRGB paste source),
+  \`smudge.png\` (16×16 Gray8 high-frequency thresholded \`eye\`).
+
+## Exact commands
+
+Inputs (built with vips, deterministic):
+
+\`\`\`
+vips grey dg.v 32 32
+vips linear dg.v dgx.png 255 0 --uchar
+vips rot dg.v dgv.v d90
+vips linear dgv.v dgy.png 200 20 --uchar
+vips linear dg.v dgz.png 120 60 --uchar
+vips bandjoin "dgx.png dgy.png dgz.png" drgb.v
+vips copy drgb.v draw/rgb.png --interpretation srgb
+vips linear dg.v dramp.v 255 0 --uchar
+vips relational_const dramp.v dr1.v moreeq 85
+vips relational_const dramp.v dr2.v moreeq 170
+vips add dr1.v dr2.v dr12.v
+vips linear dr12.v draw/flood.png 0.39215686274509803 0 --uchar   # -> 0/100/200
+vips grey dm.v 16 16
+vips linear dm.v draw/mask.png 255 0 --uchar
+vips black db.v 8 8 --bands 3
+vips linear db.v dsub.v "0 0 0" "255 0 255" --uchar
+vips copy dsub.v draw/sub.png --interpretation srgb
+vips eye de.v 16 16
+vips relational_const de.v draw/smudge.png more 0.0
+\`\`\`
+
+References (paths relative to \`tests/fixtures/cli/\`, ALL GOLDEN-ONLY — minted by \`viprs\`):
+
+| reference | oracle class | viprs command |
+|---|---|---|
+| \`draw/draw_circle_golden.png\` | GOLDEN-ONLY | \`viprs draw_circle rgb.png draw_circle_golden.png 16 16 8 --ink "255 0 0"\` |
+| \`draw/draw_circle_fill_golden.png\` | GOLDEN-ONLY | \`viprs draw_circle rgb.png draw_circle_fill_golden.png 16 16 8 --ink "255 0 0" --fill\` |
+| \`draw/draw_rect_golden.png\` | GOLDEN-ONLY | \`viprs draw_rect rgb.png draw_rect_golden.png 4 4 20 16 --ink "0 255 0"\` |
+| \`draw/draw_rect_fill_golden.png\` | GOLDEN-ONLY | \`viprs draw_rect rgb.png draw_rect_fill_golden.png 4 4 20 16 --ink "0 255 0" --fill\` |
+| \`draw/draw_line_golden.png\` | GOLDEN-ONLY | \`viprs draw_line rgb.png draw_line_golden.png 0 0 31 31 --ink "0 0 255"\` |
+| \`draw/draw_flood_golden.png\` | GOLDEN-ONLY | \`viprs draw_flood flood.png draw_flood_golden.png 0 0 --ink "100"\` (bounded: 0-stripe → 100, stops at the 100 wall, 200-stripe untouched) |
+| \`draw/draw_flood_blob_golden.png\` | GOLDEN-ONLY | \`viprs draw_flood flood.png draw_flood_blob_golden.png 0 0 --ink "50" --equal\` (blob: recolours only the seed's equal-valued 0-stripe → 50) |
+| \`draw/draw_mask_golden.png\` | GOLDEN-ONLY | \`viprs draw_mask rgb.png draw_mask_golden.png mask.png 8 8 --ink "255 255 0"\` |
+| \`draw/draw_smudge_golden.png\` | GOLDEN-ONLY | \`viprs draw_smudge smudge.png draw_smudge_golden.png 4 4 8 8\` |
+| \`draw/draw_image_golden.png\` | GOLDEN-ONLY | \`viprs draw_image rgb.png draw_image_golden.png sub.png 10 10\` |
+
+The draw ops mutate their input in place; \`viprs\` materialises the result to
+\`OUT\` (the S6 shape). \`draw_smudge\` and \`draw_image\` take no ink; \`draw_image\`
+requires \`SUB\` to share \`IN\`'s pixel format (a documented core no-op otherwise,
+surfaced as a typed exit-1 error), and \`draw_smudge\`/\`--ink\` reject a float
+target with a typed exit-1 error (never a panic). 16-bit ink byte order is
+\`CLI_CONTRACT.md\` §9 missing-scope; the committed inputs are all 8-bit.
+EOF
+
 echo "==> Done. Generated fixtures under $FIX_ROOT"
 ls -1 "$FIX"
 echo "--- bands ---"
@@ -908,3 +1081,5 @@ echo "--- conversion ---"
 ls -1 "$CONV"
 echo "--- core ---"
 ls -1 "$CORE"
+echo "--- draw ---"
+ls -1 "$DRAW"

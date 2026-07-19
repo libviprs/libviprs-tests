@@ -178,6 +178,26 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "core/getpoint_gray_expected.txt",
     "core/getpoint_float_expected.txt",
     "core/getpoint_float_nd_expected.txt",
+    // ---- draw family (cli_draw_diff.rs) — ALL GOLDEN-ONLY ----
+    // Common inputs (built with vips as a deterministic coordinate function,
+    // consumed only as `viprs` inputs; there is NO vips oracle for draw ops).
+    "draw/rgb.png",
+    "draw/flood.png",
+    "draw/mask.png",
+    "draw/sub.png",
+    "draw/smudge.png",
+    // References — every one minted by `viprs` itself (GOLDEN-ONLY regression
+    // pins; `draw_*` are in-place mutators the vips CLI discards).
+    "draw/draw_circle_golden.png",
+    "draw/draw_circle_fill_golden.png",
+    "draw/draw_rect_golden.png",
+    "draw/draw_rect_fill_golden.png",
+    "draw/draw_line_golden.png",
+    "draw/draw_flood_golden.png",
+    "draw/draw_flood_blob_golden.png",
+    "draw/draw_mask_golden.png",
+    "draw/draw_smudge_golden.png",
+    "draw/draw_image_golden.png",
 ];
 
 #[test]

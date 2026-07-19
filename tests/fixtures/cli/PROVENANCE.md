@@ -314,3 +314,70 @@ substring; CLI_CONTRACT.md §8) and need no vips reference. Note: vips `add`
 BAND-BROADCASTS a 1-band operand across a multi-band one; core requires EQUAL
 band counts, so the channel-mismatch case is a documented SUBSET limitation (core
 cannot broadcast without a core change), not a parity claim.
+
+---
+
+# draw family CLI-differential reference provenance (GOLDEN-ONLY)
+
+Every `draw_*` op is **GOLDEN-ONLY**: `vips draw_*` are in-place mutators whose
+CLI **discards** the mutated image, so there is **NO vips CLI oracle**. Each
+reference below is generated **once by `viprs` itself** (deterministic) and
+committed; the differential cell (`tests/cli_draw_diff.rs`) is a **regression
+pin** that states there is no vips cross-oracle — NOT a parity claim.
+
+- **Generator**: `viprs` (`/Users/rom/workspace/libviprs/camp/w2/draw/libviprs-cli/target/release/viprs`), built `--release --no-default-features`.
+- **Oracle**: none (GOLDEN-ONLY). The vips version above is recorded only because
+  the COMMON INPUTS are built with vips as a deterministic coordinate function
+  (`grey`/`eye`/`black`); vips is never used to produce a draw reference.
+- **Common inputs** (under `draw/`): `rgb.png` (32×32 sRGB 2-D gradient),
+  `flood.png` (32×32 Gray8 three flat stripes 0/100/200), `mask.png` (16×16
+  Gray8 ramp opacity stencil), `sub.png` (8×8 solid magenta sRGB paste source),
+  `smudge.png` (16×16 Gray8 high-frequency thresholded `eye`).
+
+## Exact commands
+
+Inputs (built with vips, deterministic):
+
+```
+vips grey dg.v 32 32
+vips linear dg.v dgx.png 255 0 --uchar
+vips rot dg.v dgv.v d90
+vips linear dgv.v dgy.png 200 20 --uchar
+vips linear dg.v dgz.png 120 60 --uchar
+vips bandjoin "dgx.png dgy.png dgz.png" drgb.v
+vips copy drgb.v draw/rgb.png --interpretation srgb
+vips linear dg.v dramp.v 255 0 --uchar
+vips relational_const dramp.v dr1.v moreeq 85
+vips relational_const dramp.v dr2.v moreeq 170
+vips add dr1.v dr2.v dr12.v
+vips linear dr12.v draw/flood.png 0.39215686274509803 0 --uchar   # -> 0/100/200
+vips grey dm.v 16 16
+vips linear dm.v draw/mask.png 255 0 --uchar
+vips black db.v 8 8 --bands 3
+vips linear db.v dsub.v "0 0 0" "255 0 255" --uchar
+vips copy dsub.v draw/sub.png --interpretation srgb
+vips eye de.v 16 16
+vips relational_const de.v draw/smudge.png more 0.0
+```
+
+References (paths relative to `tests/fixtures/cli/`, ALL GOLDEN-ONLY — minted by `viprs`):
+
+| reference | oracle class | viprs command |
+|---|---|---|
+| `draw/draw_circle_golden.png` | GOLDEN-ONLY | `viprs draw_circle rgb.png draw_circle_golden.png 16 16 8 --ink "255 0 0"` |
+| `draw/draw_circle_fill_golden.png` | GOLDEN-ONLY | `viprs draw_circle rgb.png draw_circle_fill_golden.png 16 16 8 --ink "255 0 0" --fill` |
+| `draw/draw_rect_golden.png` | GOLDEN-ONLY | `viprs draw_rect rgb.png draw_rect_golden.png 4 4 20 16 --ink "0 255 0"` |
+| `draw/draw_rect_fill_golden.png` | GOLDEN-ONLY | `viprs draw_rect rgb.png draw_rect_fill_golden.png 4 4 20 16 --ink "0 255 0" --fill` |
+| `draw/draw_line_golden.png` | GOLDEN-ONLY | `viprs draw_line rgb.png draw_line_golden.png 0 0 31 31 --ink "0 0 255"` |
+| `draw/draw_flood_golden.png` | GOLDEN-ONLY | `viprs draw_flood flood.png draw_flood_golden.png 0 0 --ink "100"` (bounded: 0-stripe → 100, stops at the 100 wall, 200-stripe untouched) |
+| `draw/draw_flood_blob_golden.png` | GOLDEN-ONLY | `viprs draw_flood flood.png draw_flood_blob_golden.png 0 0 --ink "50" --equal` (blob: recolours only the seed's equal-valued 0-stripe → 50) |
+| `draw/draw_mask_golden.png` | GOLDEN-ONLY | `viprs draw_mask rgb.png draw_mask_golden.png mask.png 8 8 --ink "255 255 0"` |
+| `draw/draw_smudge_golden.png` | GOLDEN-ONLY | `viprs draw_smudge smudge.png draw_smudge_golden.png 4 4 8 8` |
+| `draw/draw_image_golden.png` | GOLDEN-ONLY | `viprs draw_image rgb.png draw_image_golden.png sub.png 10 10` |
+
+The draw ops mutate their input in place; `viprs` materialises the result to
+`OUT` (the S6 shape). `draw_smudge` and `draw_image` take no ink; `draw_image`
+requires `SUB` to share `IN`'s pixel format (a documented core no-op otherwise,
+surfaced as a typed exit-1 error), and `draw_smudge`/`--ink` reject a float
+target with a typed exit-1 error (never a panic). 16-bit ink byte order is
+`CLI_CONTRACT.md` §9 missing-scope; the committed inputs are all 8-bit.
