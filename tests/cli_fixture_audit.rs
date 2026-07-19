@@ -431,6 +431,42 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "draw/draw_smudge_golden.png",
     "draw/draw_image_golden.png",
     "draw/draw_rect_16bit_golden.v",
+    // ---- resample family (cli_resample_diff.rs) ----
+    // Common inputs: a 2-D gradient (grad), a 2-D sRGB (rgb), and a float 2-band
+    // coordinate map (index.v, a 2× zoom) for mapim.
+    "resample/grad.png",
+    "resample/rgb.png",
+    "resample/index.v",
+    // shrink / shrinkh / shrinkv (box shrink).
+    "resample/shrink_expected.png",
+    "resample/shrinkh_expected.png",
+    "resample/shrinkv_expected.png",
+    // reduce (lanczos3 default + cubic enum) / reduceh / reducev.
+    "resample/reduce_lanczos3_expected.png",
+    "resample/reduce_cubic_expected.png",
+    "resample/reduceh_expected.png",
+    "resample/reducev_expected.png",
+    // resize (half, --vscale, upscale→affine path, --kernel nearest).
+    "resample/resize_half_expected.png",
+    "resample/resize_vscale_expected.png",
+    "resample/resize_up_expected.png",
+    "resample/resize_nearest_expected.png",
+    // affine (bilinear default ≤1 LSB; bicubic 2 LSB, noted divergence).
+    "resample/affine_bilinear_expected.png",
+    "resample/affine_bicubic_expected.png",
+    // similarity (--angle / --scale) / rotate.
+    "resample/similarity_angle_expected.png",
+    "resample/similarity_scale_expected.png",
+    "resample/rotate_expected.png",
+    // mapim (S2: index is a 2nd input) bilinear + bicubic.
+    "resample/mapim_bilinear_expected.png",
+    "resample/mapim_bicubic_expected.png",
+    // thumbnail (FILENAME input + non-square --crop + --linear) / thumbnail_image
+    // (decoded variant).
+    "resample/thumbnail_expected.png",
+    "resample/thumbnail_crop_expected.png",
+    "resample/thumbnail_linear_expected.png",
+    "resample/thumbnail_image_expected.png",
 ];
 
 #[test]

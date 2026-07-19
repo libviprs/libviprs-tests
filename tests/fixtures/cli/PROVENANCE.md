@@ -962,3 +962,62 @@ a float target with a typed exit-1 error (never a panic). Most committed inputs
 are 8-bit; `gray16.v` is a single-band Gray16 target that pins the 16-bit
 native-endian ink encode + draw/save round trip (`CLI_CONTRACT.md` §9: 16-bit
 ink byte order is native-endian, now regression-pinned by the committed golden).
+# resample family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the resample
+CLI-differential suite (`tests/cli_resample_diff.rs`) decode-compares `viprs`
+output against. Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
+
+- **Oracle**: `vips-8.18.4`
+- **Common inputs** (under `resample/`): `grad.png` (32×32 Gray8 2-D gradient
+  `x*85 + y*170`, so shrinkv / reducev / rot are non-vacuous), `rgb.png` (32×32
+  3-band sRGB with 2-D structure), `index.v` (32×32 FLOAT 2-band coordinate map
+  sampling each output at HALF its source coordinate — a real 2× zoom with
+  fractional taps, so `mapim` moves data and interpolates).
+- **EVERY op is BOUNDED-TOL for NON-ALPHA inputs** (the premultiply / rounding
+  campaign #406-418): the core computes reduce / interpolate masks in f64 per
+  output position while vips quantises the sub-pixel offset into fixed-point
+  tables, so the two agree to ≤1 LSB. Non-alpha inputs are used deliberately:
+  the core `reduce`/`shrink`/`resize` premultiply alpha before resampling (a
+  documented, intentional divergence from bare `vips_reduce`/`vips_shrink`,
+  which do not), so on an RGBA / GrayA input these ops diverge from vips
+  WHOLESALE — well beyond ≤1 LSB (measured max-abs-diff 4 for `shrink 2 2` on a
+  4-band sRGB ramp). That divergence is deliberate and OUT of the ≤1 LSB oracle
+  class; the differential exercises only the no-alpha `grad`/`rgb` carriers.
+
+## Measured max-abs-diff (per case)
+
+References (paths relative to `tests/fixtures/cli/`):
+
+| reference | tol (measured) | vips command |
+|---|---|---|
+| `resample/shrink_expected.png` | ≤1 LSB (0) | `vips shrink grad.png shrink_expected.png 2 2` |
+| `resample/shrinkh_expected.png` | ≤1 LSB (0) | `vips shrinkh grad.png shrinkh_expected.png 2` |
+| `resample/shrinkv_expected.png` | ≤1 LSB (0) | `vips shrinkv grad.png shrinkv_expected.png 2` |
+| `resample/reduce_lanczos3_expected.png` | ≤1 LSB (0) | `vips reduce rgb.png reduce_lanczos3_expected.png 2 2` (default lanczos3) |
+| `resample/reduce_cubic_expected.png` | ≤1 LSB (0) | `vips reduce rgb.png reduce_cubic_expected.png 2 2 --kernel cubic` |
+| `resample/reduceh_expected.png` | ≤1 LSB (1) | `vips reduceh grad.png reduceh_expected.png 2` |
+| `resample/reducev_expected.png` | ≤1 LSB (1) | `vips reducev grad.png reducev_expected.png 2` |
+| `resample/resize_half_expected.png` | ≤1 LSB (0) | `vips resize rgb.png resize_half_expected.png 0.5` |
+| `resample/resize_vscale_expected.png` | ≤1 LSB (0) | `vips resize rgb.png resize_vscale_expected.png 0.5 --vscale 0.75` |
+| `resample/resize_up_expected.png` | ≤1 LSB (1) | `vips resize grad.png resize_up_expected.png 2.0` (upscale → affine path) |
+| `resample/resize_nearest_expected.png` | ≤1 LSB (0) | `vips resize rgb.png resize_nearest_expected.png 0.5 --kernel nearest` |
+| `resample/affine_bilinear_expected.png` | ≤1 LSB (1) | `vips affine rgb.png affine_bilinear_expected.png "1.5 0 0 1.5"` (default bilinear) |
+| `resample/affine_bicubic_expected.png` | **2 LSB (2)** | `vips affine rgb.png affine_bicubic_expected.png "1.5 0 0 1.5" --interpolate bicubic` (bicubic quantises to 2 LSB — noted divergence) |
+| `resample/similarity_angle_expected.png` | ≤1 LSB (1) | `vips similarity rgb.png similarity_angle_expected.png --angle 30` |
+| `resample/similarity_scale_expected.png` | ≤1 LSB (1) | `vips similarity rgb.png similarity_scale_expected.png --scale 1.5` |
+| `resample/rotate_expected.png` | ≤1 LSB (1) | `vips rotate rgb.png rotate_expected.png 30` |
+| `resample/mapim_bilinear_expected.png` | ≤1 LSB (0) | `vips mapim rgb.png mapim_bilinear_expected.png index.v` (S2; index is a 2nd input) |
+| `resample/mapim_bicubic_expected.png` | ≤1 LSB (1) | `vips mapim rgb.png mapim_bicubic_expected.png index.v --interpolate bicubic` |
+| `resample/thumbnail_expected.png` | ≤1 LSB (0) | `vips thumbnail rgb.png thumbnail_expected.png 16` (FILENAME input) |
+| `resample/thumbnail_crop_expected.png` | ≤1 LSB (0) | `vips thumbnail rgb.png thumbnail_crop_expected.png 16 --height 8 --crop centre` (NON-square target — centre-crop removes pixels, 16×8, distinct from the no-crop fixtures) |
+| `resample/thumbnail_linear_expected.png` | ≤1 LSB (1) | `vips thumbnail rgb.png thumbnail_linear_expected.png 16 --linear` (linear-light reduce path) |
+| `resample/thumbnail_image_expected.png` | ≤1 LSB (0) | `vips thumbnail_image rgb.png thumbnail_image_expected.png 16` |
+
+**Open question**: `affine … --interpolate bicubic` measures **2 LSB** (not the
+≤1 LSB the rest of the family hits). The core evaluates exact f64 Catmull-Rom
+coefficients while vips's `VipsInterpolateBicubic` uses a coarser fixed-point
+coefficient table, so some interior samples land 2 apart. This is a genuine,
+measured core-vs-vips rounding difference (not a CLI bug); the differential
+compares that one case at tol 2. A follow-up could tighten the core bicubic
+coefficient path toward vips's table if exact bicubic parity is ever required.
