@@ -17,6 +17,7 @@
 
 #![allow(dead_code)]
 
+pub mod cli;
 pub mod dzsave_expected;
 pub mod fixtures;
 

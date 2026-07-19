@@ -1,0 +1,77 @@
+//! CLI-differential **fixture-presence** audit (CLI_CONTRACT.md §7).
+//!
+//! §7 mandates that the harness asserts fixture PRESENCE — never vips presence —
+//! so a committed reference that is accidentally deleted (or a `.gitignore` that
+//! swallows a `.png`/`.tif`) fails loudly instead of the differential cell
+//! silently comparing against a stale or missing file. This audit reads only
+//! repository files: it runs under the **default `cargo test`** with no network,
+//! no `libviprs-cli` sibling, no CLI build, and no vips oracle — exactly the
+//! places the differential cells themselves skip.
+//!
+//! Every reference produced by `tools/gen_cli_expected.sh` and consumed by
+//! `tests/cli_morphology_diff.rs` is listed here; keep the two in lockstep as
+//! later families add fixtures.
+
+use std::path::{Path, PathBuf};
+
+/// Root of the committed CLI-differential fixtures.
+fn fixtures_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cli")
+}
+
+/// Every committed reference the CLI-differential suite depends on, relative to
+/// [`fixtures_root`]. Grouped by the differential case that consumes it.
+const REQUIRED_FIXTURES: &[&str] = &[
+    // Provenance record (vips version + exact commands behind every reference).
+    "PROVENANCE.md",
+    // Inputs + structuring elements.
+    "morphology/input.png",
+    "morphology/input_gray.png",
+    "morphology/cross.mat",
+    "morphology/corner.mat",
+    // morph erode/dilate — cross mask.
+    "morphology/morph_erode_expected.png",
+    "morphology/morph_dilate_expected.png",
+    // morph erode/dilate — corner mask with a 0 cell (trit coverage).
+    "morphology/morph_erode_corner_expected.png",
+    "morphology/morph_dilate_corner_expected.png",
+    // rank — binary + multi-level, median + non-median index.
+    "morphology/rank_median_expected.png",
+    "morphology/rank_gray_median_expected.png",
+    "morphology/rank_gray_max_expected.png",
+    // countlines (S3 scalar).
+    "morphology/countlines_horizontal_expected.txt",
+    "morphology/countlines_vertical_expected.txt",
+    // labelregions (S4: mask + segment count).
+    "morphology/labelregions_mask_expected.tif",
+    "morphology/labelregions_segments_expected.txt",
+];
+
+#[test]
+fn every_cli_differential_reference_is_present() {
+    let root = fixtures_root();
+    let mut missing: Vec<String> = Vec::new();
+    for rel in REQUIRED_FIXTURES {
+        let path = root.join(rel);
+        if !path.is_file() {
+            missing.push(rel.to_string());
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "CLI-differential reference fixture(s) missing under {}:\n  {}\n\
+         Regenerate offline with tools/gen_cli_expected.sh (needs the vips oracle) \
+         or restore the committed files.",
+        root.display(),
+        missing.join("\n  "),
+    );
+}
+
+#[test]
+fn required_fixture_list_has_no_duplicates() {
+    // A duplicated entry would silently weaken the audit's bookkeeping.
+    let mut seen = std::collections::BTreeSet::new();
+    for rel in REQUIRED_FIXTURES {
+        assert!(seen.insert(*rel), "duplicate fixture entry: {rel}");
+    }
+}
