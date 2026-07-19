@@ -247,6 +247,226 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "colour/icc_export_expected.png",
     "colour/icc_export_d16_expected.png",
     "colour/icc_transform_expected.png",
+    // ---- histogram family (cli_histogram_diff.rs) ----
+    // Common image inputs + committed histogram-shaped inputs.
+    "histogram/gray.png",
+    "histogram/rgb.png",
+    "histogram/index.png",
+    "histogram/hist.v",
+    "histogram/histcum.v",
+    "histogram/hist2.v",
+    "histogram/lut.v",
+    // EXACT count / LUT references (vips uint cast to ushort).
+    "histogram/hist_find_expected.v",
+    "histogram/hist_find_band_expected.v",
+    // --band 2 (diagonal band, triangular histogram distinct from band 0):
+    // pins band-index honouring, not just the 1-vs-3-band output shape.
+    "histogram/hist_find_band2_expected.v",
+    "histogram/hist_find_indexed_expected.v",
+    "histogram/hist_find_ndim_expected.v",
+    "histogram/hist_cum_expected.v",
+    "histogram/hist_norm_expected.v",
+    // hist_equal (BOUNDED-TOL ≤1) / maplut (EXACT) — plain b-w → PNG.
+    "histogram/hist_equal_expected.png",
+    "histogram/maplut_expected.png",
+    // S3 scalars: hist_entropy (uniform + non-uniform), hist_ismonotonic (F/T).
+    "histogram/hist_entropy_expected.txt",
+    "histogram/hist_entropy_cum_expected.txt",
+    "histogram/hist_ismonotonic_false_expected.txt",
+    "histogram/hist_ismonotonic_true_expected.txt",
+    // GOLDEN-ONLY viprs regression pins (no vips oracle — core diverges).
+    "histogram/hist_match_golden.v",
+    "histogram/hist_plot_golden.v",
+    "histogram/hist_local_golden.png",
+    "histogram/hist_local_clahe_golden.png",
+    "histogram/percent_golden.txt",
+    // ---- composite family (cli_composite_diff.rs) ----
+    // Common inputs: translucent RGBA base/overlay (varying alpha) + opaque RGB
+    // counterparts + a 1-band grey (band-mismatch error case, no reference).
+    "composite/base.png",
+    "composite/overlay.png",
+    "composite/base_op.png",
+    "composite/overlay_op.png",
+    "composite/gray.png",
+    // Porter-Duff simple modes on TRANSLUCENT inputs (real vips oracle, tol 1).
+    "composite/composite2_over_expected.png",
+    "composite/composite2_source_expected.png",
+    "composite/composite2_in_expected.png",
+    "composite/composite2_xor_expected.png",
+    "composite/composite2_add_expected.png",
+    "composite/composite2_dest_over_expected.png",
+    // composite (vips array form) over on translucent inputs.
+    "composite/composite_over_expected.png",
+    // PDF separable blends on OPAQUE inputs (real vips oracle, tol 1).
+    "composite/composite2_multiply_expected.png",
+    "composite/composite2_screen_expected.png",
+    "composite/composite2_overlay_expected.png",
+    "composite/composite2_darken_expected.png",
+    "composite/composite2_hardlight_expected.png",
+    "composite/composite2_difference_expected.png",
+    "composite/composite2_exclusion_expected.png",
+    "composite/composite2_colourdodge_expected.png",
+    // Remaining 9 modes on OPAQUE inputs (real vips oracle, tol 1) — every one of
+    // the 25 VipsBlendMode spellings is discriminated, closing the wiring hole.
+    "composite/composite2_clear_expected.png",
+    "composite/composite2_out_expected.png",
+    "composite/composite2_dest_expected.png",
+    "composite/composite2_dest_in_expected.png",
+    "composite/composite2_dest_out_expected.png",
+    "composite/composite2_dest_atop_expected.png",
+    "composite/composite2_lighten_expected.png",
+    "composite/composite2_colourburn_expected.png",
+    "composite/composite2_softlight_expected.png",
+    // GOLDEN-ONLY translucent divergence pins (viprs-generated, no vips oracle).
+    "composite/composite2_multiply_translucent_golden.png",
+    "composite/composite2_atop_translucent_golden.png",
+    "composite/composite2_saturate_translucent_golden.png",
+    // ---- freqfilt family (cli_freqfilt_diff.rs) ----
+    // Common inputs: 2-D gradient `in`, low-pass `mask`, (3,2)-shifted copy, and
+    // an 8×8 `small` (the wrong-size dimension-mismatch error input).
+    "freqfilt/in.png",
+    "freqfilt/mask.v",
+    "freqfilt/shifted.png",
+    "freqfilt/small.png",
+    // fwfft / invfft (complex + --real) / round-trip — complex outputs normalised
+    // to 2-band f32 `.v` (band0 re, band1 im); real outputs cast to 1-band f32.
+    "freqfilt/fwfft_expected.v",
+    "freqfilt/invfft_expected.v",
+    "freqfilt/invfft_real_expected.v",
+    "freqfilt/roundtrip_expected.v",
+    // freqmult / spectrum — uchar PNG (BOUNDED-TOL ≤1 LSB / tol 0).
+    "freqfilt/freqmult_expected.png",
+    "freqfilt/spectrum_expected.png",
+    // phasecor — real correlation surface, 1-band f32 `.v`.
+    "freqfilt/phasecor_expected.v",
+    // ---- mosaicing family (cli_mosaicing_diff.rs) ----
+    // Common inputs: merge textures (distinct seeds) + an sRGB for the
+    // format-mismatch error case; mosaic crops of a common noise scene (large,
+    // as the tie-point search needs 3 strips × 20 contrast windows); and the
+    // viprs-minted globalbalance input carrying the join-tree blob.
+    "mosaicing/merge_ref.png",
+    "mosaicing/merge_sec.png",
+    "mosaicing/merge_rgb.png",
+    "mosaicing/merge_rgb_sec.png",
+    "mosaicing/mosaic_h_ref.png",
+    "mosaicing/mosaic_h_sec.png",
+    "mosaicing/mosaic_v_ref.png",
+    "mosaicing/mosaic_v_sec.png",
+    "mosaicing/balance_input.v",
+    // merge (EXACT): horizontal (lr) + vertical (tb) feathered blend, the RGB
+    // multi-band path, and the positive-dx insert-fallback (no-blend) path.
+    "mosaicing/merge_h_expected.png",
+    "mosaicing/merge_v_expected.png",
+    "mosaicing/merge_rgb_expected.png",
+    "mosaicing/merge_fallback_expected.png",
+    // mosaic (EXACT): horizontal (lr) + vertical (tb) tie-point search.
+    "mosaicing/mosaic_h_expected.png",
+    "mosaicing/mosaic_v_expected.png",
+    // globalbalance (GOLDEN-ONLY): viprs merge → globalbalance pipeline pin.
+    "mosaicing/balance_expected.v",
+    // ---- create family (cli_create_diff.rs) ----
+    // Common input: a buildlut control-point matrix (read by both sides), plus a
+    // >=3-point non-collinear matrix pinning multi-segment interpolation.
+    "create/buildlut_points.mat",
+    "create/buildlut_points3.mat",
+    // EXACT (tol 0): black (+--bands), xyz (vips uint→float).
+    "create/black_expected.v",
+    "create/black_bands3_expected.v",
+    "create/xyz_expected.v",
+    // BOUNDED-TOL float creators: eye (+--uchar), zone, sines, buildlut, tonelut.
+    "create/eye_expected.v",
+    "create/eye_uchar_expected.png",
+    "create/zone_expected.v",
+    "create/sines_expected.v",
+    "create/buildlut_expected.v",
+    "create/buildlut3_expected.v",
+    "create/tonelut_expected.v",
+    // BOUNDED-TOL frequency-domain masks (ideal/gaussian/butterworth/fractal),
+    // incl. --nodc and --uchar --optical flag paths.
+    "create/mask_ideal_expected.v",
+    "create/mask_ideal_nodc_expected.v",
+    "create/mask_ideal_ring_expected.v",
+    "create/mask_ideal_band_expected.v",
+    "create/mask_gaussian_expected.v",
+    "create/mask_gaussian_nodc_expected.v",
+    "create/mask_gaussian_ring_expected.v",
+    "create/mask_gaussian_band_expected.v",
+    "create/mask_butterworth_expected.v",
+    "create/mask_butterworth_uchar_expected.png",
+    "create/mask_butterworth_optical_expected.v",
+    "create/mask_butterworth_ring_expected.v",
+    "create/mask_butterworth_band_expected.v",
+    "create/mask_fractal_expected.v",
+    // BOUNDED-TOL signed distance fields (every shape).
+    "create/sdf_circle_expected.v",
+    "create/sdf_box_expected.v",
+    "create/sdf_line_expected.v",
+    "create/sdf_rounded_expected.v",
+    // GOLDEN-ONLY viprs pins (no vips oracle: PRNG / Pango differ even seeded).
+    "create/gaussnoise_golden.v",
+    "create/perlin_golden.v",
+    "create/worley_golden.v",
+    "create/fractsurf_golden.v",
+    "create/text_golden.png",
+    // ---- draw family (cli_draw_diff.rs) — ALL GOLDEN-ONLY ----
+    // Common inputs (built with vips as a deterministic coordinate function,
+    // consumed only as `viprs` inputs; there is NO vips oracle for draw ops).
+    "draw/rgb.png",
+    "draw/flood.png",
+    "draw/mask.png",
+    "draw/sub.png",
+    "draw/smudge.png",
+    // 16-bit (Gray16) draw target for the 16-bit ink encode/draw pin.
+    "draw/gray16.v",
+    // References — every one minted by `viprs` itself (GOLDEN-ONLY regression
+    // pins; `draw_*` are in-place mutators the vips CLI discards).
+    "draw/draw_circle_golden.png",
+    "draw/draw_circle_fill_golden.png",
+    "draw/draw_rect_golden.png",
+    "draw/draw_rect_fill_golden.png",
+    "draw/draw_line_golden.png",
+    "draw/draw_flood_golden.png",
+    "draw/draw_flood_blob_golden.png",
+    "draw/draw_mask_golden.png",
+    "draw/draw_smudge_golden.png",
+    "draw/draw_image_golden.png",
+    "draw/draw_rect_16bit_golden.v",
+    // ---- resample family (cli_resample_diff.rs) ----
+    // Common inputs: a 2-D gradient (grad), a 2-D sRGB (rgb), and a float 2-band
+    // coordinate map (index.v, a 2× zoom) for mapim.
+    "resample/grad.png",
+    "resample/rgb.png",
+    "resample/index.v",
+    // shrink / shrinkh / shrinkv (box shrink).
+    "resample/shrink_expected.png",
+    "resample/shrinkh_expected.png",
+    "resample/shrinkv_expected.png",
+    // reduce (lanczos3 default + cubic enum) / reduceh / reducev.
+    "resample/reduce_lanczos3_expected.png",
+    "resample/reduce_cubic_expected.png",
+    "resample/reduceh_expected.png",
+    "resample/reducev_expected.png",
+    // resize (half, --vscale, upscale→affine path, --kernel nearest).
+    "resample/resize_half_expected.png",
+    "resample/resize_vscale_expected.png",
+    "resample/resize_up_expected.png",
+    "resample/resize_nearest_expected.png",
+    // affine (bilinear default ≤1 LSB; bicubic 2 LSB, noted divergence).
+    "resample/affine_bilinear_expected.png",
+    "resample/affine_bicubic_expected.png",
+    // similarity (--angle / --scale) / rotate.
+    "resample/similarity_angle_expected.png",
+    "resample/similarity_scale_expected.png",
+    "resample/rotate_expected.png",
+    // mapim (S2: index is a 2nd input) bilinear + bicubic.
+    "resample/mapim_bilinear_expected.png",
+    "resample/mapim_bicubic_expected.png",
+    // thumbnail (FILENAME input + non-square --crop + --linear) / thumbnail_image
+    // (decoded variant).
+    "resample/thumbnail_expected.png",
+    "resample/thumbnail_crop_expected.png",
+    "resample/thumbnail_linear_expected.png",
+    "resample/thumbnail_image_expected.png",
 ];
 
 #[test]

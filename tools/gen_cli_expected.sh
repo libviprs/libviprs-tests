@@ -1087,6 +1087,198 @@ COLOUR="$FIX_ROOT/colour"
 mkdir -p "$COLOUR"
 
 # Ensure the viprs binary exists for the GOLDEN-ONLY dECMC pin.
+# HISTOGRAM FAMILY (per-family Wave-2 lane; OP_MAP.md histogram section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_histogram_diff.rs (which feeds them to `viprs`).
+#
+# Format note (the whole family): vips writes histogram COUNTS as `uint`, but
+# `PixelFormat` has no depth wider than 16 bits, so the core writes `ushort`
+# (saturating at 65535). Every committed count reference is therefore CAST to
+# ushort (a lossless narrowing while no count saturates on these tiny inputs),
+# after which the two agree bit-for-bit (EXACT, tol 0). Count / LUT / histogram
+# outputs are carried as the native `.v` container — vips tags them `histogram`,
+# which pngsave has no colour route for (the `identity` situation); plain b-w
+# images (`hist_equal`, `maplut`) go to PNG.
+#
+# Oracle classes (MEASURED — not hidden by input choice):
+#   EXACT       hist_find (+ --band 0, full-range), hist_find_indexed,
+#               hist_find_ndim, hist_cum, maplut, hist_ismonotonic (bool).
+#   BOUNDED-TOL hist_norm (≤1 LSB), hist_equal (≤1 LSB), hist_entropy (float
+#               scalar, rel eps 1e-6).
+#   GOLDEN-ONLY hist_match, hist_plot, hist_local, percent — the core genuinely
+#               diverges from vips (hist_match uint-vs-uchar LUT diff 254;
+#               hist_plot height max+1 vs max; hist_local window/border algo
+#               diff 51 at 5x5, CLAHE 60; percent definition differs, core =
+#               vips-2 on a dense ramp). Their references are minted by `viprs`
+#               itself (deterministic) and the tests are regression pins, NOT
+#               parity claims. See the wave report's open questions.
+# ===========================================================================
+HIST="$FIX_ROOT/histogram"
+mkdir -p "$HIST"
+
+# `viprs` mints the GOLDEN-ONLY references (no vips oracle); build it if absent.
+# MOSAICING FAMILY (Wave-2 mosaicing lane; OP_MAP.md mosaicing section).
+#
+# The same committed inputs feed BOTH this generator (to make the references)
+# and tests/cli_mosaicing_diff.rs (which feeds them to `viprs`). `merge` and
+# `mosaic` are oracle class EXACT (decode-compare tol 0): their integer feather
+# ramp (`merge`) and DISCRETE tie-point search (`mosaic`) must agree with vips
+# bit-for-bit or the whole output diverges — the differential doubles as the pin
+# on that agreement (empirically verified max-abs-diff 0 on these fixtures).
+# `globalbalance` is GOLDEN-ONLY: the core reads the `mosaic-join-tree` metadata
+# blob that only viprs merge/mosaic outputs carry, while vips's globalbalance
+# reads its own filename-based image history — the two channels are mutually
+# unreadable, so there is NO vips cross-oracle. Its input (`balance_input.v`,
+# carrying the blob) is minted by `viprs merge`, and its reference
+# (`balance_expected.v`) by `viprs globalbalance` — a deterministic regression
+# pin (like smartcrop-entropy and autorot).
+#
+# Carriers: `merge`/`mosaic` outputs are 1-band uchar (b-w) → PNG (round-trips).
+# `globalbalance` output is always float → the native `.v` container.
+#
+# vips's CLI parses a bare leading `-` as an option, so a negative `merge` DX/DY
+# is passed after a `--` separator (`vips merge … horizontal -- -28 0`); `viprs`
+# accepts the negative positional directly (clap `allow_negative_numbers`). Both
+# sides therefore see the SAME displacement.
+#
+# `mosaic` needs a LARGE overlap: its tie-point search splits the overlap into 3
+# strips and requires 20 high-contrast 11x11 windows PER strip, so the inputs are
+# ~100x150 (much bigger than the §7 "≤64x64 canonical" guideline — an inherent
+# property of the op, not a fixture-design choice). `vips gaussnoise --seed` is a
+# deterministic high-contrast texture; the committed crops are cut from ONE noise
+# scene so ref/sec share a pixel-exact overlap the correlation locks onto.
+# ===========================================================================
+MOS="$FIX_ROOT/mosaicing"
+mkdir -p "$MOS"
+
+# --- merge inputs: two DIFFERENT 40x32 textures (distinct seeds) so the seam
+#     blend is non-vacuous (a no-blend paste would diverge). ------------------
+echo "==> [mosaicing input] merge_ref / merge_sec (40x32 gaussnoise, distinct seeds)"
+"$VIPS" gaussnoise "$TMP/mg1.v" 40 32 --seed 1 --mean 140 --sigma 45
+"$VIPS" cast "$TMP/mg1.v" "$MOS/merge_ref.png" uchar
+"$VIPS" gaussnoise "$TMP/mg2.v" 40 32 --seed 2 --mean 130 --sigma 45
+"$VIPS" cast "$TMP/mg2.v" "$MOS/merge_sec.png" uchar
+# A 3-band RGB (same geometry) for the format-mismatch error case AND — reused —
+# as the REF of the RGB (multi-band) merge case (adversarial-review finding 1:
+# the committed merge/mosaic fixtures were all single-band Gray8, leaving the
+# multi-band render_merge band-handling path unpinned).
+echo "==> [mosaicing input] merge_rgb (40x32 sRGB) — mismatch SEC + RGB-merge REF"
+"$VIPS" gaussnoise "$TMP/mg3a.v" 40 32 --seed 5 --mean 128 --sigma 45
+"$VIPS" gaussnoise "$TMP/mg3b.v" 40 32 --seed 6 --mean 128 --sigma 45
+"$VIPS" gaussnoise "$TMP/mg3c.v" 40 32 --seed 7 --mean 128 --sigma 45
+"$VIPS" cast "$TMP/mg3a.v" "$TMP/mg3a.png" uchar
+"$VIPS" cast "$TMP/mg3b.v" "$TMP/mg3b.png" uchar
+"$VIPS" cast "$TMP/mg3c.v" "$TMP/mg3c.png" uchar
+"$VIPS" bandjoin "$TMP/mg3a.png $TMP/mg3b.png $TMP/mg3c.png" "$TMP/mrgb.v"
+"$VIPS" copy "$TMP/mrgb.v" "$MOS/merge_rgb.png" --interpretation srgb
+# A second, distinct-seed 40x32 sRGB image = the SEC of the RGB merge case.
+echo "==> [mosaicing input] merge_rgb_sec (40x32 sRGB, distinct seeds) — RGB-merge SEC"
+"$VIPS" gaussnoise "$TMP/ms3a.v" 40 32 --seed 31 --mean 120 --sigma 45
+"$VIPS" gaussnoise "$TMP/ms3b.v" 40 32 --seed 32 --mean 135 --sigma 45
+"$VIPS" gaussnoise "$TMP/ms3c.v" 40 32 --seed 33 --mean 145 --sigma 45
+"$VIPS" cast "$TMP/ms3a.v" "$TMP/ms3a.png" uchar
+"$VIPS" cast "$TMP/ms3b.v" "$TMP/ms3b.png" uchar
+"$VIPS" cast "$TMP/ms3c.v" "$TMP/ms3c.png" uchar
+"$VIPS" bandjoin "$TMP/ms3a.png $TMP/ms3b.png $TMP/ms3c.png" "$TMP/msrgb.v"
+"$VIPS" copy "$TMP/msrgb.v" "$MOS/merge_rgb_sec.png" --interpretation srgb
+
+# --- mosaic HORIZONTAL inputs: two 100x150 crops of a 110x150 noise scene, sec
+#     offset +10 in x (overlap 90x150, exceeds the 3-strip search geometry). ---
+echo "==> [mosaicing input] mosaic_h_ref / mosaic_h_sec (100x150 crops of a 110x150 scene, x-offset 10)"
+"$VIPS" gaussnoise "$TMP/mbh.v" 110 150 --seed 7 --mean 128 --sigma 60
+"$VIPS" cast "$TMP/mbh.v" "$TMP/mbh.png" uchar
+"$VIPS" extract_area "$TMP/mbh.png" "$MOS/mosaic_h_ref.png" 0 0 100 150
+"$VIPS" extract_area "$TMP/mbh.png" "$MOS/mosaic_h_sec.png" 10 0 100 150
+
+# --- mosaic VERTICAL inputs: two 150x100 crops of a 150x110 noise scene, sec
+#     offset +10 in y (the tb-search path, distinct from the lr path). --------
+echo "==> [mosaicing input] mosaic_v_ref / mosaic_v_sec (150x100 crops of a 150x110 scene, y-offset 10)"
+"$VIPS" gaussnoise "$TMP/mbv.v" 150 110 --seed 11 --mean 128 --sigma 60
+"$VIPS" cast "$TMP/mbv.v" "$TMP/mbv.png" uchar
+"$VIPS" extract_area "$TMP/mbv.png" "$MOS/mosaic_v_ref.png" 0 0 150 100
+"$VIPS" extract_area "$TMP/mbv.png" "$MOS/mosaic_v_sec.png" 0 10 150 100
+
+# --- References — merge (EXACT). Negative DX/DY after a `--` separator. -------
+echo "==> [merge] horizontal (dx -28) + vertical (dy -22) (EXACT, Gray8 PNG)"
+"$VIPS" merge "$MOS/merge_ref.png" "$MOS/merge_sec.png" "$MOS/merge_h_expected.png" horizontal -- -28 0
+"$VIPS" merge "$MOS/merge_ref.png" "$MOS/merge_sec.png" "$MOS/merge_v_expected.png" vertical   -- 0 -22
+
+# --- References — merge, multi-band + insert-fallback paths (EXACT; finding 1).
+# RGB (3-band) horizontal merge pins the multi-band render_merge band-handling
+# path the single-band Gray8 fixtures left unprotected (verified max-abs-diff 0).
+echo "==> [merge] RGB 3-band horizontal (dx -28) (EXACT, sRGB PNG)"
+"$VIPS" merge "$MOS/merge_rgb.png" "$MOS/merge_rgb_sec.png" "$MOS/merge_rgb_expected.png" horizontal -- -28 0
+# A POSITIVE dx (dx>0) takes the wrong-side/disjoint INSERT-FALLBACK branch
+# (`merge_impl`: paste both, no blend, output sized by `rarea.union(&sarea)`) —
+# a distinct code path from the feathered blend, previously unpinned. vips falls
+# back to vips_insert identically here (verified max-abs-diff 0, 52x32 union).
+echo "==> [merge] insert-fallback, positive dx 12 (EXACT, Gray8 PNG)"
+"$VIPS" merge "$MOS/merge_ref.png" "$MOS/merge_sec.png" "$MOS/merge_fallback_expected.png" horizontal 12 0
+
+# --- References — mosaic (EXACT). Tie-point = the true correspondence; the full
+#     discrete search still runs and must agree with vips bit-for-bit. ---------
+echo "==> [mosaic] horizontal + vertical tie-point search (EXACT, Gray8 PNG)"
+# horizontal: sec(40,75) == scene(50,75) == ref(50,75).
+"$VIPS" mosaic "$MOS/mosaic_h_ref.png" "$MOS/mosaic_h_sec.png" "$MOS/mosaic_h_expected.png" \
+    horizontal 50 75 40 75
+# vertical: sec(75,40) == scene(75,50) == ref(75,50).
+"$VIPS" mosaic "$MOS/mosaic_v_ref.png" "$MOS/mosaic_v_sec.png" "$MOS/mosaic_v_expected.png" \
+    vertical 75 50 75 40
+
+# --- References — globalbalance (GOLDEN-ONLY, viprs pipeline; no vips oracle). -
+# The input is a viprs `merge` of two 60x50 textures with DIFFERENT brightness
+# (mean 100 vs 160) and a 20-column overlap (20x50 = 1000 px > the 20x20=400
+# significance threshold), so the balance factors are non-trivial. It carries the
+# join-tree blob only viprs writes, and the blob survives the `.v` JSON trailer.
+echo "==> [globalbalance] viprs merge -> viprs globalbalance pipeline pin (GOLDEN-ONLY .v)"
+# CREATE FAMILY (the Wave-2 create lane; OP_MAP.md create section).
+#
+# Creators are §3 shape S5 (OUT first, no image input) except `buildlut` (S1: a
+# matrix `.mat` file input). Oracle classes are MIXED per OP_MAP.md
+# (CLI_CONTRACT.md §5):
+#   * EXACT (tol 0): black, xyz.
+#   * BOUNDED-TOL (float trig/exp → f32 carrier): eye, zone, sines, tonelut,
+#     buildlut, sdf, and every mask_* op. Measured max-abs-diff on these inputs is
+#     0 for every mask, buildlut and tonelut, and <= 4e-6 for eye/zone/sines/sdf
+#     (f32 trig/hypot rounding) — a documented f32 bound, not a CLI bug.
+#   * GOLDEN-ONLY (no vips oracle — PRNG / Pango differs even seeded): gaussnoise,
+#     perlin, worley, fractsurf, text. Their references are generated by `viprs`
+#     itself (deterministic across runs) and the tests are regression pins.
+#
+# Carriers (CLI_CONTRACT.md §2): float creators (xyz, eye, zone, sines, buildlut,
+# masks, sdf, the noise ops) → the native `.v` container the libviprs decoder
+# reads back losslessly; `--uchar` variants → PNG; `tonelut` is a Gray16 curve →
+# `.v`. vips emits `uint` for `xyz` and `double` for `buildlut`, band formats the
+# libviprs `.v` decoder does not read (it supports only uchar/ushort/float), so
+# BOTH are cast to `float` before the reference `.v` is written — the values are
+# integer coordinates / f32-exact LUT entries, so the cast is lossless.
+# ===========================================================================
+CREATE="$FIX_ROOT/create"
+mkdir -p "$CREATE"
+
+# Ensure the viprs binary exists for the GOLDEN-ONLY pins (built here, not by
+# vips). Mirrors the extract/autorot blocks.
+# DRAW FAMILY (the Wave-2 draw lane; OP_MAP.md draw section).
+#
+# EVERY draw op is GOLDEN-ONLY: `vips draw_*` are in-place mutators whose CLI
+# DISCARDS the mutated image (the op returns nothing to save), so there is NO
+# vips CLI oracle to cross-check against. Each reference is therefore generated
+# ONCE by `viprs` itself (deterministic) and committed; the differential cell
+# (tests/cli_draw_diff.rs) is a REGRESSION PIN that says so, NOT a parity claim.
+#
+# The COMMON inputs are still built with vips (a deterministic function of pixel
+# coordinates — `grey`/`eye`/`black` — so every input is bit-reproducible) and
+# committed; they are consumed only as `viprs` INPUTS (never as an oracle). The
+# inputs are chosen so each draw is DISCRIMINATING: a no-op / broken draw would
+# fail the pin (the cell also asserts each output differs from its input, and
+# that outline≠fill and bounded-flood≠blob-flood).
+# ===========================================================================
+DRAW="$FIX_ROOT/draw"
+mkdir -p "$DRAW"
+
+# `viprs` mints EVERY draw reference (there is no vips oracle). Build it if the
+# release binary is absent, exactly as the smartcrop-entropy golden pin does.
 if [ ! -x "$VIPRS" ]; then
     echo "    (building $VIPRS: cargo build --release --no-default-features --bin viprs)"
     ( cd "$CLI_DIR" && cargo build --release --no-default-features --bin viprs )
@@ -1202,6 +1394,668 @@ echo "==> [icc_transform] rgb sRGB->sRGB round trip -> device PNG (≤2 LSB, mea
 
 # --- Provenance (append the colour section) ----------------------------------
 echo "==> [provenance] appending colour section to $FIX_ROOT/PROVENANCE.md"
+# --- Common image inputs -----------------------------------------------------
+# `vips grey` is a pure coordinate function (0..1 ramp), so every input is
+# bit-reproducible. gray2/gray3 stay in TMP (only rgb + the histogram derivations
+# use them); gray/rgb/index are the committed image inputs.
+echo "==> [histogram input] gray (16x16 Gray8) + rgb (srgb 3-band) + index (0..3)"
+"$VIPS" grey "$TMP/hg.v" 16 16
+"$VIPS" linear "$TMP/hg.v" "$HIST/gray.png" 255 0 --uchar
+"$VIPS" linear "$TMP/hg.v" "$TMP/hg2.png" 200 10 --uchar
+"$VIPS" rot "$TMP/hg.v" "$TMP/hg_v.v" d90
+# band 2: a 2-D DIAGONAL gradient (x+y), scaled so the far corner reaches 255.
+# A plain VERTICAL ramp (rot d90 of the horizontal ramp) reaches 255 too, but its
+# value histogram is IDENTICAL to band 0's uniform ramp histogram — so a
+# "always reads band 0" bug would still pass a `--band 2` case (the band index is
+# never actually exercised). The diagonal has a TRIANGULAR value histogram (31
+# nonzero bins, counts 1..16..1) that is provably DISTINCT from band 0's (16 bins,
+# each count 16), so `hist_find --band 2` genuinely verifies band-index honouring.
+# It still reaches 255 (round((x+y)*127.5)=255 at the corner), so vips does not
+# trailing-zero-trim and the case stays a genuine EXACT (width 256 both sides).
+"$VIPS" add "$TMP/hg.v" "$TMP/hg_v.v" "$TMP/hg_diag.v"
+"$VIPS" linear "$TMP/hg_diag.v" "$TMP/hg3.png" 127.5 0 --uchar
+"$VIPS" bandjoin "$HIST/gray.png $TMP/hg2.png $TMP/hg3.png" "$TMP/hrgb.v"
+"$VIPS" copy "$TMP/hrgb.v" "$HIST/rgb.png" --interpretation srgb
+# index: a 4-level (0..3) image so hist_find_indexed sums into distinct bins.
+"$VIPS" linear "$TMP/hg.v" "$TMP/hidxf.v" 3 0
+"$VIPS" cast "$TMP/hidxf.v" "$HIST/index.png" uchar
+
+# --- Committed histogram-shaped inputs (consumed by histogram-consuming ops) --
+# Cast the vips uint histograms to ushort so both sides read the SAME committed
+# file at the core's carrier depth. `lut.v` is a real (non-identity) equalisation
+# LUT: norm ∘ cum ∘ find, so `maplut` through it is NON-vacuous.
+echo "==> [histogram input] hist.v / histcum.v / hist2.v (ushort) + lut.v (uchar)"
+"$VIPS" hist_find "$HIST/gray.png" "$TMP/hf_u.v"; "$VIPS" cast "$TMP/hf_u.v" "$HIST/hist.v" ushort
+"$VIPS" hist_cum "$HIST/hist.v" "$TMP/hc_u.v";    "$VIPS" cast "$TMP/hc_u.v" "$HIST/histcum.v" ushort
+"$VIPS" hist_find "$TMP/hg2.png" "$TMP/hf2_u.v";  "$VIPS" cast "$TMP/hf2_u.v" "$HIST/hist2.v" ushort
+"$VIPS" hist_norm "$HIST/histcum.v" "$HIST/lut.v"
+
+# --- EXACT references (vips count outputs cast to ushort) ---------------------
+# NOTE: vips hist_find TRIMS trailing all-zero bins (output width = max sample
+# value + 1) while the core always writes the full 256-bin range. They match
+# bit-for-bit only when the histogrammed data reaches 255 (no trailing zeros to
+# trim). The full-range gray ramp (0..255) satisfies this for both the all-bands
+# case and the `--band 0` case (band 0 IS the gray ramp), so the count
+# comparison is a genuine EXACT — the trailing-zero-trim width difference is a
+# representational nicety, not a count divergence. A band whose max < 255 (e.g.
+# band 1, gray2 max 210 → width 211) would mismatch on width alone; see the wave
+# report's open question. The `--band 2` case pins band-index honouring: band 2
+# is the DIAGONAL gradient (distinct triangular histogram from band 0), so a bug
+# that ignored N and always read band 0 would fail here (band 0 and band 2 both
+# reach 255, so neither is trailing-zero-trimmed — both are genuine EXACT).
+echo "==> [hist_find] gray (all bands) + rgb --band 0 + rgb --band 2 (full 0..255 range) -> ushort .v (EXACT)"
+"$VIPS" hist_find "$HIST/gray.png" "$TMP/rf.v";  "$VIPS" cast "$TMP/rf.v"  "$HIST/hist_find_expected.v" ushort
+"$VIPS" hist_find "$HIST/rgb.png" "$TMP/rfb.v" --band 0
+"$VIPS" cast "$TMP/rfb.v" "$HIST/hist_find_band_expected.v" ushort
+"$VIPS" hist_find "$HIST/rgb.png" "$TMP/rfb2.v" --band 2
+"$VIPS" cast "$TMP/rfb2.v" "$HIST/hist_find_band2_expected.v" ushort
+
+echo "==> [hist_find_indexed] gray + index -> ushort .v (EXACT)"
+"$VIPS" hist_find_indexed "$HIST/gray.png" "$HIST/index.png" "$TMP/ri.v"
+"$VIPS" cast "$TMP/ri.v" "$HIST/hist_find_indexed_expected.v" ushort
+
+echo "==> [hist_find_ndim] rgb --bins 4 -> 4x4x4 ushort .v (EXACT)"
+"$VIPS" hist_find_ndim "$HIST/rgb.png" "$TMP/rn.v" --bins 4
+"$VIPS" cast "$TMP/rn.v" "$HIST/hist_find_ndim_expected.v" ushort
+
+echo "==> [hist_cum] hist.v -> ushort .v (EXACT)"
+"$VIPS" hist_cum "$HIST/hist.v" "$TMP/rc.v"; "$VIPS" cast "$TMP/rc.v" "$HIST/hist_cum_expected.v" ushort
+
+# hist_norm is BOUNDED-TOL (≤1 LSB), NOT EXACT as OP_MAP.md provisionally listed:
+# normalising the CUMULATIVE histogram rounds `(v * (n-1) / max)` independently
+# in the core and in vips, and the two land ±1 apart on some entries (a measured
+# core-vs-vips rounding difference; norming the RAW histogram happens to give 0,
+# but we do NOT switch inputs to fake EXACT — see the wave report open question).
+echo "==> [hist_norm] histcum.v -> uchar .v (BOUNDED-TOL <=1 LSB)"
+"$VIPS" hist_norm "$HIST/histcum.v" "$HIST/hist_norm_expected.v"
+
+echo "==> [hist_equal] gray -> uchar PNG (BOUNDED-TOL <=1 LSB)"
+"$VIPS" hist_equal "$HIST/gray.png" "$HIST/hist_equal_expected.png"
+
+echo "==> [maplut] gray through the equalisation lut -> uchar PNG (EXACT)"
+"$VIPS" maplut "$HIST/gray.png" "$HIST/maplut_expected.png" "$HIST/lut.v"
+
+echo "==> [hist_entropy] hist.v (uniform, log2 16 = 4) + histcum.v (7.76335) (S3, rel eps 1e-6)"
+"$VIPS" hist_entropy "$HIST/hist.v"    > "$HIST/hist_entropy_expected.txt"
+"$VIPS" hist_entropy "$HIST/histcum.v" > "$HIST/hist_entropy_cum_expected.txt"
+
+echo "==> [hist_ismonotonic] hist.v (FALSE) + histcum.v (TRUE) (S3, bool)"
+"$VIPS" hist_ismonotonic "$HIST/hist.v"    > "$HIST/hist_ismonotonic_false_expected.txt"
+"$VIPS" hist_ismonotonic "$HIST/histcum.v" > "$HIST/hist_ismonotonic_true_expected.txt"
+
+# --- GOLDEN-ONLY references (viprs pins — NO vips oracle) ---------------------
+echo "==> [hist_match/hist_plot/hist_local/percent] GOLDEN-ONLY viprs regression pins"
+"$VIPRS" hist_match "$HIST/hist.v" "$HIST/hist2.v" "$HIST/hist_match_golden.v"
+"$VIPRS" hist_plot  "$HIST/hist.v" "$HIST/hist_plot_golden.v"
+"$VIPRS" hist_local "$HIST/gray.png" "$HIST/hist_local_golden.png" 5 5
+"$VIPRS" hist_local "$HIST/gray.png" "$HIST/hist_local_clahe_golden.png" 5 5 --max-slope 3
+"$VIPRS" percent "$HIST/gray.png" 50 > "$HIST/percent_golden.txt"
+
+# --- Provenance (append the histogram section) -------------------------------
+echo "==> [provenance] appending histogram section to $FIX_ROOT/PROVENANCE.md"
+# COMPOSITE FAMILY (the Wave-2 composite lane; OP_MAP.md composite section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_composite_diff.rs (which feeds them to `viprs`), so
+# the two sides compare like against like. The core op (`try_composite2`) blends
+# exactly two images with one blend mode; both vips nicknames (`composite` array
+# form, `composite2` pair form) map onto it. Oracle class BOUNDED-TOL ≤1 LSB
+# (the blend is done premultiplied in f64 then rounded to the integer container).
+#
+# HONEST ORACLE SPLIT (measured against vips 8.18.4 — see the open question in
+# the wave report). Compositing OPAQUE inputs, ALL 25 modes agree with vips to
+# ≤1 LSB. With TRANSLUCENT alpha, only the Porter-Duff *simple* operators agree
+# (clear/source/over/in/out/dest/dest-over/dest-in/dest-out/xor/add ≤1 LSB); the
+# 11 PDF separable blends AND the alpha-weighted Porter-Duff operators
+# atop/dest-atop/saturate diverge WHOLESALE (measured max-abs-diff up to 215),
+# because the core's translucent blend-composite formula differs from libvips'.
+# So:
+#   * Porter-Duff simple modes are pinned on the TRANSLUCENT inputs (real vips
+#     oracle, non-vacuous, arbitrary alpha) at tol 1.
+#   * The PDF separable blends are pinned on OPAQUE inputs (real vips oracle,
+#     non-vacuous blend-function coverage) at tol 1 — the translucent divergence
+#     is NOT hidden: it is pinned separately below.
+#   * The translucent divergence itself is captured as GOLDEN-ONLY `viprs`
+#     regression pins (multiply/atop/saturate on the translucent inputs): there
+#     is NO cross-oracle for translucent blend compositing, so the reference is
+#     generated by `viprs` (deterministic) and the test is a regression pin that
+#     records the measured vips divergence. This mirrors the smartcrop-entropy
+#     GOLDEN-ONLY precedent (vips makes a different choice → no cross-oracle).
+#
+# Carriers: every input/output is uchar sRGB with ≤4 bands, so all references
+# round-trip losslessly through PNG (no b-w-multiband promotion, no .v needed).
+# ===========================================================================
+COMP="$FIX_ROOT/composite"
+mkdir -p "$COMP"
+
+# `viprs` is used for the GOLDEN-ONLY translucent divergence pins (no vips
+# oracle). Build it if absent (as the smartcrop/autorot blocks do).
+VIPRS="${VIPRS:-${CLI_DIR:-$REPO_ROOT/../libviprs-cli}/target/release/viprs}"
+
+# --- Common inputs -----------------------------------------------------------
+# Two 8x8 sRGB RGBA images with TRUE 2-D structure (band0 horizontal ramp, band1
+# vertical ramp, band2 a distinct scaled ramp) and a VARYING alpha (so the
+# translucent compositing math is exercised at every alpha, not a single value),
+# plus their opaque 3-band RGB counterparts. `vips grey`/`rot` are pure
+# coordinate functions, so every fixture is bit-for-bit reproducible.
+echo "==> [composite input] 8x8 sRGB RGBA base + overlay (2-D + varying alpha) + opaque RGB"
+"$VIPS" grey "$TMP/pg.v" 8 8
+"$VIPS" rot "$TMP/pg.v" "$TMP/pgv.v" d90
+# base bands.
+"$VIPS" linear "$TMP/pg.v"  "$TMP/pb0.v" 255 0  --uchar
+"$VIPS" linear "$TMP/pgv.v" "$TMP/pb1.v" 255 0  --uchar
+"$VIPS" linear "$TMP/pg.v"  "$TMP/pb2.v" 128 40 --uchar
+"$VIPS" linear "$TMP/pgv.v" "$TMP/pba.v" 200 55 --uchar
+"$VIPS" bandjoin "$TMP/pb0.v $TMP/pb1.v $TMP/pb2.v" "$TMP/pbase_op.v"
+"$VIPS" copy "$TMP/pbase_op.v" "$COMP/base_op.png" --interpretation srgb
+"$VIPS" bandjoin "$TMP/pb0.v $TMP/pb1.v $TMP/pb2.v $TMP/pba.v" "$TMP/pbase.v"
+"$VIPS" copy "$TMP/pbase.v" "$COMP/base.png" --interpretation srgb
+# overlay bands (distinct from base).
+"$VIPS" linear "$TMP/pgv.v" "$TMP/po0.v" 200 20 --uchar
+"$VIPS" linear "$TMP/pg.v"  "$TMP/po1.v" 150 30 --uchar
+"$VIPS" linear "$TMP/pgv.v" "$TMP/po2.v" 255 0  --uchar
+"$VIPS" linear "$TMP/pg.v"  "$TMP/poa.v" 180 40 --uchar
+"$VIPS" bandjoin "$TMP/po0.v $TMP/po1.v $TMP/po2.v" "$TMP/pover_op.v"
+"$VIPS" copy "$TMP/pover_op.v" "$COMP/overlay_op.png" --interpretation srgb
+"$VIPS" bandjoin "$TMP/po0.v $TMP/po1.v $TMP/po2.v $TMP/poa.v" "$TMP/pover.v"
+"$VIPS" copy "$TMP/pover.v" "$COMP/overlay.png" --interpretation srgb
+# A 1-band 8x8 Gray8 image: an INPUT-only fixture for the band-count-mismatch
+# error case (compositing a 1-colour-band image against a 3-colour-band one is a
+# typed exit-1 BandMismatch). No reference output — it is an error case.
+"$VIPS" linear "$TMP/pg.v" "$COMP/gray.png" 255 0 --uchar
+
+# --- References — Porter-Duff simple modes on TRANSLUCENT inputs (real oracle) -
+echo "==> [composite2] Porter-Duff simple modes on translucent RGBA (BOUNDED-TOL ≤1 LSB)"
+"$VIPS" composite2 "$COMP/base.png" "$COMP/overlay.png" "$COMP/composite2_over_expected.png"      over
+"$VIPS" composite2 "$COMP/base.png" "$COMP/overlay.png" "$COMP/composite2_source_expected.png"    source
+"$VIPS" composite2 "$COMP/base.png" "$COMP/overlay.png" "$COMP/composite2_in_expected.png"        in
+"$VIPS" composite2 "$COMP/base.png" "$COMP/overlay.png" "$COMP/composite2_xor_expected.png"       xor
+"$VIPS" composite2 "$COMP/base.png" "$COMP/overlay.png" "$COMP/composite2_add_expected.png"       add
+"$VIPS" composite2 "$COMP/base.png" "$COMP/overlay.png" "$COMP/composite2_dest_over_expected.png" dest-over
+
+# --- References — composite (vips array form) on translucent inputs -----------
+# vips `composite` takes an image ARRAY and an INTEGER blend-mode array; over = 2
+# in VipsBlendMode. `viprs composite … over` produces the identical pixels.
+echo "==> [composite] array form (over = int 2) on translucent RGBA (BOUNDED-TOL ≤1 LSB)"
+"$VIPS" composite "$COMP/base.png $COMP/overlay.png" "$COMP/composite_over_expected.png" 2
+
+# --- References — PDF separable blends on OPAQUE inputs (real oracle) ----------
+# The blend FUNCTION B(cb,cs) is exercised non-vacuously here (a broken blend
+# fails); opaque agrees with vips ≤1 LSB. The translucent divergence of these
+# same modes is NOT hidden — it is pinned as GOLDEN-ONLY below.
+echo "==> [composite2] PDF separable blends on OPAQUE RGB (BOUNDED-TOL ≤1 LSB)"
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_multiply_expected.png"     multiply
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_screen_expected.png"       screen
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_overlay_expected.png"      overlay
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_darken_expected.png"       darken
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_hardlight_expected.png"    hard-light
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_difference_expected.png"   difference
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_exclusion_expected.png"    exclusion
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_colourdodge_expected.png"  colour-dodge
+
+# --- References — the remaining 9 modes on OPAQUE inputs (real oracle) ---------
+# Every one of the 25 VipsBlendMode spellings must be discriminated against a
+# real vips oracle so a mode->CompositeMode mis-wiring (a swap to a valid-but-
+# wrong variant, e.g. lighten->Darken or out->In) cannot pass CI unnoticed. The
+# eight PDF/Porter-Duff modes above leave nine spellings uncovered; on OPAQUE
+# inputs all nine agree with vips ≤1 LSB (measured: clear/out/dest/dest-in/
+# dest-out/dest-atop/lighten = 0, colour-burn/soft-light = 1 LSB), so pin them
+# here as ordinary BOUNDED-TOL differentials. This closes the mode-wiring hole.
+echo "==> [composite2] remaining 9 modes on OPAQUE RGB — mode-wiring coverage (BOUNDED-TOL ≤1 LSB)"
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_clear_expected.png"       clear
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_out_expected.png"         out
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_dest_expected.png"        dest
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_dest_in_expected.png"     dest-in
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_dest_out_expected.png"    dest-out
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_dest_atop_expected.png"   dest-atop
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_lighten_expected.png"     lighten
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_colourburn_expected.png"  colour-burn
+"$VIPS" composite2 "$COMP/base_op.png" "$COMP/overlay_op.png" "$COMP/composite2_softlight_expected.png"   soft-light
+
+# --- References — GOLDEN-ONLY translucent divergence pins (NO vips oracle) -----
+# On the translucent inputs these modes diverge WHOLESALE from vips (measured
+# max-abs-diff: multiply 38, atop 191, saturate 37 — a different translucent
+# blend-composite formula, not a tolerance). There is no meaningful cross-oracle,
+# so the reference is generated by `viprs` itself (deterministic) and the test is
+# a regression pin. This EXPOSES the divergence rather than hiding it (tracked as
+# a filed GitHub issue — see the composite-translucent-divergence issue).
+#
+# NOTE: if a future core change ALIGNS the translucent blend-composite formula
+# with libvips, these three pins WILL fail. That is EXPECTED and correct: the fix
+# is to REGENERATE these goldens (re-run this script) and re-bless them, NOT to
+# revert the core change. Promote them to real vips-oracle differentials once the
+# core matches libvips.
+echo "==> [composite2] translucent multiply/atop/saturate GOLDEN-ONLY viprs pins (no vips oracle)"
+if [ ! -x "$VIPRS" ]; then
+    echo "    (building $VIPRS: cargo build --release --no-default-features --bin viprs)"
+    ( cd "${CLI_DIR:-$REPO_ROOT/../libviprs-cli}" && cargo build --release --no-default-features --bin viprs )
+fi
+"$VIPRS" composite2 "$COMP/base.png" "$COMP/overlay.png" "$COMP/composite2_multiply_translucent_golden.png" multiply
+"$VIPRS" composite2 "$COMP/base.png" "$COMP/overlay.png" "$COMP/composite2_atop_translucent_golden.png"     atop
+"$VIPRS" composite2 "$COMP/base.png" "$COMP/overlay.png" "$COMP/composite2_saturate_translucent_golden.png" saturate
+
+# --- Provenance (append the composite section) -------------------------------
+echo "==> [provenance] appending composite section to $FIX_ROOT/PROVENANCE.md"
+# FREQFILT FAMILY (the Wave-2 Fourier lane; OP_MAP.md freqfilt section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_freqfilt_diff.rs (which feeds them to `viprs`), so
+# the two sides compare like against like. EVERY freqfilt op is oracle class
+# FOURIER (CLI_CONTRACT.md §5): FFT-derived floats compared as f64 band-pairs
+# from the native `.v` container at a MEASURED epsilon (the core runs each
+# transform in f64 through pure-Rust `rustfft` and stores f32; the vips oracle
+# runs FFTW in double and stores dpcomplex/double — the two agree to the f32
+# quantisation floor, so a small absolute eps sized to each op's magnitude is
+# the honest tolerance, NOT tol 0). `spectrum` and `freqmult` fold their float
+# result back to a uchar raster and are compared at an integer tolerance.
+#
+# Carrier choice (CRITICAL — the libviprs .v decoder accepts ONLY uchar/ushort/
+# float band formats, and REJECTS vips `dpcomplex`(10) / `double`(8)): every
+# complex vips output (fwfft, invfft) is normalised OFFLINE to a 2-band FLOAT
+# raster via `complexget real` + `complexget imag` + `bandjoin` + `cast float`
+# (band0 = re, band1 = im — the exact (re, im)-pair layout libviprs' fwfft
+# writes), and every real vips output (invfft --real, phasecor) is `cast float`
+# to an f32 `.v`. `spectrum`/`freqmult` are uchar → PNG. This makes every
+# reference libviprs-decodable and compares like-for-like (verified: fwfft
+# max-abs-diff 1.1e-16, invfft 2.8e-14, invfft --real 0, phasecor 0, spectrum 0,
+# freqmult 1).
+#
+# Inputs are chosen DISCRIMINATING (the bands `bandmean` lesson — no vacuous
+# no-op passes): `in.png` is a 2-D gradient varying in BOTH axes so the
+# transforms are non-trivial; the `freqmult` mask is `mask_ideal 0.3` (a low-pass
+# that changes the gradient by max-abs 114 — cutoff 0.1 was measured to change it
+# by only 1, an all-but-no-op, and is deliberately NOT used); `phasecor` uses a
+# wrap-shifted copy so the correlation peak sits at the (3,2) translation, not the
+# origin. `invfft`/`fwfft` on a REAL input are genuine vips oracles (vips casts
+# the real input to complex; the core transforms the real band — identical
+# results). The invfft(fwfft(in)) --real ROUND-TRIP additionally exercises the
+# core's COMPLEX-input path (`viprs invfft` reading its own Fourier-stamped 2-band
+# f32 `.v`), the only differential that does — see the open question about a
+# single-file complex-input carrier (vips dpcomplex vs libviprs f32-pairs are
+# mutually unreadable, so no committed complex INPUT can feed both sides directly).
+# ===========================================================================
+FREQ="$FIX_ROOT/freqfilt"
+mkdir -p "$FREQ"
+
+# --- Common inputs -----------------------------------------------------------
+# in.png: a 16x16 2-D gradient (x*85 + y*170, both axes vary), so every transform
+# is non-vacuous. `vips grey`/`rot` are pure coordinate functions, so the input is
+# bit-for-bit reproducible.
+echo "==> [freqfilt input] 16x16 2-D gradient in.png"
+"$VIPS" grey "$TMP/fg.v" 16 16
+"$VIPS" rot "$TMP/fg.v" "$TMP/fgrot.v" d90
+"$VIPS" linear "$TMP/fg.v"    "$TMP/fgx.v" 85  0
+"$VIPS" linear "$TMP/fgrot.v" "$TMP/fgy.v" 170 0
+"$VIPS" add "$TMP/fgx.v" "$TMP/fgy.v" "$TMP/fgsum.v"
+"$VIPS" cast "$TMP/fgsum.v" "$FREQ/in.png" uchar
+
+# mask.v: an ideal low-pass mask (float, fourier-tagged, 1-band), the 2nd input to
+# freqmult. Cutoff 0.3 changes the gradient by max-abs 114 (discriminating); a
+# cutoff of 0.1 was measured to change it by only 1 (near-no-op) and is NOT used.
+echo "==> [freqfilt input] mask_ideal 16x16 cutoff 0.3 (mask.v, float)"
+"$VIPS" mask_ideal "$FREQ/mask.v" 16 16 0.3
+
+# shifted.png: in.png wrapped by (3,2), so phasecor's peak is the (3,2) shift (a
+# discriminating, non-origin peak; phasecor(in,in) would peak at the origin).
+echo "==> [freqfilt input] wrap-shifted copy shifted.png (x=3 y=2)"
+"$VIPS" wrap "$FREQ/in.png" "$FREQ/shifted.png" --x 3 --y 2
+
+# small.png: an 8x8 Gray8 image, a DIFFERENT size to in.png — the self-contained
+# wrong-size input for the freqmult / phasecor dimension-mismatch error cases
+# (CLI_CONTRACT.md §8: op failure -> exit 1). An error case needs no reference
+# output, only a committed input.
+echo "==> [freqfilt input] 8x8 small.png (dimension-mismatch error input)"
+"$VIPS" grey "$TMP/fsm.v" 8 8
+"$VIPS" linear "$TMP/fsm.v" "$FREQ/small.png" 255 0 --uchar
+
+# --- References — one vips run per differential case -------------------------
+# Helper: normalise a complex vips output (dpcomplex, band format 10 — which the
+# libviprs .v decoder rejects) to a 2-band f32 `.v` (band0 = re, band1 = im).
+freq_complex_to_pair() { # <complex_in.v> <pair_out.v>
+    "$VIPS" complexget "$1" "$TMP/fcre.v" real
+    "$VIPS" complexget "$1" "$TMP/fcim.v" imag
+    "$VIPS" bandjoin "$TMP/fcre.v $TMP/fcim.v" "$TMP/fcpair.v"
+    "$VIPS" cast "$TMP/fcpair.v" "$2" float
+}
+
+echo "==> [fwfft] real in -> complex spectrum -> 2-band f32 .v (FOURIER eps 1e-2)"
+"$VIPS" fwfft "$FREQ/in.png" "$TMP/fwfft_dpc.v"
+freq_complex_to_pair "$TMP/fwfft_dpc.v" "$FREQ/fwfft_expected.v"
+
+echo "==> [invfft] real in -> complex out -> 2-band f32 .v (FOURIER eps 5e-2)"
+"$VIPS" invfft "$FREQ/in.png" "$TMP/invfft_dpc.v"
+freq_complex_to_pair "$TMP/invfft_dpc.v" "$FREQ/invfft_expected.v"
+
+echo "==> [invfft --real] real in -> real out -> 1-band f32 .v (FOURIER eps 5e-2)"
+"$VIPS" invfft "$FREQ/in.png" "$TMP/invfft_real_dbl.v" --real
+"$VIPS" cast "$TMP/invfft_real_dbl.v" "$FREQ/invfft_real_expected.v" float
+
+# Round-trip invfft(fwfft(in)) --real: recovers the input AND exercises the
+# COMPLEX-input path on the viprs side (viprs invfft reads its own Fourier .v).
+echo "==> [invfft roundtrip] invfft(fwfft(in)) --real -> 1-band f32 .v (complex-in path, FOURIER eps 1e-2)"
+"$VIPS" fwfft "$FREQ/in.png" "$TMP/rt_dpc.v"
+"$VIPS" invfft "$TMP/rt_dpc.v" "$TMP/rt_dbl.v" --real
+"$VIPS" cast "$TMP/rt_dbl.v" "$FREQ/roundtrip_expected.v" float
+
+echo "==> [freqmult] in * mask (low-pass) -> uchar PNG (FOURIER, BOUNDED-TOL ≤1 LSB)"
+"$VIPS" freqmult "$FREQ/in.png" "$FREQ/mask.v" "$FREQ/freqmult_expected.png"
+
+echo "==> [spectrum] displayable log-magnitude -> uchar PNG (FOURIER, tol 0)"
+"$VIPS" spectrum "$FREQ/in.png" "$FREQ/spectrum_expected.png"
+
+echo "==> [phasecor] in vs shifted -> real correlation surface -> 1-band f32 .v (FOURIER eps 1e-2)"
+"$VIPS" phasecor "$FREQ/in.png" "$FREQ/shifted.png" "$TMP/phasecor_dbl.v"
+"$VIPS" cast "$TMP/phasecor_dbl.v" "$FREQ/phasecor_expected.v" float
+
+# --- Provenance (append the freqfilt section) --------------------------------
+echo "==> [provenance] appending freqfilt section to $FIX_ROOT/PROVENANCE.md"
+"$VIPS" gaussnoise "$TMP/gb1.v" 60 50 --seed 3 --mean 100 --sigma 20
+"$VIPS" cast "$TMP/gb1.v" "$TMP/gb1.png" uchar
+"$VIPS" gaussnoise "$TMP/gb2.v" 60 50 --seed 4 --mean 160 --sigma 20
+"$VIPS" cast "$TMP/gb2.v" "$TMP/gb2.png" uchar
+# dx = overlap(20) - ref.width(60) = -40 -> a 100x50 mosaic, overlap 20x50.
+"$VIPRS" merge "$TMP/gb1.png" "$TMP/gb2.png" "$MOS/balance_input.v" horizontal -40 0
+"$VIPRS" globalbalance "$MOS/balance_input.v" "$MOS/balance_expected.v" >/dev/null
+
+# --- Provenance (append the mosaicing section) -------------------------------
+echo "==> [provenance] appending mosaicing section to $FIX_ROOT/PROVENANCE.md"
+# --- Common input: a buildlut control-point matrix (.mat) --------------------
+# Two control points [0->0, 255->100] in the vips text-matrix format (a 2-column
+# 2-row matrix). Read by BOTH `vips buildlut` (as a matrix image) and `viprs
+# buildlut` (via the shared MatFile loader), so the two sides interpolate the
+# SAME control points (CLI_CONTRACT.md §3 matrix-file arg).
+echo "==> [create input] buildlut control points (buildlut_points.mat)"
+printf '2 2\n0 0\n255 100\n' > "$CREATE/buildlut_points.mat"
+
+# A >=3-control-point matrix with a NON-COLLINEAR breakpoint (0->0, 128->200,
+# 255->255), so multi-segment interpolation + control-point sort are pinned: a
+# buildlut that ignored the intermediate point and interpolated only the two
+# endpoints would give ~100 at x=128, but the true piecewise curve gives 200
+# (adversarial review create finding 2; verified with vips: 200 at x=128,
+# 100 at x=64). The 2-point matrix above is a single linear segment and cannot
+# discriminate this. '2 3' = 2 columns, 3 rows.
+echo "==> [create input] buildlut 3-point non-collinear (buildlut_points3.mat)"
+printf '2 3\n0 0\n128 200\n255 255\n' > "$CREATE/buildlut_points3.mat"
+
+# --- EXACT references (tol 0) -----------------------------------------------
+echo "==> [black] 1-band + --bands 3 all-zero uchar -> .v (EXACT)"
+"$VIPS" black "$CREATE/black_expected.v"       8 8
+"$VIPS" black "$CREATE/black_bands3_expected.v" 8 8 --bands 3
+
+# xyz: vips emits uint; cast to float so the libviprs `.v` decoder reads it (the
+# coordinates 0..15 are integer-exact in f32). viprs xyz is float natively.
+echo "==> [xyz] coordinate ramp (vips uint -> float .v, EXACT)"
+"$VIPS" xyz "$TMP/xyz_u.v" 16 16
+"$VIPS" cast "$TMP/xyz_u.v" "$CREATE/xyz_expected.v" float
+
+# --- BOUNDED-TOL references (float f32) -------------------------------------
+echo "==> [eye] float + --uchar (BOUNDED-TOL f32 / <=1 LSB uchar)"
+"$VIPS" eye "$CREATE/eye_expected.v"       32 32
+"$VIPS" eye "$CREATE/eye_uchar_expected.png" 32 32 --uchar
+
+echo "==> [zone] + [sines] float trig patterns (BOUNDED-TOL f32)"
+"$VIPS" zone  "$CREATE/zone_expected.v"  32 32
+"$VIPS" sines "$CREATE/sines_expected.v" 32 32
+
+# buildlut: vips emits double; cast to float (the LUT entries are f32-exact) so
+# the libviprs `.v` decoder reads it and the format class matches viprs's f32.
+echo "==> [buildlut] control-point LUT (vips double -> float .v, BOUNDED-TOL)"
+"$VIPS" buildlut "$CREATE/buildlut_points.mat" "$TMP/buildlut_d.v"
+"$VIPS" cast "$TMP/buildlut_d.v" "$CREATE/buildlut_expected.v" float
+# >=3-control-point (multi-segment) LUT — pins piecewise interpolation + point sort.
+echo "==> [buildlut] 3-point non-collinear LUT (multi-segment interp, BOUNDED-TOL)"
+"$VIPS" buildlut "$CREATE/buildlut_points3.mat" "$TMP/buildlut3_d.v"
+"$VIPS" cast "$TMP/buildlut3_d.v" "$CREATE/buildlut3_expected.v" float
+
+echo "==> [tonelut] Gray16 tone curve -> .v (BOUNDED-TOL, measured exact)"
+"$VIPS" tonelut "$CREATE/tonelut_expected.v"
+
+echo "==> [mask_ideal] highpass + --nodc (BOUNDED-TOL f32)"
+"$VIPS" mask_ideal "$CREATE/mask_ideal_expected.v"      64 64 0.5
+"$VIPS" mask_ideal "$CREATE/mask_ideal_nodc_expected.v" 64 64 0.5 --nodc
+echo "==> [mask_ideal_ring/band]"
+"$VIPS" mask_ideal_ring "$CREATE/mask_ideal_ring_expected.v" 64 64 0.5 0.2
+"$VIPS" mask_ideal_band "$CREATE/mask_ideal_band_expected.v" 64 64 0.3 0.3 0.1
+# DISTINCT frequency-cutoff != amplitude-cutoff (0.4 != 0.6) so a handler that
+# SWAPPED the fc/ac positionals would flip the output and fail the compare —
+# equal 0.5/0.5 values left the two positionals interchangeable (adversarial
+# review create finding 1). Verified with vips: mask_gaussian 0.4 0.6 vs 0.6 0.4
+# differ (max-abs-diff 0.083).
+echo "==> [mask_gaussian family] (distinct fc 0.4 != ac 0.6)"
+"$VIPS" mask_gaussian      "$CREATE/mask_gaussian_expected.v"      64 64 0.4 0.6
+"$VIPS" mask_gaussian_ring "$CREATE/mask_gaussian_ring_expected.v" 64 64 0.4 0.6 0.2
+"$VIPS" mask_gaussian_band "$CREATE/mask_gaussian_band_expected.v" 64 64 0.3 0.3 0.1 0.5
+# Isolated --nodc on a gaussian mask (float `.v`): --nodc is otherwise pinned
+# only on mask_ideal, so a per-op nodc mis-wire on the gaussian family would not
+# be caught by any differential (adversarial review create finding 4). vips:
+# --nodc changes the DC pixel (max-abs-diff 1.0 vs the plain mask).
+echo "==> [mask_gaussian] isolated --nodc (float .v; DC pixel changes)"
+"$VIPS" mask_gaussian "$CREATE/mask_gaussian_nodc_expected.v" 64 64 0.4 0.6 --nodc
+echo "==> [mask_butterworth family incl. --uchar --optical] (distinct fc 0.4 != ac 0.6)"
+"$VIPS" mask_butterworth      "$CREATE/mask_butterworth_expected.v"       64 64 2 0.4 0.6
+"$VIPS" mask_butterworth      "$CREATE/mask_butterworth_uchar_expected.png" 64 64 2 0.5 0.5 --uchar --optical
+"$VIPS" mask_butterworth_ring "$CREATE/mask_butterworth_ring_expected.v"  64 64 2 0.4 0.6 0.2
+"$VIPS" mask_butterworth_band "$CREATE/mask_butterworth_band_expected.v"  64 64 2 0.3 0.3 0.1 0.5
+# Isolated --optical on a FLOAT `.v` mask: --optical was exercised only jointly
+# with --uchar on a PNG, never bit-checkable in isolation (adversarial review
+# create finding 4). vips: --optical rotates quadrants (max-abs-diff ~1.0).
+echo "==> [mask_butterworth] isolated --optical (float .v; quadrant rotation)"
+"$VIPS" mask_butterworth "$CREATE/mask_butterworth_optical_expected.v" 64 64 2 0.4 0.6 --optical
+echo "==> [mask_fractal]"
+"$VIPS" mask_fractal "$CREATE/mask_fractal_expected.v" 64 64 2.5
+
+echo "==> [sdf] circle/box/line/rounded-box (BOUNDED-TOL f32 hypot)"
+"$VIPS" sdf "$CREATE/sdf_circle_expected.v"      64 64 circle      --a "32 32" --r 16
+"$VIPS" sdf "$CREATE/sdf_box_expected.v"         64 64 box         --a "10 10" --b "50 40"
+"$VIPS" sdf "$CREATE/sdf_line_expected.v"        64 64 line        --a "10 10" --b "50 40"
+"$VIPS" sdf "$CREATE/sdf_rounded_expected.v"     64 64 rounded-box --a "10 10" --b "50 40" --corners "20 0 0 0"
+
+# --- GOLDEN-ONLY pins (NO vips oracle; generated by viprs, regression pins) ---
+# vips's PRNG (gaussnoise/perlin/worley/fractsurf) and Pango text rendering
+# differ from libviprs even with a fixed seed, so there is nothing to
+# cross-check against. These references are the deterministic `viprs` output
+# itself; the tests pin that output against future regressions (CLI_CONTRACT §5).
+echo "==> [gaussnoise/perlin/worley/fractsurf/text] GOLDEN-ONLY viprs pins (no vips oracle)"
+"$VIPRS" gaussnoise "$CREATE/gaussnoise_golden.v" 16 16 --seed 42 --sigma 10 --mean 128 >/dev/null
+"$VIPRS" perlin     "$CREATE/perlin_golden.v"     64 64 --seed 7 >/dev/null
+"$VIPRS" worley     "$CREATE/worley_golden.v"     64 64 --seed 7 >/dev/null
+"$VIPRS" fractsurf  "$CREATE/fractsurf_golden.v"  64 48 2.5 >/dev/null
+"$VIPRS" text       "$CREATE/text_golden.png"     "Hi" --dpi 72 >/dev/null
+
+# --- Provenance (append the create section) ----------------------------------
+echo "==> [provenance] appending create section to $FIX_ROOT/PROVENANCE.md"
+# rgb: a 32x32 sRGB 2-D gradient (band0 = horizontal ramp, band1 = a scaled
+# VERTICAL ramp, band2 = a third horizontal ramp), so a solid-ink shape drawn
+# over it changes pixels in a fully 2-D-determined way. sRGB-tagged so the 3-band
+# PNG saves as clean RGB (not a b-w image vips would alpha-pad).
+echo "==> [draw input] 32x32 sRGB 2-D gradient (rgb.png) — circle/rect/line/mask/image base"
+"$VIPS" grey "$TMP/dg.v" 32 32
+"$VIPS" linear "$TMP/dg.v" "$TMP/dgx.png" 255 0 --uchar
+"$VIPS" rot "$TMP/dg.v" "$TMP/dgv.v" d90
+"$VIPS" linear "$TMP/dgv.v" "$TMP/dgy.png" 200 20 --uchar
+"$VIPS" linear "$TMP/dg.v" "$TMP/dgz.png" 120 60 --uchar
+"$VIPS" bandjoin "$TMP/dgx.png $TMP/dgy.png $TMP/dgz.png" "$TMP/drgb.v"
+"$VIPS" copy "$TMP/drgb.v" "$DRAW/rgb.png" --interpretation srgb
+
+# flood: a 32x32 Gray8 image of THREE FLAT vertical stripes (values 0 / 100 /
+# 200), so the flood ops pick a genuine bounded region. A bounded flood from the
+# left (0) stripe with ink 100 fills the 0 stripe up to the 100 wall (→ 100 100
+# 200 — it STOPS, leaving the 200 stripe untouched: a broken flood that filled
+# everything would fail). A blob flood (--equal) recolours only the seed's own
+# equal-valued (0) stripe (→ 50 100 200). The two are distinct and region-limited.
+echo "==> [draw input] 32x32 Gray8 three flat stripes 0/100/200 (flood.png)"
+"$VIPS" linear "$TMP/dg.v" "$TMP/dramp.v" 255 0 --uchar
+"$VIPS" relational_const "$TMP/dramp.v" "$TMP/dr1.v" moreeq 85
+"$VIPS" relational_const "$TMP/dramp.v" "$TMP/dr2.v" moreeq 170
+"$VIPS" add "$TMP/dr1.v" "$TMP/dr2.v" "$TMP/dr12.v"
+# (0,255,510) * (100/255) = (0,100,200), exact.
+"$VIPS" linear "$TMP/dr12.v" "$DRAW/flood.png" 0.39215686274509803 0 --uchar
+
+# mask: a 16x16 single-band Gray8 horizontal ramp (0..255), used as the
+# draw_mask OPACITY stencil (0 = no paint, 255 = full ink, partial blend between).
+echo "==> [draw input] 16x16 Gray8 ramp stencil (mask.png)"
+"$VIPS" grey "$TMP/dm.v" 16 16
+"$VIPS" linear "$TMP/dm.v" "$DRAW/mask.png" 255 0 --uchar
+
+# sub: an 8x8 SOLID magenta sRGB sub-image whose distinct colour stands out
+# wherever draw_image pastes it. Must share rgb.png's RGB8 format (the core paste
+# is a no-op on a format mismatch), so it is 3-band sRGB like the base.
+echo "==> [draw input] 8x8 solid magenta sRGB sub-image (sub.png)"
+"$VIPS" black "$TMP/db.v" 8 8 --bands 3
+"$VIPS" linear "$TMP/db.v" "$TMP/dsub.v" "0 0 0" "255 0 255" --uchar
+"$VIPS" copy "$TMP/dsub.v" "$DRAW/sub.png" --interpretation srgb
+
+# smudge: a 16x16 Gray8 HIGH-FREQUENCY pattern (a thresholded `eye` zone-plate,
+# 0/255) so the 3x3 box-blur genuinely changes many pixels. A smooth gradient
+# would be a near-no-op in its interior (the mean of a linear ramp ≈ its centre),
+# which would make the smudge pin vacuous — the high-frequency input avoids that.
+echo "==> [draw input] 16x16 Gray8 high-frequency thresholded eye (smudge.png)"
+"$VIPS" eye "$TMP/de.v" 16 16
+"$VIPS" relational_const "$TMP/de.v" "$DRAW/smudge.png" more 0.0
+
+# gray16: a 16x16 SINGLE-BAND Gray16 (ushort) ramp, carried as native `.v` (a
+# 16-bit PNG neither vips nor the libviprs decoder round-trips cleanly — a ushort
+# PNG whose samples fit in 8 bits comes back 8-bit). Its samples run 0..~60000 so
+# a >255 ink genuinely lands in the high byte. This is the ONLY 16-bit draw target
+# in the suite: it exercises build_ink's 2-byte native-endian encode branch and
+# the core mask/rect 16-bit sample path end-to-end at the CLI level.
+echo "==> [draw input] 16x16 Gray16 ramp (gray16.v) — 16-bit ink encode/draw pin"
+"$VIPS" grey "$TMP/dg16.v" 16 16
+"$VIPS" linear "$TMP/dg16.v" "$TMP/dg16s.v" 60000 0
+"$VIPS" cast "$TMP/dg16s.v" "$DRAW/gray16.v" ushort
+
+# --- References — every one minted by `viprs` (GOLDEN-ONLY, no vips oracle) ---
+echo "==> [draw_circle] outline + --fill disc, red ink (GOLDEN-ONLY)"
+"$VIPRS" draw_circle "$DRAW/rgb.png" "$DRAW/draw_circle_golden.png"      16 16 8 --ink "255 0 0" >/dev/null
+"$VIPRS" draw_circle "$DRAW/rgb.png" "$DRAW/draw_circle_fill_golden.png" 16 16 8 --ink "255 0 0" --fill >/dev/null
+
+echo "==> [draw_rect] outline + --fill, green ink (GOLDEN-ONLY)"
+"$VIPRS" draw_rect "$DRAW/rgb.png" "$DRAW/draw_rect_golden.png"      4 4 20 16 --ink "0 255 0" >/dev/null
+"$VIPRS" draw_rect "$DRAW/rgb.png" "$DRAW/draw_rect_fill_golden.png" 4 4 20 16 --ink "0 255 0" --fill >/dev/null
+
+echo "==> [draw_line] diagonal, blue ink (GOLDEN-ONLY)"
+"$VIPRS" draw_line "$DRAW/rgb.png" "$DRAW/draw_line_golden.png" 0 0 31 31 --ink "0 0 255" >/dev/null
+
+echo "==> [draw_flood] bounded (ink 100) + blob --equal (ink 50) on the stripes (GOLDEN-ONLY)"
+"$VIPRS" draw_flood "$DRAW/flood.png" "$DRAW/draw_flood_golden.png"      0 0 --ink "100" >/dev/null
+"$VIPRS" draw_flood "$DRAW/flood.png" "$DRAW/draw_flood_blob_golden.png" 0 0 --ink "50" --equal >/dev/null
+
+echo "==> [draw_mask] yellow ink through the ramp stencil at (8,8) (GOLDEN-ONLY)"
+"$VIPRS" draw_mask "$DRAW/rgb.png" "$DRAW/draw_mask_golden.png" "$DRAW/mask.png" 8 8 --ink "255 255 0" >/dev/null
+
+echo "==> [draw_smudge] box-blur a rect over the high-frequency input (GOLDEN-ONLY)"
+"$VIPRS" draw_smudge "$DRAW/smudge.png" "$DRAW/draw_smudge_golden.png" 4 4 8 8 >/dev/null
+
+echo "==> [draw_image] paste the magenta sub-image at (10,10) (GOLDEN-ONLY)"
+"$VIPRS" draw_image "$DRAW/rgb.png" "$DRAW/draw_image_golden.png" "$DRAW/sub.png" 10 10 >/dev/null
+
+# 16-bit target pin: draw_rect a >255 ink onto the Gray16 ramp, output as `.v`.
+# This is the only golden that pins build_ink's 2-byte native-endian encode + the
+# core 16-bit draw/save round trip; a byte-order regression would be caught here.
+echo "==> [draw_rect 16-bit] ink 40000 onto the Gray16 ramp -> .v (GOLDEN-ONLY, 16-bit ink pin)"
+"$VIPRS" draw_rect "$DRAW/gray16.v" "$DRAW/draw_rect_16bit_golden.v" 4 4 8 8 --ink "40000" >/dev/null
+
+# --- Provenance (append the draw section) ------------------------------------
+echo "==> [provenance] appending draw section to $FIX_ROOT/PROVENANCE.md"
+# RESAMPLE FAMILY (the Wave-2 resample lane; OP_MAP.md resample section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_resample_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. EVERY resample op is oracle class
+# BOUNDED-TOL (the premultiply / rounding campaign #406-418): the core computes
+# the reduce / interpolate masks in f64 per output position while vips quantises
+# the sub-pixel offset into fixed-point tables, so the two agree to ≤1 LSB. The
+# MEASURED per-case max-abs-diff is recorded in the provenance table; all cases
+# land at 0 or 1 LSB EXCEPT `affine … --interpolate bicubic`, which measures 2
+# LSB (the bicubic Catmull-Rom coefficients quantise more coarsely in vips — a
+# genuine, honest core-vs-vips divergence, NOT a CLI bug; see the open question).
+#
+# Carriers: every reference is an integer uchar raster (1-band grad, or sRGB
+# 3-band rgb), so all references round-trip losslessly through PNG. `mapim`'s
+# index is a FLOAT 2-band `.v` coordinate image (committed input, exact). vips
+# PNG inputs only for `thumbnail` (no jpeg shrink-on-load divergence).
+#
+# Inputs are DISCRIMINATING (an identity / no-op op would FAIL): `grad` is a 2-D
+# gradient varying in BOTH axes (so shrinkv / reducev / rot are non-vacuous), and
+# `index.v` maps every output to HALF its source coordinate (a real 2× zoom, not
+# the identity map, so `mapim` moves data — verified: vips mapim vs the original
+# differs by 128).
+# ===========================================================================
+RESAMPLE="$FIX_ROOT/resample"
+mkdir -p "$RESAMPLE"
+
+# --- Common inputs -----------------------------------------------------------
+# `vips grey`/`rot`/`xyz` are pure coordinate functions, so every fixture below
+# is bit-for-bit reproducible.
+echo "==> [resample input] 32x32 grad (2-D gradient) + rgb (2-D sRGB) + index.v (2× map)"
+"$VIPS" grey "$TMP/rg.v" 32 32
+"$VIPS" rot "$TMP/rg.v" "$TMP/rgr.v" d90
+# grad: x*85 + y*170, a genuine 2-D gradient (max ~247, fills uchar).
+"$VIPS" linear "$TMP/rg.v"  "$TMP/rgx.v" 85  0
+"$VIPS" linear "$TMP/rgr.v" "$TMP/rgy.v" 170 0
+"$VIPS" add "$TMP/rgx.v" "$TMP/rgy.v" "$TMP/rgsum.v"
+"$VIPS" cast "$TMP/rgsum.v" "$RESAMPLE/grad.png" uchar
+# rgb: band0 horizontal ramp, band1 scaled+offset, band2 vertical ramp (sRGB).
+"$VIPS" linear "$TMP/rg.v"  "$TMP/rc0.png" 255 0  --uchar
+"$VIPS" linear "$TMP/rg.v"  "$TMP/rc1.png" 200 20 --uchar
+"$VIPS" linear "$TMP/rgr.v" "$TMP/rc2.png" 255 0  --uchar
+"$VIPS" bandjoin "$TMP/rc0.png $TMP/rc1.png $TMP/rc2.png" "$TMP/rcj.v"
+"$VIPS" copy "$TMP/rcj.v" "$RESAMPLE/rgb.png" --interpretation srgb
+# index.v: a FLOAT 2-band coordinate map sampling every output at HALF its source
+# coordinate (band0 = x/2, band1 = y/2) — a 2× zoom of the top-left quadrant with
+# fractional taps, so mapim's interpolation is genuinely exercised (non-vacuous).
+"$VIPS" xyz "$TMP/rxyz.v" 32 32
+"$VIPS" linear "$TMP/rxyz.v" "$TMP/ridxf.v" 0.5 0
+"$VIPS" cast "$TMP/ridxf.v" "$RESAMPLE/index.v" float
+
+# --- References — one vips run per differential case -------------------------
+echo "==> [shrink] grad 2 2 + shrinkh/shrinkv 2 (S1 box shrink, ≤1 LSB)"
+"$VIPS" shrink  "$RESAMPLE/grad.png" "$RESAMPLE/shrink_expected.png"  2 2
+"$VIPS" shrinkh "$RESAMPLE/grad.png" "$RESAMPLE/shrinkh_expected.png" 2
+"$VIPS" shrinkv "$RESAMPLE/grad.png" "$RESAMPLE/shrinkv_expected.png" 2
+
+echo "==> [reduce] rgb 2 2 lanczos3 (default) + cubic (enum) + reduceh/reducev grad 2 (≤1 LSB)"
+"$VIPS" reduce  "$RESAMPLE/rgb.png"  "$RESAMPLE/reduce_lanczos3_expected.png" 2 2
+"$VIPS" reduce  "$RESAMPLE/rgb.png"  "$RESAMPLE/reduce_cubic_expected.png"    2 2 --kernel cubic
+"$VIPS" reduceh "$RESAMPLE/grad.png" "$RESAMPLE/reduceh_expected.png" 2
+"$VIPS" reducev "$RESAMPLE/grad.png" "$RESAMPLE/reducev_expected.png" 2
+
+echo "==> [resize] rgb 0.5 + --vscale + upscale (affine path) + --kernel nearest (≤1 LSB)"
+"$VIPS" resize "$RESAMPLE/rgb.png"  "$RESAMPLE/resize_half_expected.png"    0.5
+"$VIPS" resize "$RESAMPLE/rgb.png"  "$RESAMPLE/resize_vscale_expected.png"  0.5 --vscale 0.75
+"$VIPS" resize "$RESAMPLE/grad.png" "$RESAMPLE/resize_up_expected.png"      2.0
+"$VIPS" resize "$RESAMPLE/rgb.png"  "$RESAMPLE/resize_nearest_expected.png" 0.5 --kernel nearest
+
+echo "==> [affine] rgb 1.5x bilinear (≤1 LSB) + bicubic (2 LSB — noted divergence)"
+"$VIPS" affine "$RESAMPLE/rgb.png" "$RESAMPLE/affine_bilinear_expected.png" "1.5 0 0 1.5"
+"$VIPS" affine "$RESAMPLE/rgb.png" "$RESAMPLE/affine_bicubic_expected.png"  "1.5 0 0 1.5" --interpolate bicubic
+
+echo "==> [similarity] rgb --angle 30 + --scale 1.5 (≤1 LSB)"
+"$VIPS" similarity "$RESAMPLE/rgb.png" "$RESAMPLE/similarity_angle_expected.png" --angle 30
+"$VIPS" similarity "$RESAMPLE/rgb.png" "$RESAMPLE/similarity_scale_expected.png" --scale 1.5
+
+echo "==> [rotate] rgb 30 (≤1 LSB)"
+"$VIPS" rotate "$RESAMPLE/rgb.png" "$RESAMPLE/rotate_expected.png" 30
+
+echo "==> [mapim] rgb + index.v bilinear (default) + bicubic (S2, ≤1 LSB)"
+"$VIPS" mapim "$RESAMPLE/rgb.png" "$RESAMPLE/mapim_bilinear_expected.png" "$RESAMPLE/index.v"
+"$VIPS" mapim "$RESAMPLE/rgb.png" "$RESAMPLE/mapim_bicubic_expected.png"  "$RESAMPLE/index.v" --interpolate bicubic
+
+echo "==> [thumbnail] rgb file 16 + non-square --crop centre + --linear; thumbnail_image rgb 16 (≤1 LSB)"
+"$VIPS" thumbnail "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_expected.png"      16
+# --crop is DISCRIMINATED with a NON-square target (16x8): a centre-crop of a
+# square source into a non-square box actually removes pixels, so the reference
+# is DISTINCT from the no-crop 16x16 fixtures (a build that ignored / dropped
+# --crop would fail). A square 16 box on a square source crops nothing (the
+# identity case) and would be vacuous — see the adversarial-review finding.
+"$VIPS" thumbnail "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_crop_expected.png" 16 --height 8 --crop centre
+# --linear reduces in linear light (a DISTINCT core entry point from the default
+# sRGB-space reduce), so this reference guards the linear-light path directly.
+"$VIPS" thumbnail "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_linear_expected.png" 16 --linear
+"$VIPS" thumbnail_image "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_image_expected.png" 16
+
+# --- Provenance (append the resample section) --------------------------------
+echo "==> [provenance] appending resample section to $FIX_ROOT/PROVENANCE.md"
 cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
 
 ---
@@ -1318,6 +2172,127 @@ round trips (\`icc_export\`, \`icc_transform\`) reproduce vips's output EXACTLY
 (measured 0), and the intermediate D50 Lab PCS (\`icc_import\`) agrees to ~0.31
 Lab units. CMYK / LUT profiles interpolate different grids between the two CMSs
 and diverge by design — they are out of scope for this cross-oracle.
+# composite family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references (and \`viprs\` golden
+pins) the composite CLI-differential suite (\`tests/cli_composite_diff.rs\`)
+decode-compares \`viprs\` output against. Generated offline by
+\`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`composite/\`): \`base.png\`, \`overlay.png\` (8×8 sRGB
+  RGBA with 2-D structure and a VARYING alpha, so translucent compositing is
+  exercised at every alpha), \`base_op.png\`, \`overlay_op.png\` (their opaque
+  3-band RGB counterparts).
+- **Op**: the core blends exactly two images with one blend mode
+  (\`try_composite2\`); both \`composite\` (vips array form) and \`composite2\`
+  (vips pair form) map onto it. \`MODE\` is one of the 25 vips \`VipsBlendMode\`
+  spellings; the four core-only non-separable modes
+  (hue/saturation/colour/luminosity) are NOT exposed (no vips oracle). vips's
+  \`--x\`/\`--y\`/\`--compositing-space\`/\`--premultiplied\` are not in core and
+  keep their defaults (0/0/srgb/false).
+
+## Honest oracle split — a measured core-vs-vips divergence (flagged)
+
+Compositing **opaque** inputs, all 25 modes agree with vips to **≤1 LSB**. With
+**translucent** alpha, only the Porter-Duff *simple* operators
+(clear/source/over/in/out/dest/dest-over/dest-in/dest-out/xor/add) still agree
+≤1 LSB; the 11 PDF separable blends AND the alpha-weighted Porter-Duff operators
+**atop/dest-atop/saturate** diverge **wholesale** (measured max-abs-diff up to
+215), because the core's translucent blend-composite formula differs from
+libvips'. Accordingly:
+
+- Porter-Duff simple modes are pinned on the **translucent** inputs (real vips
+  oracle, arbitrary alpha, tol 1).
+- PDF separable blends are pinned on the **opaque** inputs (real vips oracle,
+  non-vacuous blend-function coverage, tol 1).
+- The translucent divergence is pinned separately as **GOLDEN-ONLY** \`viprs\`
+  regression pins (multiply/atop/saturate on the translucent inputs) — there is
+  no cross-oracle for translucent blend compositing. This is tracked as a filed
+  GitHub issue (aligning the core's translucent blend-composite formula with
+  libvips), NOT a comment-only open question. If a core translucent-blend fix
+  lands, these pins are EXPECTED to fail: REGENERATE and re-bless them, do not
+  revert the core change.
+- The remaining nine modes (clear/out/dest/dest-in/dest-out/dest-atop/lighten/
+  colour-burn/soft-light) are pinned on the **opaque** inputs (real vips oracle,
+  tol 1) so that every one of the 25 \`VipsBlendMode\` spellings is discriminated
+  against vips — a mode->variant mis-wiring cannot pass CI unnoticed.
+# freqfilt family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the freqfilt
+CLI-differential suite (\`tests/cli_freqfilt_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`freqfilt/\`): \`in.png\` (16×16 Gray8 2-D gradient,
+  \`x*85 + y*170\`, varying in BOTH axes so every transform is non-vacuous),
+  \`mask.v\` (\`mask_ideal 16 16 0.3\` — a float low-pass mask that changes the
+  gradient by max-abs 114; the 2nd input to \`freqmult\`), \`shifted.png\`
+  (\`in.png\` wrapped by (3,2), so \`phasecor\`'s peak sits at that translation).
+- **Every op is oracle class FOURIER** (CLI_CONTRACT.md §5). Measured
+  viprs-vs-vips max-abs-diff (release build): fwfft 1.1e-16, invfft 2.8e-14,
+  invfft --real 0, roundtrip 3.8e-6, phasecor 0 (all float \`.v\`); spectrum 0,
+  freqmult 1 (uchar PNG). The float ops are compared at a small absolute eps
+  sized above each op's f32-quantisation floor (fwfft 1e-2 at peak ~127; invfft
+  5e-2 at peak ~3.3e4; phasecor / roundtrip 1e-2); spectrum at tol 0; freqmult at
+  tol 1 (the float round-trip cast back to uchar rounds ±1 vs vips — a genuine,
+  measured BOUNDED-TOL divergence, the same shape as the bands \`bandmean\` and
+  conversion \`gamma\` cases).
+- **Carriers** (CRITICAL): the libviprs \`.v\` decoder accepts ONLY uchar/ushort/
+  float band formats and REJECTS vips \`dpcomplex\`(10) / \`double\`(8). So every
+  complex vips output is normalised OFFLINE to a 2-band float \`.v\` (band0 = re,
+  band1 = im) via \`complexget real\` + \`complexget imag\` + \`bandjoin\` +
+  \`cast float\` — the exact (re, im)-pair layout libviprs' \`fwfft\` writes — and
+  every real vips output is \`cast float\` to an f32 \`.v\`. \`spectrum\`/\`freqmult\`
+  are uchar → PNG.
+
+## Complex-INPUT carrier limitation (flagged; open question)
+
+A single committed \`.v\` cannot feed a COMPLEX input to BOTH sides: vips reads a
+complex image only in its own \`dpcomplex\`/\`complex\` band format (which the
+libviprs decoder rejects), while libviprs treats a Fourier-domain image as an
+even-band FLOAT raster stamped \`fourier\` (which vips reads as N independent real
+bands, not one complex pair). The two complex carriers are mutually unreadable in
+one file. The differential therefore drives the complex-input code path via the
+invfft(fwfft(in)) --real ROUND-TRIP (each side chains its OWN complex carrier),
+which is the only case exercising \`viprs invfft\`'s \`is_fourier_complex\` branch;
+the core's direct complex-input paths are covered by the core crate's own
+freqfilt unit tests. Teaching one decoder to read the other's complex carrier
+(or a shared interchange format) would let a committed complex INPUT feed both.
+# mosaicing family CLI-differential reference provenance
+
+These fixtures are the committed references the mosaicing CLI-differential suite
+(\`tests/cli_mosaicing_diff.rs\`) decode-compares \`viprs\` output against.
+Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **\`merge\` / \`mosaic\` are EXACT** (decode-compare tol 0): the integer feather
+  ramp and the DISCRETE tie-point search agree with vips bit-for-bit on these
+  inputs (verified max-abs-diff 0). vips's CLI needs a \`--\` separator to pass a
+  negative \`merge\` displacement (\`vips merge … horizontal -- -28 0\`); \`viprs\`
+  takes the negative positional directly, so both see the same DX/DY.
+- **\`globalbalance\` is GOLDEN-ONLY**: NO vips cross-oracle exists — the core
+  reads the \`mosaic-join-tree\` blob only viprs merge/mosaic writes, while vips's
+  globalbalance reads its own filename-based history (mutually unreadable). The
+  input \`balance_input.v\` is minted by \`viprs merge\` and the reference
+  \`balance_expected.v\` by \`viprs globalbalance\` — a deterministic regression
+  pin, not a parity check.
+- **Common inputs** (under \`mosaicing/\`): \`merge_ref.png\`/\`merge_sec.png\`
+  (40x32 Gray8, distinct-seed textures for the non-vacuous seam blend),
+  \`merge_rgb.png\` (40x32 sRGB — the format-mismatch error SEC AND the RGB-merge
+  REF), \`merge_rgb_sec.png\` (40x32 sRGB, distinct seeds — the RGB-merge SEC),
+  \`mosaic_h_ref.png\`/\`mosaic_h_sec.png\` (100x150 crops of a 110x150 noise
+  scene, x-offset 10 → 90x150 overlap), \`mosaic_v_ref.png\`/\`mosaic_v_sec.png\`
+  (150x100 crops of a 150x110 scene, y-offset 10). \`mosaic\` inputs are large
+  because its search needs 3 strips × 20 high-contrast windows — an inherent
+  property of the op, not a fixture choice. \`balance_input.v\` is a viprs mosaic
+  (INPUT only, carries the blob).
+- **Multi-band + insert-fallback merge coverage** (adversarial-review finding 1):
+  the single-band Gray8 fixtures left the multi-band \`render_merge\` band path
+  and the wrong-side/disjoint INSERT-FALLBACK branch (paste both, no blend,
+  output sized by \`rarea.union(&sarea)\`) unpinned. \`merge_rgb_expected.png\`
+  (RGB horizontal) pins the former and \`merge_fallback_expected.png\` (positive
+  dx 12) the latter — both verified bit-exact vs vips (max-abs-diff 0).
 
 ## Exact commands
 
@@ -1340,6 +2315,107 @@ vips bandjoin "cl_c0.png cl_c1.png cl_c2.png" cl_rgb2.v
 vips copy cl_rgb2.v colour/rgb2.png --interpretation srgb
 cp "/System/Library/ColorSync/Profiles/sRGB Profile.icc" colour/sRGB.icc
 vips icc_import colour/rgb.png colour/icc_pcs_lab.v --input-profile colour/sRGB.icc --intent relative
+# histogram family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references (EXACT / BOUNDED-TOL) and
+the \`viprs\`-generated regression pins (GOLDEN-ONLY) the histogram
+CLI-differential suite (\`tests/cli_histogram_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common image inputs** (under \`histogram/\`): \`gray.png\` (16×16 Gray8 ramp),
+  \`rgb.png\` (16×16 sRGB 3-band: band 0 = horizontal ramp, band 1 = a scaled
+  ramp (max 210), band 2 = a DIAGONAL gradient reaching 255 with a triangular
+  histogram distinct from band 0's — so \`--band 2\` pins band-index honouring),
+  \`index.png\` (16×16 Gray8, four levels 0..3).
+- **Committed histogram inputs**: \`hist.v\`/\`hist2.v\` (256×1 ushort histograms
+  of gray/gray2), \`histcum.v\` (256×1 ushort cumulative), \`lut.v\` (256×1 uchar
+  equalisation LUT = norm ∘ cum ∘ find). Fed to BOTH vips and \`viprs\`.
+- **Carriers**: vips writes counts as \`uint\`; the core writes \`ushort\`
+  (\`PixelFormat\` caps at 16 bits, saturating at 65535), so every count
+  reference is CAST to ushort — lossless here (no saturation) — and both sides
+  then agree bit-for-bit. Histogram-tagged outputs → \`.v\`; plain b-w
+  (\`hist_equal\`, \`maplut\`) → PNG.
+
+## Honest oracle classes (MEASURED)
+
+- **EXACT** (tol 0): \`hist_find\` (+ \`--band 0\`, full 0..255 range),
+  \`hist_find_indexed\`, \`hist_find_ndim\`, \`hist_cum\`, \`maplut\`, and the
+  boolean \`hist_ismonotonic\`. (\`hist_find\` matches only where the data
+  reaches 255: vips trims trailing-zero bins to width max+1, the core keeps the
+  full 256 — a representational trim, not a count divergence.)
+- **BOUNDED-TOL**: \`hist_norm\` (≤1 LSB — normalising a cumulative histogram
+  rounds ±1 vs vips); \`hist_equal\` (≤1 LSB equalisation-LUT rounding, measured
+  max-abs-diff 1); \`hist_entropy\` (float log2 scalar, relative eps 1e-6 —
+  matched to 6 places on both a uniform and a non-uniform histogram).
+- **GOLDEN-ONLY** (NO vips cross-oracle — the core genuinely diverges from vips;
+  references minted by \`viprs\`, tests are regression pins): \`hist_match\`
+  (vips emits a \`uint\` LUT with a wholesale-different mapping, measured diff
+  254), \`hist_plot\` (core plots \`max+1\` rows, vips \`max\` — heights never
+  match), \`hist_local\` (window/border algorithm matches vips only for a 3×3
+  window; 5×5 diff 51, CLAHE \`--max-slope\` diff 60 — the coincidental 3×3
+  match is deliberately NOT used as an oracle), \`percent\` (core = "smallest
+  value whose cumulative reaches P%", vips = "threshold above which P% lie";
+  measured core = vips−2 on a dense ramp).
+
+## Exact commands
+
+Inputs (paths relative to \`tests/fixtures/cli/\`):
+
+\`\`\`
+vips grey hg.v 16 16
+vips linear hg.v histogram/gray.png 255 0 --uchar
+vips linear hg.v hg2.png 200 10 --uchar
+vips rot hg.v hg_v.v d90
+vips add hg.v hg_v.v hg_diag.v ; vips linear hg_diag.v hg3.png 127.5 0 --uchar  # band 2 diagonal, reaches 255
+vips bandjoin "histogram/gray.png hg2.png hg3.png" hrgb.v
+vips copy hrgb.v histogram/rgb.png --interpretation srgb
+vips linear hg.v hidxf.v 3 0 ; vips cast hidxf.v histogram/index.png uchar
+vips hist_find histogram/gray.png hf_u.v ; vips cast hf_u.v histogram/hist.v ushort
+vips hist_cum histogram/hist.v hc_u.v ; vips cast hc_u.v histogram/histcum.v ushort
+vips hist_find hg2.png hf2_u.v ; vips cast hf2_u.v histogram/hist2.v ushort
+vips hist_norm histogram/histcum.v histogram/lut.v
+vips grey pg.v 8 8 ; vips rot pg.v pgv.v d90
+vips linear pg.v  pb0.v 255 0  --uchar   # base band0 (horizontal ramp)
+vips linear pgv.v pb1.v 255 0  --uchar   # base band1 (vertical ramp)
+vips linear pg.v  pb2.v 128 40 --uchar   # base band2
+vips linear pgv.v pba.v 200 55 --uchar   # base alpha (varying)
+vips bandjoin "pb0.v pb1.v pb2.v"        pbase_op.v ; vips copy pbase_op.v composite/base_op.png --interpretation srgb
+vips bandjoin "pb0.v pb1.v pb2.v pba.v"  pbase.v    ; vips copy pbase.v    composite/base.png    --interpretation srgb
+vips linear pgv.v po0.v 200 20 --uchar ; vips linear pg.v po1.v 150 30 --uchar
+vips linear pgv.v po2.v 255 0  --uchar ; vips linear pg.v poa.v 180 40 --uchar
+vips bandjoin "po0.v po1.v po2.v"        pover_op.v ; vips copy pover_op.v composite/overlay_op.png --interpretation srgb
+vips bandjoin "po0.v po1.v po2.v poa.v"  pover.v    ; vips copy pover.v    composite/overlay.png    --interpretation srgb
+vips grey fg.v 16 16
+vips rot fg.v fgrot.v d90
+vips linear fg.v fgx.v 85 0 ; vips linear fgrot.v fgy.v 170 0
+vips add fgx.v fgy.v fgsum.v ; vips cast fgsum.v freqfilt/in.png uchar
+vips mask_ideal freqfilt/mask.v 16 16 0.3
+vips wrap freqfilt/in.png freqfilt/shifted.png --x 3 --y 2
+vips grey fsm.v 8 8 ; vips linear fsm.v freqfilt/small.png 255 0 --uchar
+\`\`\`
+
+\`small.png\` (8×8) is the wrong-size input for the \`freqmult\`/\`phasecor\`
+dimension-mismatch error cases (exit 1, no reference output; CLI_CONTRACT.md §8).
+
+Complex→pair normalisation (applied to fwfft/invfft complex outputs):
+
+\`\`\`
+vips complexget <complex.v> re.v real
+vips complexget <complex.v> im.v imag
+vips bandjoin "re.v im.v" pair.v
+vips cast pair.v <expected.v> float
+vips gaussnoise mg1.v 40 32 --seed 1 --mean 140 --sigma 45 ; vips cast mg1.v mosaicing/merge_ref.png uchar
+vips gaussnoise mg2.v 40 32 --seed 2 --mean 130 --sigma 45 ; vips cast mg2.v mosaicing/merge_sec.png uchar
+# merge_rgb: bandjoin of three distinct-seed 40x32 grays, re-tagged sRGB
+vips gaussnoise mbh.v 110 150 --seed 7  --mean 128 --sigma 60 ; vips cast mbh.v mbh.png uchar
+vips extract_area mbh.png mosaicing/mosaic_h_ref.png 0  0 100 150
+vips extract_area mbh.png mosaicing/mosaic_h_sec.png 10 0 100 150
+vips gaussnoise mbv.v 150 110 --seed 11 --mean 128 --sigma 60 ; vips cast mbv.v mbv.png uchar
+vips extract_area mbv.png mosaicing/mosaic_v_ref.png 0 0  150 100
+vips extract_area mbv.png mosaicing/mosaic_v_sec.png 0 10 150 100
+# globalbalance input (minted by viprs, carries the join-tree blob):
+viprs merge gb1.png gb2.png mosaicing/balance_input.v horizontal -40 0
 \`\`\`
 
 References (paths relative to \`tests/fixtures/cli/\`):
@@ -1393,6 +2469,301 @@ core result is bit-identical to the vips-double-cast-to-float reference); only t
 | \`colour/icc_export_expected.png\` | BOUNDED-TOL (≤2 LSB) | \`vips icc_export icc_pcs_lab.v icc_export_expected.png --output-profile sRGB.icc --intent relative --depth 8\` |
 | \`colour/icc_export_d16_expected.png\` | BOUNDED-TOL (≤16 LSB @ 16-bit) | \`vips icc_export icc_pcs_lab.v icc_export_d16_expected.png --output-profile sRGB.icc --intent relative --depth 16\` |
 | \`colour/icc_transform_expected.png\` | BOUNDED-TOL (≤2 LSB) | \`vips icc_transform rgb.png icc_transform_expected.png sRGB.icc --input-profile sRGB.icc --intent relative\` |
+| reference | oracle class | command |
+|---|---|---|
+| \`histogram/hist_find_expected.v\` | EXACT | \`vips hist_find gray.png rf.v\` → \`vips cast rf.v … ushort\` |
+| \`histogram/hist_find_band_expected.v\` | EXACT | \`vips hist_find rgb.png rfb.v --band 0\` → cast ushort (band 0 = full 0..255 ramp; vips trims trailing-zero bins so a band with max < 255 would mismatch on width) |
+| \`histogram/hist_find_band2_expected.v\` | EXACT | \`vips hist_find rgb.png rfb2.v --band 2\` → cast ushort (band 2 = diagonal gradient, triangular histogram distinct from band 0 — pins band-index honouring; reaches 255 so no trailing-zero trim) |
+| \`histogram/hist_find_indexed_expected.v\` | EXACT | \`vips hist_find_indexed gray.png index.png ri.v\` → cast ushort |
+| \`histogram/hist_find_ndim_expected.v\` | EXACT | \`vips hist_find_ndim rgb.png rn.v --bins 4\` → cast ushort |
+| \`histogram/hist_cum_expected.v\` | EXACT | \`vips hist_cum hist.v rc.v\` → cast ushort |
+| \`histogram/hist_norm_expected.v\` | BOUNDED-TOL ≤1 LSB | \`vips hist_norm histcum.v hist_norm_expected.v\` (cumulative-norm rounding core-vs-vips ±1) |
+| \`histogram/hist_equal_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips hist_equal gray.png hist_equal_expected.png\` |
+| \`histogram/maplut_expected.png\` | EXACT | \`vips maplut gray.png maplut_expected.png lut.v\` |
+| \`histogram/hist_entropy_expected.txt\` | BOUNDED-TOL (rel 1e-6) | \`vips hist_entropy hist.v\` (uniform → 4.000000) |
+| \`histogram/hist_entropy_cum_expected.txt\` | BOUNDED-TOL (rel 1e-6) | \`vips hist_entropy histcum.v\` (non-uniform → 7.763350) |
+| \`histogram/hist_ismonotonic_false_expected.txt\` | EXACT (bool) | \`vips hist_ismonotonic hist.v\` (FALSE) |
+| \`histogram/hist_ismonotonic_true_expected.txt\` | EXACT (bool) | \`vips hist_ismonotonic histcum.v\` (TRUE) |
+| \`histogram/hist_match_golden.v\` | GOLDEN-ONLY | \`viprs hist_match hist.v hist2.v hist_match_golden.v\` (NO vips oracle) |
+| \`histogram/hist_plot_golden.v\` | GOLDEN-ONLY | \`viprs hist_plot hist.v hist_plot_golden.v\` (NO vips oracle) |
+| \`histogram/hist_local_golden.png\` | GOLDEN-ONLY | \`viprs hist_local gray.png hist_local_golden.png 5 5\` |
+| \`histogram/hist_local_clahe_golden.png\` | GOLDEN-ONLY | \`viprs hist_local gray.png hist_local_clahe_golden.png 5 5 --max-slope 3\` |
+| \`histogram/percent_golden.txt\` | GOLDEN-ONLY | \`viprs percent gray.png 50\` (NO vips oracle) |
+
+\`hist_find\` / \`hist_find_indexed\` / \`hist_find_ndim\` / \`hist_cum\` /
+\`hist_norm\` / \`hist_equal\` / \`hist_local\` / \`maplut\` / \`hist_entropy\` /
+\`hist_ismonotonic\` / \`percent\` all REJECT a float / non-integer input with a
+typed exit-1 error (the core's \`read_flat\` would otherwise abort on a float
+raster; the CLI guards it before touching the core — CLI_CONTRACT.md §8), pinned
+by \`hist_find_rejects_float_input_without_panicking\`.
+| \`composite/composite2_over_expected.png\`      | BOUNDED-TOL ≤1 LSB | \`vips composite2 base.png overlay.png composite2_over_expected.png over\` |
+| \`composite/composite2_source_expected.png\`    | BOUNDED-TOL ≤1 LSB | \`vips composite2 base.png overlay.png composite2_source_expected.png source\` |
+| \`composite/composite2_in_expected.png\`        | BOUNDED-TOL ≤1 LSB | \`vips composite2 base.png overlay.png composite2_in_expected.png in\` |
+| \`composite/composite2_xor_expected.png\`       | BOUNDED-TOL ≤1 LSB | \`vips composite2 base.png overlay.png composite2_xor_expected.png xor\` |
+| \`composite/composite2_add_expected.png\`       | BOUNDED-TOL ≤1 LSB | \`vips composite2 base.png overlay.png composite2_add_expected.png add\` |
+| \`composite/composite2_dest_over_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips composite2 base.png overlay.png composite2_dest_over_expected.png dest-over\` |
+| \`composite/composite_over_expected.png\`       | BOUNDED-TOL ≤1 LSB | \`vips composite "base.png overlay.png" composite_over_expected.png 2\` (array form; over = int 2) |
+| \`composite/composite2_multiply_expected.png\`    | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_multiply_expected.png multiply\` |
+| \`composite/composite2_screen_expected.png\`      | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_screen_expected.png screen\` |
+| \`composite/composite2_overlay_expected.png\`     | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_overlay_expected.png overlay\` |
+| \`composite/composite2_darken_expected.png\`      | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_darken_expected.png darken\` |
+| \`composite/composite2_hardlight_expected.png\`   | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_hardlight_expected.png hard-light\` |
+| \`composite/composite2_difference_expected.png\`  | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_difference_expected.png difference\` |
+| \`composite/composite2_exclusion_expected.png\`   | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_exclusion_expected.png exclusion\` |
+| \`composite/composite2_colourdodge_expected.png\` | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_colourdodge_expected.png colour-dodge\` |
+| \`composite/composite2_clear_expected.png\`     | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_clear_expected.png clear\` |
+| \`composite/composite2_out_expected.png\`       | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_out_expected.png out\` |
+| \`composite/composite2_dest_expected.png\`      | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_dest_expected.png dest\` |
+| \`composite/composite2_dest_in_expected.png\`   | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_dest_in_expected.png dest-in\` |
+| \`composite/composite2_dest_out_expected.png\`  | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_dest_out_expected.png dest-out\` |
+| \`composite/composite2_dest_atop_expected.png\` | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_dest_atop_expected.png dest-atop\` |
+| \`composite/composite2_lighten_expected.png\`   | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_lighten_expected.png lighten\` |
+| \`composite/composite2_colourburn_expected.png\`| BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_colourburn_expected.png colour-burn\` |
+| \`composite/composite2_softlight_expected.png\` | BOUNDED-TOL ≤1 LSB (OPAQUE) | \`vips composite2 base_op.png overlay_op.png composite2_softlight_expected.png soft-light\` |
+| \`composite/composite2_multiply_translucent_golden.png\` | GOLDEN-ONLY | \`viprs composite2 base.png overlay.png composite2_multiply_translucent_golden.png multiply\` (NO vips oracle — translucent divergence ~38; a core translucent-blend fix requires REGENERATING this pin, not reverting) |
+| \`composite/composite2_atop_translucent_golden.png\`     | GOLDEN-ONLY | \`viprs composite2 base.png overlay.png composite2_atop_translucent_golden.png atop\` (NO vips oracle — translucent divergence ~191; a core translucent-blend fix requires REGENERATING this pin, not reverting) |
+| \`composite/composite2_saturate_translucent_golden.png\` | GOLDEN-ONLY | \`viprs composite2 base.png overlay.png composite2_saturate_translucent_golden.png saturate\` (NO vips oracle — translucent divergence ~37; a core translucent-blend fix requires REGENERATING this pin, not reverting) |
+
+Error cases (asserted in \`cli_composite_diff.rs\`, no vips reference): a size /
+band-count mismatch is a typed exit-1 error; an unknown or core-only
+non-separable (\`hue\`/\`saturation\`/\`colour\`/\`luminosity\`) mode and a third input
+are clap usage exit-2 errors (CLI_CONTRACT.md §8).
+| \`freqfilt/fwfft_expected.v\` | FOURIER (2-band f32, eps 1e-2) | \`vips fwfft in.png fwfft_dpc.v\` → complexget/bandjoin/cast float |
+| \`freqfilt/invfft_expected.v\` | FOURIER (2-band f32, eps 5e-2) | \`vips invfft in.png invfft_dpc.v\` → complexget/bandjoin/cast float |
+| \`freqfilt/invfft_real_expected.v\` | FOURIER (1-band f32, eps 5e-2) | \`vips invfft in.png invfft_real_dbl.v --real\` → cast float |
+| \`freqfilt/roundtrip_expected.v\` | FOURIER (1-band f32, eps 1e-2; complex-in path) | \`vips fwfft in.png rt_dpc.v\` → \`vips invfft rt_dpc.v rt_dbl.v --real\` → cast float |
+| \`freqfilt/freqmult_expected.png\` | FOURIER (uchar, BOUNDED-TOL ≤1 LSB) | \`vips freqmult in.png mask.v freqmult_expected.png\` |
+| \`freqfilt/spectrum_expected.png\` | FOURIER (uchar, tol 0) | \`vips spectrum in.png spectrum_expected.png\` |
+| \`freqfilt/phasecor_expected.v\` | FOURIER (1-band f32, eps 1e-2) | \`vips phasecor in.png shifted.png phasecor_dbl.v\` → cast float |
+| reference | oracle class | command |
+|---|---|---|
+| \`mosaicing/merge_h_expected.png\` | EXACT | \`vips merge merge_ref.png merge_sec.png merge_h_expected.png horizontal -- -28 0\` |
+| \`mosaicing/merge_v_expected.png\` | EXACT | \`vips merge merge_ref.png merge_sec.png merge_v_expected.png vertical -- 0 -22\` |
+| \`mosaicing/merge_rgb_expected.png\` | EXACT | \`vips merge merge_rgb.png merge_rgb_sec.png merge_rgb_expected.png horizontal -- -28 0\` (3-band multi-band path) |
+| \`mosaicing/merge_fallback_expected.png\` | EXACT | \`vips merge merge_ref.png merge_sec.png merge_fallback_expected.png horizontal 12 0\` (positive dx → insert-fallback, no blend) |
+| \`mosaicing/mosaic_h_expected.png\` | EXACT | \`vips mosaic mosaic_h_ref.png mosaic_h_sec.png mosaic_h_expected.png horizontal 50 75 40 75\` |
+| \`mosaicing/mosaic_v_expected.png\` | EXACT | \`vips mosaic mosaic_v_ref.png mosaic_v_sec.png mosaic_v_expected.png vertical 75 50 75 40\` |
+| \`mosaicing/balance_expected.v\` | GOLDEN-ONLY | \`viprs globalbalance balance_input.v balance_expected.v\` (NO vips oracle) |
+
+\`merge\` rejects a format mismatch (a Gray8 REF + an sRGB SEC) with a typed
+exit-1 error, and \`globalbalance\` rejects an input without the join-tree blob
+(a plain PNG) the same way; both are asserted in \`cli_mosaicing_diff.rs\`
+(nonzero exit + a viprs-side message substring; CLI_CONTRACT.md §8) and need no
+reference output.
+
+**\`merge --mblend\` — a deliberate CLI-surface divergence from vips (finding 2):**
+vips \`merge\` honours \`--mblend N\` and produces a valid, different blend for any
+N; \`viprs merge\` exposes the flag for parity but the core public \`try_merge\`
+fixes the blend width at the vips default 10 and offers no API to vary it, so
+\`viprs\` **exits 1 on any non-default \`--mblend\`** where vips would succeed. This
+is intentional (loud-fail beats a silently-wrong "success"; the \`add\` 16-bit
+lesson) but IS a real divergence from the oracle — recorded here so a parity
+auditor is not surprised, and left uncovered by the differential precisely
+because the core cannot reproduce what vips does at a non-default mblend.
+# create family CLI-differential reference provenance
+
+These fixtures are the committed references the create CLI-differential suite
+(\`tests/cli_create_diff.rs\`) decode-compares \`viprs\` output against. The EXACT
+and BOUNDED-TOL references are the **vips 8.18.4 oracle**; the GOLDEN-ONLY
+references are **\`viprs\`-generated regression pins** (no vips oracle exists —
+PRNG / Pango differ even seeded). Generated offline by \`tools/gen_cli_expected.sh\`,
+NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common input** (under \`create/\`): \`buildlut_points.mat\` — a 2-point control
+  matrix (\`0->0\`, \`255->100\`) in the vips text-matrix format, read by BOTH
+  \`vips buildlut\` (matrix image) and \`viprs buildlut\` (MatFile loader); and
+  \`buildlut_points3.mat\` — a >=3-point NON-COLLINEAR matrix (\`0->0\`, \`128->200\`,
+  \`255->255\`) that pins multi-segment interpolation + control-point sort (a
+  2-point single-segment matrix cannot; create finding 2).
+- **Carriers**: float creators → \`.v\`; \`--uchar\` variants → PNG; \`tonelut\`
+  (Gray16) → \`.v\`. vips \`xyz\` (uint) and \`buildlut\` (double) are cast to
+  \`float\` before the reference \`.v\` is written, because the libviprs \`.v\`
+  decoder reads only uchar/ushort/float band formats — the cast is lossless (the
+  values are integer coordinates / f32-exact LUT entries).
+
+## Oracle classes and measured tolerances
+
+- **EXACT (tol 0)**: \`black\`, \`xyz\`.
+- **BOUNDED-TOL (f32)**: \`eye\`, \`zone\`, \`sines\`, \`sdf\` — measured max-abs-diff
+  <= 4e-6 (f32 trig / hypot rounding); every \`mask_*\` op, \`buildlut\` and
+  \`tonelut\` measured **exactly 0**, but are classified BOUNDED-TOL (float
+  trig/exp/pow) and compared with a small f32 epsilon as an honest upper bound.
+- **GOLDEN-ONLY (tol 0 vs the viprs pin)**: \`gaussnoise\`, \`perlin\`, \`worley\`,
+  \`fractsurf\`, \`text\`.
+
+## Exact commands
+
+References (paths relative to \`tests/fixtures/cli/\`):
+
+| reference | oracle class | command |
+|---|---|---|
+| \`create/black_expected.v\` | EXACT | \`vips black black_expected.v 8 8\` |
+| \`create/black_bands3_expected.v\` | EXACT | \`vips black black_bands3_expected.v 8 8 --bands 3\` |
+| \`create/xyz_expected.v\` | EXACT | \`vips xyz xyz_u.v 16 16\` then \`vips cast xyz_u.v xyz_expected.v float\` |
+| \`create/eye_expected.v\` | BOUNDED-TOL | \`vips eye eye_expected.v 32 32\` |
+| \`create/eye_uchar_expected.png\` | BOUNDED-TOL (<=1 LSB) | \`vips eye eye_uchar_expected.png 32 32 --uchar\` |
+| \`create/zone_expected.v\` | BOUNDED-TOL | \`vips zone zone_expected.v 32 32\` |
+| \`create/sines_expected.v\` | BOUNDED-TOL | \`vips sines sines_expected.v 32 32\` |
+| \`create/buildlut_expected.v\` | BOUNDED-TOL | \`vips buildlut buildlut_points.mat buildlut_d.v\` then \`vips cast buildlut_d.v buildlut_expected.v float\` |
+| \`create/buildlut3_expected.v\` | BOUNDED-TOL | \`vips buildlut buildlut_points3.mat buildlut3_d.v\` then \`vips cast buildlut3_d.v buildlut3_expected.v float\` (>=3-point multi-segment) |
+| \`create/tonelut_expected.v\` | BOUNDED-TOL (measured 0) | \`vips tonelut tonelut_expected.v\` |
+| \`create/mask_ideal_expected.v\` | BOUNDED-TOL | \`vips mask_ideal mask_ideal_expected.v 64 64 0.5\` |
+| \`create/mask_ideal_nodc_expected.v\` | BOUNDED-TOL | \`vips mask_ideal mask_ideal_nodc_expected.v 64 64 0.5 --nodc\` |
+| \`create/mask_ideal_ring_expected.v\` | BOUNDED-TOL | \`vips mask_ideal_ring mask_ideal_ring_expected.v 64 64 0.5 0.2\` |
+| \`create/mask_ideal_band_expected.v\` | BOUNDED-TOL | \`vips mask_ideal_band mask_ideal_band_expected.v 64 64 0.3 0.3 0.1\` |
+| \`create/mask_gaussian_expected.v\` | BOUNDED-TOL | \`vips mask_gaussian mask_gaussian_expected.v 64 64 0.4 0.6\` (distinct fc != ac) |
+| \`create/mask_gaussian_nodc_expected.v\` | BOUNDED-TOL | \`vips mask_gaussian mask_gaussian_nodc_expected.v 64 64 0.4 0.6 --nodc\` (isolated --nodc) |
+| \`create/mask_gaussian_ring_expected.v\` | BOUNDED-TOL | \`vips mask_gaussian_ring mask_gaussian_ring_expected.v 64 64 0.4 0.6 0.2\` |
+| \`create/mask_gaussian_band_expected.v\` | BOUNDED-TOL | \`vips mask_gaussian_band mask_gaussian_band_expected.v 64 64 0.3 0.3 0.1 0.5\` |
+| \`create/mask_butterworth_expected.v\` | BOUNDED-TOL | \`vips mask_butterworth mask_butterworth_expected.v 64 64 2 0.4 0.6\` (distinct fc != ac) |
+| \`create/mask_butterworth_uchar_expected.png\` | BOUNDED-TOL (<=1 LSB) | \`vips mask_butterworth mask_butterworth_uchar_expected.png 64 64 2 0.5 0.5 --uchar --optical\` |
+| \`create/mask_butterworth_optical_expected.v\` | BOUNDED-TOL | \`vips mask_butterworth mask_butterworth_optical_expected.v 64 64 2 0.4 0.6 --optical\` (isolated --optical on float .v) |
+| \`create/mask_butterworth_ring_expected.v\` | BOUNDED-TOL | \`vips mask_butterworth_ring mask_butterworth_ring_expected.v 64 64 2 0.4 0.6 0.2\` |
+| \`create/mask_butterworth_band_expected.v\` | BOUNDED-TOL | \`vips mask_butterworth_band mask_butterworth_band_expected.v 64 64 2 0.3 0.3 0.1 0.5\` |
+| \`create/mask_fractal_expected.v\` | BOUNDED-TOL | \`vips mask_fractal mask_fractal_expected.v 64 64 2.5\` |
+| \`create/sdf_circle_expected.v\` | BOUNDED-TOL | \`vips sdf sdf_circle_expected.v 64 64 circle --a "32 32" --r 16\` |
+| \`create/sdf_box_expected.v\` | BOUNDED-TOL | \`vips sdf sdf_box_expected.v 64 64 box --a "10 10" --b "50 40"\` |
+| \`create/sdf_line_expected.v\` | BOUNDED-TOL | \`vips sdf sdf_line_expected.v 64 64 line --a "10 10" --b "50 40"\` |
+| \`create/sdf_rounded_expected.v\` | BOUNDED-TOL | \`vips sdf sdf_rounded_expected.v 64 64 rounded-box --a "10 10" --b "50 40" --corners "20 0 0 0"\` |
+| \`create/gaussnoise_golden.v\` | GOLDEN-ONLY | \`viprs gaussnoise gaussnoise_golden.v 16 16 --seed 42 --sigma 10 --mean 128\` (no vips oracle) |
+| \`create/perlin_golden.v\` | GOLDEN-ONLY | \`viprs perlin perlin_golden.v 64 64 --seed 7\` (no vips oracle) |
+| \`create/worley_golden.v\` | GOLDEN-ONLY | \`viprs worley worley_golden.v 64 64 --seed 7\` (no vips oracle) |
+| \`create/fractsurf_golden.v\` | GOLDEN-ONLY | \`viprs fractsurf fractsurf_golden.v 64 48 2.5\` (no vips oracle) |
+| \`create/text_golden.png\` | GOLDEN-ONLY | \`viprs text text_golden.png "Hi" --dpi 72\` (no vips oracle — Pango differs) |
+# draw family CLI-differential reference provenance (GOLDEN-ONLY)
+
+Every \`draw_*\` op is **GOLDEN-ONLY**: \`vips draw_*\` are in-place mutators whose
+CLI **discards** the mutated image, so there is **NO vips CLI oracle**. Each
+reference below is generated **once by \`viprs\` itself** (deterministic) and
+committed; the differential cell (\`tests/cli_draw_diff.rs\`) is a **regression
+pin** that states there is no vips cross-oracle — NOT a parity claim.
+
+- **Generator**: \`viprs\` (\`$VIPRS\`), built \`--release --no-default-features\`.
+- **Oracle**: none (GOLDEN-ONLY). The vips version above is recorded only because
+  the COMMON INPUTS are built with vips as a deterministic coordinate function
+  (\`grey\`/\`eye\`/\`black\`); vips is never used to produce a draw reference.
+- **Common inputs** (under \`draw/\`): \`rgb.png\` (32×32 sRGB 2-D gradient),
+  \`flood.png\` (32×32 Gray8 three flat stripes 0/100/200), \`mask.png\` (16×16
+  Gray8 ramp opacity stencil), \`sub.png\` (8×8 solid magenta sRGB paste source),
+  \`smudge.png\` (16×16 Gray8 high-frequency thresholded \`eye\`), \`gray16.v\`
+  (16×16 single-band Gray16 ramp, native \`.v\` — the 16-bit ink/draw target).
+
+## Exact commands
+
+Inputs (built with vips, deterministic):
+
+\`\`\`
+vips grey dg.v 32 32
+vips linear dg.v dgx.png 255 0 --uchar
+vips rot dg.v dgv.v d90
+vips linear dgv.v dgy.png 200 20 --uchar
+vips linear dg.v dgz.png 120 60 --uchar
+vips bandjoin "dgx.png dgy.png dgz.png" drgb.v
+vips copy drgb.v draw/rgb.png --interpretation srgb
+vips linear dg.v dramp.v 255 0 --uchar
+vips relational_const dramp.v dr1.v moreeq 85
+vips relational_const dramp.v dr2.v moreeq 170
+vips add dr1.v dr2.v dr12.v
+vips linear dr12.v draw/flood.png 0.39215686274509803 0 --uchar   # -> 0/100/200
+vips grey dm.v 16 16
+vips linear dm.v draw/mask.png 255 0 --uchar
+vips black db.v 8 8 --bands 3
+vips linear db.v dsub.v "0 0 0" "255 0 255" --uchar
+vips copy dsub.v draw/sub.png --interpretation srgb
+vips eye de.v 16 16
+vips relational_const de.v draw/smudge.png more 0.0
+vips grey dg16.v 16 16
+vips linear dg16.v dg16s.v 60000 0
+vips cast dg16s.v draw/gray16.v ushort
+\`\`\`
+
+References (paths relative to \`tests/fixtures/cli/\`, ALL GOLDEN-ONLY — minted by \`viprs\`):
+
+| reference | oracle class | viprs command |
+|---|---|---|
+| \`draw/draw_circle_golden.png\` | GOLDEN-ONLY | \`viprs draw_circle rgb.png draw_circle_golden.png 16 16 8 --ink "255 0 0"\` |
+| \`draw/draw_circle_fill_golden.png\` | GOLDEN-ONLY | \`viprs draw_circle rgb.png draw_circle_fill_golden.png 16 16 8 --ink "255 0 0" --fill\` |
+| \`draw/draw_rect_golden.png\` | GOLDEN-ONLY | \`viprs draw_rect rgb.png draw_rect_golden.png 4 4 20 16 --ink "0 255 0"\` |
+| \`draw/draw_rect_fill_golden.png\` | GOLDEN-ONLY | \`viprs draw_rect rgb.png draw_rect_fill_golden.png 4 4 20 16 --ink "0 255 0" --fill\` |
+| \`draw/draw_line_golden.png\` | GOLDEN-ONLY | \`viprs draw_line rgb.png draw_line_golden.png 0 0 31 31 --ink "0 0 255"\` |
+| \`draw/draw_flood_golden.png\` | GOLDEN-ONLY | \`viprs draw_flood flood.png draw_flood_golden.png 0 0 --ink "100"\` (bounded: 0-stripe → 100, stops at the 100 wall, 200-stripe untouched) |
+| \`draw/draw_flood_blob_golden.png\` | GOLDEN-ONLY | \`viprs draw_flood flood.png draw_flood_blob_golden.png 0 0 --ink "50" --equal\` (blob: recolours only the seed's equal-valued 0-stripe → 50) |
+| \`draw/draw_mask_golden.png\` | GOLDEN-ONLY | \`viprs draw_mask rgb.png draw_mask_golden.png mask.png 8 8 --ink "255 255 0"\` |
+| \`draw/draw_smudge_golden.png\` | GOLDEN-ONLY | \`viprs draw_smudge smudge.png draw_smudge_golden.png 4 4 8 8\` |
+| \`draw/draw_image_golden.png\` | GOLDEN-ONLY | \`viprs draw_image rgb.png draw_image_golden.png sub.png 10 10\` |
+| \`draw/draw_rect_16bit_golden.v\` | GOLDEN-ONLY | \`viprs draw_rect gray16.v draw_rect_16bit_golden.v 4 4 8 8 --ink "40000"\` (16-bit ink encode/draw pin; \`.v\` carrier) |
+
+The draw ops mutate their input in place; \`viprs\` materialises the result to
+\`OUT\` (the S6 shape). \`draw_smudge\` and \`draw_image\` take no ink; \`draw_image\`
+requires \`SUB\` to share \`IN\`'s pixel format (a documented core no-op otherwise,
+surfaced as a typed exit-1 error); \`draw_mask\` requires a single-band 8-bit
+\`MASK\` (the core paints nothing for any other mask format — a 3-band or 16-bit
+mask is a silent no-op in the core, so the CLI rejects it with a typed exit-1
+error rather than writing an unchanged image); and \`draw_smudge\`/\`--ink\` reject
+a float target with a typed exit-1 error (never a panic). Most committed inputs
+are 8-bit; \`gray16.v\` is a single-band Gray16 target that pins the 16-bit
+native-endian ink encode + draw/save round trip (\`CLI_CONTRACT.md\` §9: 16-bit
+ink byte order is native-endian, now regression-pinned by the committed golden).
+# resample family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the resample
+CLI-differential suite (\`tests/cli_resample_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`resample/\`): \`grad.png\` (32×32 Gray8 2-D gradient
+  \`x*85 + y*170\`, so shrinkv / reducev / rot are non-vacuous), \`rgb.png\` (32×32
+  3-band sRGB with 2-D structure), \`index.v\` (32×32 FLOAT 2-band coordinate map
+  sampling each output at HALF its source coordinate — a real 2× zoom with
+  fractional taps, so \`mapim\` moves data and interpolates).
+- **EVERY op is BOUNDED-TOL for NON-ALPHA inputs** (the premultiply / rounding
+  campaign #406-418): the core computes reduce / interpolate masks in f64 per
+  output position while vips quantises the sub-pixel offset into fixed-point
+  tables, so the two agree to ≤1 LSB. Non-alpha inputs are used deliberately:
+  the core \`reduce\`/\`shrink\`/\`resize\` premultiply alpha before resampling (a
+  documented, intentional divergence from bare \`vips_reduce\`/\`vips_shrink\`,
+  which do not), so on an RGBA / GrayA input these ops diverge from vips
+  WHOLESALE — well beyond ≤1 LSB (measured max-abs-diff 4 for \`shrink 2 2\` on a
+  4-band sRGB ramp). That divergence is deliberate and OUT of the ≤1 LSB oracle
+  class; the differential exercises only the no-alpha \`grad\`/\`rgb\` carriers.
+
+## Measured max-abs-diff (per case)
+
+References (paths relative to \`tests/fixtures/cli/\`):
+
+| reference | tol (measured) | vips command |
+|---|---|---|
+| \`resample/shrink_expected.png\` | ≤1 LSB (0) | \`vips shrink grad.png shrink_expected.png 2 2\` |
+| \`resample/shrinkh_expected.png\` | ≤1 LSB (0) | \`vips shrinkh grad.png shrinkh_expected.png 2\` |
+| \`resample/shrinkv_expected.png\` | ≤1 LSB (0) | \`vips shrinkv grad.png shrinkv_expected.png 2\` |
+| \`resample/reduce_lanczos3_expected.png\` | ≤1 LSB (0) | \`vips reduce rgb.png reduce_lanczos3_expected.png 2 2\` (default lanczos3) |
+| \`resample/reduce_cubic_expected.png\` | ≤1 LSB (0) | \`vips reduce rgb.png reduce_cubic_expected.png 2 2 --kernel cubic\` |
+| \`resample/reduceh_expected.png\` | ≤1 LSB (1) | \`vips reduceh grad.png reduceh_expected.png 2\` |
+| \`resample/reducev_expected.png\` | ≤1 LSB (1) | \`vips reducev grad.png reducev_expected.png 2\` |
+| \`resample/resize_half_expected.png\` | ≤1 LSB (0) | \`vips resize rgb.png resize_half_expected.png 0.5\` |
+| \`resample/resize_vscale_expected.png\` | ≤1 LSB (0) | \`vips resize rgb.png resize_vscale_expected.png 0.5 --vscale 0.75\` |
+| \`resample/resize_up_expected.png\` | ≤1 LSB (1) | \`vips resize grad.png resize_up_expected.png 2.0\` (upscale → affine path) |
+| \`resample/resize_nearest_expected.png\` | ≤1 LSB (0) | \`vips resize rgb.png resize_nearest_expected.png 0.5 --kernel nearest\` |
+| \`resample/affine_bilinear_expected.png\` | ≤1 LSB (1) | \`vips affine rgb.png affine_bilinear_expected.png "1.5 0 0 1.5"\` (default bilinear) |
+| \`resample/affine_bicubic_expected.png\` | **2 LSB (2)** | \`vips affine rgb.png affine_bicubic_expected.png "1.5 0 0 1.5" --interpolate bicubic\` (bicubic quantises to 2 LSB — noted divergence) |
+| \`resample/similarity_angle_expected.png\` | ≤1 LSB (1) | \`vips similarity rgb.png similarity_angle_expected.png --angle 30\` |
+| \`resample/similarity_scale_expected.png\` | ≤1 LSB (1) | \`vips similarity rgb.png similarity_scale_expected.png --scale 1.5\` |
+| \`resample/rotate_expected.png\` | ≤1 LSB (1) | \`vips rotate rgb.png rotate_expected.png 30\` |
+| \`resample/mapim_bilinear_expected.png\` | ≤1 LSB (0) | \`vips mapim rgb.png mapim_bilinear_expected.png index.v\` (S2; index is a 2nd input) |
+| \`resample/mapim_bicubic_expected.png\` | ≤1 LSB (1) | \`vips mapim rgb.png mapim_bicubic_expected.png index.v --interpolate bicubic\` |
+| \`resample/thumbnail_expected.png\` | ≤1 LSB (0) | \`vips thumbnail rgb.png thumbnail_expected.png 16\` (FILENAME input) |
+| \`resample/thumbnail_crop_expected.png\` | ≤1 LSB (0) | \`vips thumbnail rgb.png thumbnail_crop_expected.png 16 --height 8 --crop centre\` (NON-square target — centre-crop removes pixels, 16×8, distinct from the no-crop fixtures) |
+| \`resample/thumbnail_linear_expected.png\` | ≤1 LSB (1) | \`vips thumbnail rgb.png thumbnail_linear_expected.png 16 --linear\` (linear-light reduce path) |
+| \`resample/thumbnail_image_expected.png\` | ≤1 LSB (0) | \`vips thumbnail_image rgb.png thumbnail_image_expected.png 16\` |
+
+**Open question**: \`affine … --interpolate bicubic\` measures **2 LSB** (not the
+≤1 LSB the rest of the family hits). The core evaluates exact f64 Catmull-Rom
+coefficients while vips's \`VipsInterpolateBicubic\` uses a coarser fixed-point
+coefficient table, so some interior samples land 2 apart. This is a genuine,
+measured core-vs-vips rounding difference (not a CLI bug); the differential
+compares that one case at tol 2. A follow-up could tighten the core bicubic
+coefficient path toward vips's table if exact bicubic parity is ever required.
 EOF
 
 echo "==> Done. Generated fixtures under $FIX_ROOT"
@@ -1411,3 +2782,17 @@ echo "--- matrix ---"
 ls -1 "$MATRIX"
 echo "--- colour ---"
 ls -1 "$COLOUR"
+echo "--- histogram ---"
+ls -1 "$HIST"
+echo "--- composite ---"
+ls -1 "$COMP"
+echo "--- freqfilt ---"
+ls -1 "$FREQ"
+echo "--- mosaicing ---"
+ls -1 "$MOS"
+echo "--- create ---"
+ls -1 "$CREATE"
+echo "--- draw ---"
+ls -1 "$DRAW"
+echo "--- resample ---"
+ls -1 "$RESAMPLE"
