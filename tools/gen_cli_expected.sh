@@ -342,9 +342,11 @@ mkdir -p "$EXTRACT"
 # 2-D structure (band0 = horizontal ramp, band1 = a scaled horizontal ramp,
 # band2 = a VERTICAL ramp, so a crop/placement is fully determined in both axes
 # and a wrong offset fails loudly), and a small 6x6 solid sRGB sub-image whose
-# distinct colour stands out wherever `insert` places it. `vips grey`/`rot` are
-# pure coordinate functions, so every fixture is bit-reproducible.
-echo "==> [extract input] 16x16 gray ramp + 16x16 sRGB (2-D) rgb + 6x6 sub"
+# distinct colour stands out wherever `insert` places it, plus a 6x6 SINGLE-band
+# Gray8 ramp (`sub1.png`) that pins vips's 1-band-sub → multi-band-main bandalike
+# broadcast on `insert`. `vips grey`/`rot` are pure coordinate functions, so
+# every fixture is bit-reproducible.
+echo "==> [extract input] 16x16 gray ramp + 16x16 sRGB (2-D) rgb + 6x6 sub (3-band + 1-band)"
 "$VIPS" grey "$TMP/egrey.v" 16 16
 "$VIPS" linear "$TMP/egrey.v" "$EXTRACT/gray.png"  255 0 --uchar
 "$VIPS" linear "$TMP/egrey.v" "$TMP/egray2.png" 200 10 --uchar
@@ -355,32 +357,40 @@ echo "==> [extract input] 16x16 gray ramp + 16x16 sRGB (2-D) rgb + 6x6 sub"
 "$VIPS" black "$TMP/eb.v" 6 6 --bands 3
 "$VIPS" linear "$TMP/eb.v" "$TMP/esub.v" "0 0 0" "200 50 100" --uchar
 "$VIPS" copy "$TMP/esub.v" "$EXTRACT/sub.png" --interpretation srgb
+"$VIPS" grey "$TMP/esub1.v" 6 6
+"$VIPS" linear "$TMP/esub1.v" "$EXTRACT/sub1.png" 255 0 --uchar
 
 # --- References — one vips run per differential case -------------------------
 echo "==> [extract_area/crop] interior rectangle (S1 EXACT)"
 "$VIPS" extract_area "$EXTRACT/rgb.png" "$EXTRACT/extract_area_expected.png" 3 4 5 6
 "$VIPS" crop         "$EXTRACT/rgb.png" "$EXTRACT/crop_expected.png"         3 4 5 6
 
-echo "==> [embed] black + copy (enum) + background vector (S1 EXACT)"
+echo "==> [embed] black + copy/repeat/mirror/white (enum) + background vector (S1 EXACT)"
 "$VIPS" embed "$EXTRACT/rgb.png"  "$EXTRACT/embed_black_expected.png" 2 3 24 24
 "$VIPS" embed "$EXTRACT/rgb.png"  "$EXTRACT/embed_copy_expected.png"  2 3 24 24 --extend copy
+"$VIPS" embed "$EXTRACT/rgb.png"  "$EXTRACT/embed_repeat_expected.png" 2 3 24 24 --extend repeat
+"$VIPS" embed "$EXTRACT/rgb.png"  "$EXTRACT/embed_mirror_expected.png" 2 3 24 24 --extend mirror
+"$VIPS" embed "$EXTRACT/rgb.png"  "$EXTRACT/embed_white_expected.png"  2 3 24 24 --extend white
 "$VIPS" embed "$EXTRACT/gray.png" "$EXTRACT/embed_bg_expected.png"    1 1 8 8 --extend background --background 128
 
-echo "==> [gravity] centre + south-east (dash-spelled enum) (S1 EXACT)"
+echo "==> [gravity] centre + south-east + north-west (dash-spelled enum) (S1 EXACT)"
 "$VIPS" gravity "$EXTRACT/rgb.png" "$EXTRACT/gravity_centre_expected.png" centre     24 24
 "$VIPS" gravity "$EXTRACT/rgb.png" "$EXTRACT/gravity_se_expected.png"     south-east 24 24
+"$VIPS" gravity "$EXTRACT/rgb.png" "$EXTRACT/gravity_nw_expected.png"     north-west 24 24
 
 echo "==> [replicate/zoom/subsample] integer geometry (S1 EXACT)"
 "$VIPS" replicate "$EXTRACT/rgb.png"  "$EXTRACT/replicate_expected.png" 2 3
 "$VIPS" zoom      "$EXTRACT/gray.png" "$EXTRACT/zoom_expected.png"      3 2
 "$VIPS" subsample "$EXTRACT/rgb.png"  "$EXTRACT/subsample_expected.png" 2 2
 
-echo "==> [insert] non-expand + expand (canvas grows) (S2 EXACT)"
+echo "==> [insert] non-expand + expand (canvas grows) + 1-band-sub bandalike broadcast (S2 EXACT)"
 "$VIPS" insert "$EXTRACT/rgb.png" "$EXTRACT/sub.png" "$EXTRACT/insert_expected.png"        4 5
 "$VIPS" insert "$EXTRACT/rgb.png" "$EXTRACT/sub.png" "$EXTRACT/insert_expand_expected.png" 13 13 --expand
+"$VIPS" insert "$EXTRACT/rgb.png" "$EXTRACT/sub1.png" "$EXTRACT/insert_bandalike_expected.png" 4 5
 
-echo "==> [smartcrop] centre/low/high/attention (S1 EXACT — discriminating geometry + saliency)"
+echo "==> [smartcrop] centre/low/high/attention/all (S1 EXACT — discriminating geometry + saliency)"
 "$VIPS" smartcrop "$EXTRACT/rgb.png" "$EXTRACT/smartcrop_centre_expected.png"    8 8 --interesting centre
+"$VIPS" smartcrop "$EXTRACT/rgb.png" "$EXTRACT/smartcrop_all_expected.png"       8 8 --interesting all
 "$VIPS" smartcrop "$EXTRACT/rgb.png" "$EXTRACT/smartcrop_low_expected.png"       8 8 --interesting low
 "$VIPS" smartcrop "$EXTRACT/rgb.png" "$EXTRACT/smartcrop_high_expected.png"      8 8 --interesting high
 "$VIPS" smartcrop "$EXTRACT/rgb.png" "$EXTRACT/smartcrop_attention_expected.png" 8 8 --interesting attention
@@ -411,7 +421,8 @@ output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
 - **Common inputs** (under \`extract/\`): \`gray.png\` (16×16 Gray8 horizontal
   ramp), \`rgb.png\` (16×16 3-band sRGB with 2-D structure — band0 horizontal
   ramp, band1 scaled horizontal ramp, band2 vertical ramp), \`sub.png\` (6×6
-  solid sRGB, the distinct insert payload).
+  solid sRGB, the distinct insert payload), \`sub1.png\` (6×6 SINGLE-band Gray8
+  ramp, the 1-band-sub → multi-band-main \`insert\` bandalike-broadcast payload).
 - **Every op is EXACT** (integer-in / integer-out, decode-compare tol 0) EXCEPT
   \`smartcrop --interesting entropy\`, which is **GOLDEN-ONLY**: vips's entropy
   strategy makes a different discrete crop-window choice than the core on this
@@ -435,6 +446,8 @@ vips copy ergb.v extract/rgb.png --interpretation srgb
 vips black eb.v 6 6 --bands 3
 vips linear eb.v esub.v "0 0 0" "200 50 100" --uchar
 vips copy esub.v extract/sub.png --interpretation srgb
+vips grey esub1.v 6 6
+vips linear esub1.v extract/sub1.png 255 0 --uchar
 \`\`\`
 
 References (paths relative to \`tests/fixtures/cli/\`):
@@ -445,15 +458,21 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`extract/crop_expected.png\` | EXACT | \`vips crop rgb.png crop_expected.png 3 4 5 6\` (alias of extract_area) |
 | \`extract/embed_black_expected.png\` | EXACT | \`vips embed rgb.png embed_black_expected.png 2 3 24 24\` |
 | \`extract/embed_copy_expected.png\` | EXACT | \`vips embed rgb.png embed_copy_expected.png 2 3 24 24 --extend copy\` |
+| \`extract/embed_repeat_expected.png\` | EXACT | \`vips embed rgb.png embed_repeat_expected.png 2 3 24 24 --extend repeat\` |
+| \`extract/embed_mirror_expected.png\` | EXACT | \`vips embed rgb.png embed_mirror_expected.png 2 3 24 24 --extend mirror\` |
+| \`extract/embed_white_expected.png\` | EXACT | \`vips embed rgb.png embed_white_expected.png 2 3 24 24 --extend white\` |
 | \`extract/embed_bg_expected.png\` | EXACT | \`vips embed gray.png embed_bg_expected.png 1 1 8 8 --extend background --background 128\` |
 | \`extract/gravity_centre_expected.png\` | EXACT | \`vips gravity rgb.png gravity_centre_expected.png centre 24 24\` |
 | \`extract/gravity_se_expected.png\` | EXACT | \`vips gravity rgb.png gravity_se_expected.png south-east 24 24\` |
+| \`extract/gravity_nw_expected.png\` | EXACT | \`vips gravity rgb.png gravity_nw_expected.png north-west 24 24\` |
 | \`extract/replicate_expected.png\` | EXACT | \`vips replicate rgb.png replicate_expected.png 2 3\` |
 | \`extract/zoom_expected.png\` | EXACT | \`vips zoom gray.png zoom_expected.png 3 2\` |
 | \`extract/subsample_expected.png\` | EXACT | \`vips subsample rgb.png subsample_expected.png 2 2\` |
 | \`extract/insert_expected.png\` | EXACT | \`vips insert rgb.png sub.png insert_expected.png 4 5\` |
 | \`extract/insert_expand_expected.png\` | EXACT | \`vips insert rgb.png sub.png insert_expand_expected.png 13 13 --expand\` (canvas grows to 19×19) |
+| \`extract/insert_bandalike_expected.png\` | EXACT | \`vips insert rgb.png sub1.png insert_bandalike_expected.png 4 5\` (1-band sub broadcast onto 3-band main) |
 | \`extract/smartcrop_centre_expected.png\` | EXACT | \`vips smartcrop rgb.png smartcrop_centre_expected.png 8 8 --interesting centre\` |
+| \`extract/smartcrop_all_expected.png\` | EXACT | \`vips smartcrop rgb.png smartcrop_all_expected.png 8 8 --interesting all\` |
 | \`extract/smartcrop_low_expected.png\` | EXACT | \`vips smartcrop rgb.png smartcrop_low_expected.png 8 8 --interesting low\` |
 | \`extract/smartcrop_high_expected.png\` | EXACT | \`vips smartcrop rgb.png smartcrop_high_expected.png 8 8 --interesting high\` |
 | \`extract/smartcrop_attention_expected.png\` | EXACT | \`vips smartcrop rgb.png smartcrop_attention_expected.png 8 8 --interesting attention\` (crop 15,11 — non-vacuous, differs from low/high) |

@@ -75,6 +75,8 @@ fn out_path(name: &str) -> PathBuf {
 const RGB: &str = "extract/rgb.png";
 const GRAY: &str = "extract/gray.png";
 const SUB: &str = "extract/sub.png";
+/// A 6×6 SINGLE-band Gray8 sub, for the `insert` 1-band → 3-band bandalike broadcast.
+const SUB1: &str = "extract/sub1.png";
 
 /// Convenience: the absolute string path of a committed fixture.
 fn fx(rel: &str) -> String {
@@ -166,6 +168,35 @@ fn embed_copy_extend_matches_vips_exact() {
     decode_compare(&out, &cli_fixture("extract/embed_copy_expected.png"), EXACT);
 }
 
+/// The remaining three `VipsExtend` fill modes (`repeat`/`mirror`/`white`) —
+/// pinned so an enum-mapping swap (e.g. `mirror` ↔ `repeat`) is caught, not just
+/// `black`/`copy`/`background`. All verified EXACT against vips.
+#[test]
+fn embed_repeat_mirror_white_extends_match_vips_exact() {
+    if skip_if_no_cli("embed_extends") {
+        return;
+    }
+    for ext in ["repeat", "mirror", "white"] {
+        let out = out_path(&format!("embed_{ext}.png"));
+        run_viprs_ok(&[
+            "embed",
+            &fx(RGB),
+            out.to_str().unwrap(),
+            "2",
+            "3",
+            "24",
+            "24",
+            "--extend",
+            ext,
+        ]);
+        decode_compare(
+            &out,
+            &cli_fixture(&format!("extract/embed_{ext}_expected.png")),
+            EXACT,
+        );
+    }
+}
+
 #[test]
 fn embed_background_vector_matches_vips_exact() {
     if skip_if_no_cli("embed_bg") {
@@ -230,6 +261,26 @@ fn gravity_south_east_matches_vips_exact() {
         "24",
     ]);
     decode_compare(&out, &cli_fixture("extract/gravity_se_expected.png"), EXACT);
+}
+
+/// A second untested compass corner (`north-west`) so a swap within the
+/// nine-direction `VipsCompassDirection` mapping is caught, not just `centre` +
+/// `south-east`. Verified EXACT against vips.
+#[test]
+fn gravity_north_west_matches_vips_exact() {
+    if skip_if_no_cli("gravity_nw") {
+        return;
+    }
+    let out = out_path("gravity_nw.png");
+    run_viprs_ok(&[
+        "gravity",
+        &fx(RGB),
+        out.to_str().unwrap(),
+        "north-west",
+        "24",
+        "24",
+    ]);
+    decode_compare(&out, &cli_fixture("extract/gravity_nw_expected.png"), EXACT);
 }
 
 // ---------------------------------------------------------------------------
@@ -314,6 +365,31 @@ fn insert_expand_matches_vips_exact() {
     );
 }
 
+/// A 1-band sub inserted onto the 3-band main: vips's `insert` band-broadcasts
+/// (bandalike) the single-band sub up to the main's three bands, so the pasted
+/// patch is gray-replicated across RGB. Pinned so the core's bandalike path stays
+/// in step with vips. Verified EXACT against vips.
+#[test]
+fn insert_bandalike_broadcast_matches_vips_exact() {
+    if skip_if_no_cli("insert_bandalike") {
+        return;
+    }
+    let out = out_path("insert_bandalike.png");
+    run_viprs_ok(&[
+        "insert",
+        &fx(RGB),
+        &fx(SUB1),
+        out.to_str().unwrap(),
+        "4",
+        "5",
+    ]);
+    decode_compare(
+        &out,
+        &cli_fixture("extract/insert_bandalike_expected.png"),
+        EXACT,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // smartcrop — S1: centre/low/high (pure geometry) + attention (the saliency
 // pipeline) are EXACT vips differentials. `entropy` is GOLDEN-ONLY (see below).
@@ -385,6 +461,31 @@ fn smartcrop_high_matches_vips_exact() {
     );
 }
 
+/// The `all` strategy (the whole image is interesting → a centred crop) — the
+/// last untested `--interesting` variant on the EXACT side, so an enum-mapping
+/// swap is caught. Verified EXACT against vips.
+#[test]
+fn smartcrop_all_matches_vips_exact() {
+    if skip_if_no_cli("smartcrop_all") {
+        return;
+    }
+    let out = out_path("smartcrop_all.png");
+    run_viprs_ok(&[
+        "smartcrop",
+        &fx(RGB),
+        out.to_str().unwrap(),
+        "8",
+        "8",
+        "--interesting",
+        "all",
+    ]);
+    decode_compare(
+        &out,
+        &cli_fixture("extract/smartcrop_all_expected.png"),
+        EXACT,
+    );
+}
+
 #[test]
 fn smartcrop_attention_matches_vips_exact() {
     if skip_if_no_cli("smartcrop_attention") {
@@ -394,7 +495,7 @@ fn smartcrop_attention_matches_vips_exact() {
     // The attention pipeline (lanczos3 shrink → edge/skin/saturation saliency →
     // gaussblur → argmax) lands on the vips pixel and crops region (15,11),
     // DISTINCT from low/high's (0,0) — a non-vacuous EXACT differential.
-    run_viprs_ok(&[
+    let stdout = run_viprs_ok(&[
         "smartcrop",
         &fx(RGB),
         out.to_str().unwrap(),
@@ -407,6 +508,16 @@ fn smartcrop_attention_matches_vips_exact() {
         &out,
         &cli_fixture("extract/smartcrop_attention_expected.png"),
         EXACT,
+    );
+    // The printed attention centre (OP_MAP smartcrop_with_coords fold of vips's
+    // --attention-x/--attention-y) is itself pinned: the cropped image is derived
+    // from this same argmax, so a regression in the printed pair must fail loudly
+    // rather than pass silently on a coincidentally-matching crop. `15 11` is the
+    // committed vips attention centre for this input.
+    assert_eq!(
+        stdout.trim(),
+        "15 11",
+        "smartcrop attention centre stdout must equal the vips attention-x/-y pair"
     );
 }
 
