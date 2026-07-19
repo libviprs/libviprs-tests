@@ -408,6 +408,29 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "create/worley_golden.v",
     "create/fractsurf_golden.v",
     "create/text_golden.png",
+    // ---- draw family (cli_draw_diff.rs) — ALL GOLDEN-ONLY ----
+    // Common inputs (built with vips as a deterministic coordinate function,
+    // consumed only as `viprs` inputs; there is NO vips oracle for draw ops).
+    "draw/rgb.png",
+    "draw/flood.png",
+    "draw/mask.png",
+    "draw/sub.png",
+    "draw/smudge.png",
+    // 16-bit (Gray16) draw target for the 16-bit ink encode/draw pin.
+    "draw/gray16.v",
+    // References — every one minted by `viprs` itself (GOLDEN-ONLY regression
+    // pins; `draw_*` are in-place mutators the vips CLI discards).
+    "draw/draw_circle_golden.png",
+    "draw/draw_circle_fill_golden.png",
+    "draw/draw_rect_golden.png",
+    "draw/draw_rect_fill_golden.png",
+    "draw/draw_line_golden.png",
+    "draw/draw_flood_golden.png",
+    "draw/draw_flood_blob_golden.png",
+    "draw/draw_mask_golden.png",
+    "draw/draw_smudge_golden.png",
+    "draw/draw_image_golden.png",
+    "draw/draw_rect_16bit_golden.v",
 ];
 
 #[test]
