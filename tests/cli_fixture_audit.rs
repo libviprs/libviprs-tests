@@ -178,6 +178,35 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "core/getpoint_gray_expected.txt",
     "core/getpoint_float_expected.txt",
     "core/getpoint_float_nd_expected.txt",
+    // ---- convolution family (cli_convolution_diff.rs) ----
+    // Common inputs (eye = high-frequency zone-plate; patch = correlation
+    // template) + the three mask files.
+    "convolution/eye.png",
+    "convolution/patch.png",
+    "convolution/blur.mat",
+    "convolution/sobel.mat",
+    "convolution/sep.mat",
+    // gaussmat / logmat (S5 matrix creators → float `.v`).
+    "convolution/gaussmat_int_expected.v",
+    "convolution/gaussmat_sep_expected.v",
+    "convolution/gaussmat_float_expected.v",
+    "convolution/logmat_int_expected.v",
+    "convolution/logmat_float_expected.v",
+    // conv / convsep (matrix-file mask): integer (≤1 LSB) PNG + float `.v`.
+    "convolution/conv_blur_int_expected.png",
+    "convolution/conv_sobel_float_expected.v",
+    "convolution/convsep_float_expected.v",
+    // compass: max/integer (EXACT, scale-1 mask) PNG + sum/float `.v`.
+    "convolution/compass_max_int_expected.png",
+    "convolution/compass_sum_float_expected.v",
+    // gaussblur: integer (≤1 LSB) PNG + float `.v`.
+    "convolution/gaussblur_int_expected.png",
+    "convolution/gaussblur_float_expected.v",
+    // sharpen (LabS unsharp, ≤1 LSB) PNG.
+    "convolution/sharpen_expected.png",
+    // spcor (float NCC) + fastcor (uint→float SSD, EXACT) surfaces.
+    "convolution/spcor_expected.v",
+    "convolution/fastcor_expected.v",
 ];
 
 #[test]
