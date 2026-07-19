@@ -599,6 +599,89 @@ echo "==> [switch] cond, cond2 -> Gray8 index image (EXACT PNG, all 3 indices)"
 
 # --- Provenance (append the conversion section) ------------------------------
 echo "==> [provenance] appending conversion section to $FIX_ROOT/PROVENANCE.md"
+# CORE FAMILY (add / getpoint; OP_MAP.md core section — raster_ops.rs ops the
+# frozen contract hard-codes, CLI_CONTRACT.md §1/§2).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_core_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. `add` is EXACT-AFTER-CAST (uchar+uchar
+# widens to ushort; the output is integer so the §2 save-cast is a no-op and the
+# differential compares at tol 0). `getpoint` is EXACT (integer pixel values).
+#
+# Carrier choice: `add` output is a 16-bit (ushort) raster — carried as the
+# native `.v` container, which both vips and the libviprs decoder round-trip
+# losslessly (a 16-bit PNG's encode path differs between the two libraries).
+# `getpoint` prints an S3 scalar/vector to stdout, captured as a `.txt`.
+# ===========================================================================
+CORE="$FIX_ROOT/core"
+mkdir -p "$CORE"
+
+# --- Common inputs -----------------------------------------------------------
+# Two DISTINCT 8x8 RGB uchar images (sRGB-tagged so a 3-band PNG saves as clean
+# RGB, not a b-w image vips would alpha-pad) whose per-band sums EXCEED 255 in
+# some bands, so `add` must widen 8-bit -> 16-bit (a broken add that stayed
+# 8-bit would clip at 255 — the case is discriminating). `vips grey` is a pure
+# coordinate function (0..1 ramp), so every input is bit-reproducible.
+echo "==> [core input] two 8x8 sRGB RGB sources + two Gray8 sources (sums > 255)"
+"$VIPS" grey "$TMP/cg.v" 8 8
+"$VIPS" rot  "$TMP/cg.v" "$TMP/cgv.v" d90
+# add_a bands (horizontal / vertical / horizontal ramps).
+"$VIPS" linear "$TMP/cg.v"  "$TMP/a1.png" 180 20 --uchar
+"$VIPS" linear "$TMP/cgv.v" "$TMP/a2.png" 180 30 --uchar
+"$VIPS" linear "$TMP/cg.v"  "$TMP/a3.png" 150 40 --uchar
+"$VIPS" bandjoin "$TMP/a1.png $TMP/a2.png $TMP/a3.png" "$TMP/a_rgb.v"
+"$VIPS" copy "$TMP/a_rgb.v" "$CORE/add_a.png" --interpretation srgb
+# add_b bands (distinct from add_a).
+"$VIPS" linear "$TMP/cgv.v" "$TMP/b1.png" 150 50 --uchar
+"$VIPS" linear "$TMP/cg.v"  "$TMP/b2.png" 150 60 --uchar
+"$VIPS" linear "$TMP/cgv.v" "$TMP/b3.png" 150 40 --uchar
+"$VIPS" bandjoin "$TMP/b1.png $TMP/b2.png $TMP/b3.png" "$TMP/b_rgb.v"
+"$VIPS" copy "$TMP/b_rgb.v" "$CORE/add_b.png" --interpretation srgb
+# Single-band Gray8 sources whose sums exceed 255 (Gray8 -> Gray16 widening).
+"$VIPS" linear "$TMP/cg.v"  "$CORE/gray_a.png" 200 30 --uchar
+"$VIPS" linear "$TMP/cgv.v" "$CORE/gray_b.png" 200 40 --uchar
+# A CONSTANT 8x8 3-band FLOAT `.v` image ([0.5, 1.25, 2.5] everywhere): a clean
+# dyadic value at every pixel, so `getpoint` prints it exactly and the case
+# proves getpoint reads FLOAT samples (not just uchar) without a print-precision
+# mismatch on a non-dyadic ramp value.
+"$VIPS" black "$TMP/cblk.v" 8 8 --bands 3
+"$VIPS" linear "$TMP/cblk.v" "$CORE/getpoint_float.v" "1 1 1" "0.5 1.25 2.5"
+# A CONSTANT 8x8 3-band NON-DYADIC FLOAT `.v` image ([0.1, 0.2, 0.3] everywhere):
+# none of these store exactly in f32. getpoint's stdout TEXT is NOT a contracted
+# parity surface (§9): core prints f64::to_string of the widened f32 (e.g.
+# 0.10000000149011612). This DE-RIGS the deliberately-dyadic getpoint_float
+# fixture: it proves the differential's numeric float-parse + epsilon compare
+# (NOT a dyadic text match) is what carries a float getpoint case
+# (CLI_CONTRACT.md §3), robust to any text-format difference.
+"$VIPS" linear "$TMP/cblk.v" "$CORE/getpoint_float_nd.v" "1 1 1" "0.1 0.2 0.3"
+# Two CONSTANT 8x8 1-band 16-bit (ushort) `.v` images (40000 everywhere): their
+# per-pixel sum (80000) OVERFLOWS ushort. vips `add` PROMOTES ushort→uint and
+# returns 80000, but core keeps the input at 16-bit and SATURATES the sum at
+# 65535 — a silent divergence the uchar-only fixtures structurally hide. The CLI
+# now REJECTS 16-bit inputs (exit 1) so it never emits a wrong 65535 "success";
+# the `add_rejects_16bit_input_without_panicking` error case pins that. These are
+# committed INPUT fixtures only — an error case needs no vips reference output.
+"$VIPS" black "$TMP/cblk1.v" 8 8 --bands 1
+"$VIPS" linear "$TMP/cblk1.v" "$TMP/u16a_f.v" 1 40000
+"$VIPS" cast   "$TMP/u16a_f.v" "$CORE/u16_a.v" ushort
+"$VIPS" linear "$TMP/cblk1.v" "$TMP/u16b_f.v" 1 40000
+"$VIPS" cast   "$TMP/u16b_f.v" "$CORE/u16_b.v" ushort
+
+# --- References — one vips run per differential case -------------------------
+echo "==> [add] rgb + rgb -> 16-bit ushort .v (per-band, 8->16 widening)"
+"$VIPS" add "$CORE/add_a.png" "$CORE/add_b.png" "$CORE/add_rgb_expected.v"
+echo "==> [add] gray + gray -> 16-bit ushort .v (Gray8 -> Gray16 widening)"
+"$VIPS" add "$CORE/gray_a.png" "$CORE/gray_b.png" "$CORE/add_gray_expected.v"
+
+echo "==> [getpoint] rgb (3-band) + gray (1-band) + float (3-band) pixel reads (S3)"
+"$VIPS" getpoint "$CORE/add_a.png"          5 2 > "$CORE/getpoint_rgb_expected.txt"
+"$VIPS" getpoint "$CORE/gray_a.png"         5 2 > "$CORE/getpoint_gray_expected.txt"
+"$VIPS" getpoint "$CORE/getpoint_float.v"   0 0 > "$CORE/getpoint_float_expected.txt"
+echo "==> [getpoint] NON-DYADIC float (3-band) pixel read (S3, numeric-eps compare)"
+"$VIPS" getpoint "$CORE/getpoint_float_nd.v" 0 0 > "$CORE/getpoint_float_nd_expected.txt"
+
+# --- Provenance (append the core section) ------------------------------------
+echo "==> [provenance] appending core section to $FIX_ROOT/PROVENANCE.md"
 cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
 
 ---
@@ -656,6 +739,28 @@ vips oracle via the identity **autorot(orientation=6) == rot(d90)**: verified
 pixel-for-pixel that \`viprs autorot autorot_oriented.v\` equals
 \`vips rot autorot_base.png … d90\`. See the open question about teaching the
 libviprs decoders to read the EXIF/TIFF orientation tag.
+# core family (add / getpoint) CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the core
+CLI-differential suite (\`tests/cli_core_diff.rs\`) compares \`viprs\` output
+against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI. \`add\`
+and \`getpoint\` are the two \`raster_ops.rs\` ops the frozen contract hard-codes
+(CLI_CONTRACT.md §1/§2).
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`core/\`): \`add_a.png\`, \`add_b.png\` (two distinct
+  8×8 sRGB RGB uchar images whose per-band sums exceed 255, exercising the
+  8→16-bit widening), \`gray_a.png\`, \`gray_b.png\` (single-band Gray8 sums > 255),
+  \`getpoint_float.v\` (constant 8×8 3-band float \`[0.5, 1.25, 2.5]\`, for the
+  float-sample getpoint read), \`getpoint_float_nd.v\` (constant 8×8 3-band
+  NON-DYADIC float \`[0.1, 0.2, 0.3]\` — de-rigs the dyadic fixture: proves the
+  numeric float-parse + eps compare, not a dyadic text match, carries the case),
+  \`u16_a.v\`, \`u16_b.v\` (constant 8×8 1-band 16-bit ushort \`40000\`, sum
+  overflows ushort — INPUTS for the 16-bit-reject error case; no reference output).
+- **Carriers**: \`add\` output is a 16-bit ushort raster carried as native \`.v\`
+  (a 16-bit PNG encode differs between vips and libviprs; \`.v\` round-trips
+  losslessly on both sides). \`getpoint\` prints an S3 scalar/vector, captured to
+  \`.txt\` and compared numerically (never as text; CLI_CONTRACT.md §3).
 
 ## Exact commands
 
@@ -698,6 +803,28 @@ vips relational_const conversion/gray.png conversion/cond.png  more 127
 vips relational_const conversion/gray.png conversion/cond2.png more 63
 vips grey cab.v 8 6 ; vips linear cab.v conversion/autorot_base.png 255 0 --uchar
 viprs copy conversion/autorot_base.png conversion/autorot_oriented.v --orientation 6
+vips grey cg.v 8 8
+vips rot  cg.v cgv.v d90
+vips linear cg.v  a1.png 180 20 --uchar
+vips linear cgv.v a2.png 180 30 --uchar
+vips linear cg.v  a3.png 150 40 --uchar
+vips bandjoin "a1.png a2.png a3.png" a_rgb.v
+vips copy a_rgb.v core/add_a.png --interpretation srgb
+vips linear cgv.v b1.png 150 50 --uchar
+vips linear cg.v  b2.png 150 60 --uchar
+vips linear cgv.v b3.png 150 40 --uchar
+vips bandjoin "b1.png b2.png b3.png" b_rgb.v
+vips copy b_rgb.v core/add_b.png --interpretation srgb
+vips linear cg.v  core/gray_a.png 200 30 --uchar
+vips linear cgv.v core/gray_b.png 200 40 --uchar
+vips black cblk.v 8 8 --bands 3
+vips linear cblk.v core/getpoint_float.v "1 1 1" "0.5 1.25 2.5"
+vips linear cblk.v core/getpoint_float_nd.v "1 1 1" "0.1 0.2 0.3"
+vips black cblk1.v 8 8 --bands 1
+vips linear cblk1.v u16a_f.v 1 40000
+vips cast   u16a_f.v core/u16_a.v ushort
+vips linear cblk1.v u16b_f.v 1 40000
+vips cast   u16b_f.v core/u16_b.v ushort
 \`\`\`
 
 References (paths relative to \`tests/fixtures/cli/\`):
@@ -753,6 +880,22 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`conversion/identity_expected.v\` | EXACT | \`vips identity identity_expected.v\` (histogram-tagged → \`.v\`) |
 | \`conversion/identity_ushort_expected.v\` | EXACT | \`vips identity identity_ushort_expected.v --ushort\` |
 | \`conversion/switch_expected.png\` | EXACT | \`vips switch "cond.png cond2.png" switch_expected.png\` |
+| \`core/add_rgb_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips add add_a.png add_b.png add_rgb_expected.v\` (ushort, per-band, 8→16 widening) |
+| \`core/add_gray_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips add gray_a.png gray_b.png add_gray_expected.v\` (Gray8→Gray16 widening) |
+| \`core/getpoint_rgb_expected.txt\` | EXACT (S3 vector) | \`vips getpoint add_a.png 5 2\` (3-band pixel) |
+| \`core/getpoint_gray_expected.txt\` | EXACT (S3 scalar) | \`vips getpoint gray_a.png 5 2\` (1-band pixel) |
+| \`core/getpoint_float_expected.txt\` | EXACT (S3 vector, float) | \`vips getpoint getpoint_float.v 0 0\` (float [0.5 1.25 2.5]) |
+| \`core/getpoint_float_nd_expected.txt\` | BOUNDED-TOL (S3 vector, float; numeric eps 1e-6) | \`vips getpoint getpoint_float_nd.v 0 0\` (non-dyadic [0.1 0.2 0.3]; stdout text is §9 out-of-scope, numeric-eps compare carries it) |
+
+\`add\` rejects float inputs, **16-bit inputs** (core saturates the sum at 65535
+while vips promotes ushort→uint — the \`u16_a.v\`/\`u16_b.v\` inputs pin this), and
+a dimension / channel-count mismatch with a typed exit-1 error, never a panic;
+\`getpoint\` rejects an out-of-bounds coordinate the same way. Those error paths
+are asserted in \`cli_core_diff.rs\` (nonzero exit + a viprs-side message
+substring; CLI_CONTRACT.md §8) and need no vips reference. Note: vips \`add\`
+BAND-BROADCASTS a 1-band operand across a multi-band one; core requires EQUAL
+band counts, so the channel-mismatch case is a documented SUBSET limitation (core
+cannot broadcast without a core change), not a parity claim.
 EOF
 
 echo "==> Done. Generated fixtures under $FIX_ROOT"
@@ -763,3 +906,5 @@ echo "--- extract ---"
 ls -1 "$EXTRACT"
 echo "--- conversion ---"
 ls -1 "$CONV"
+echo "--- core ---"
+ls -1 "$CORE"

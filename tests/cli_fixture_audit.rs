@@ -157,6 +157,27 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "conversion/identity_expected.v",
     "conversion/identity_ushort_expected.v",
     "conversion/switch_expected.png",
+    // ---- core family (cli_core_diff.rs) ----
+    // Common inputs: two distinct sRGB RGB sources + two Gray8 sources (sums
+    // > 255, exercising the 8→16-bit widening) + a constant float `.v`.
+    "core/add_a.png",
+    "core/add_b.png",
+    "core/gray_a.png",
+    "core/gray_b.png",
+    "core/getpoint_float.v",
+    // Non-dyadic float input (getpoint numeric-eps de-rig case).
+    "core/getpoint_float_nd.v",
+    // 16-bit ushort inputs (add 16-bit-reject error case; INPUTS only).
+    "core/u16_a.v",
+    "core/u16_b.v",
+    // add (EXACT-AFTER-CAST, tol 0): rgb + gray, carried as ushort `.v`.
+    "core/add_rgb_expected.v",
+    "core/add_gray_expected.v",
+    // getpoint (S3): rgb vector, gray scalar, float vector, non-dyadic float.
+    "core/getpoint_rgb_expected.txt",
+    "core/getpoint_gray_expected.txt",
+    "core/getpoint_float_expected.txt",
+    "core/getpoint_float_nd_expected.txt",
 ];
 
 #[test]
