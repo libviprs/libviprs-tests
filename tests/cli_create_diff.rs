@@ -217,6 +217,23 @@ fn buildlut_matches_vips_bounded() {
 }
 
 #[test]
+fn buildlut3_matches_vips_bounded() {
+    if skip_if_no_cli("buildlut3") {
+        return;
+    }
+    // >=3 control points with a NON-COLLINEAR breakpoint (0->0, 128->200,
+    // 255->255): pins multi-segment interpolation + control-point sort, which the
+    // 2-point single-segment case above cannot discriminate (create finding 2).
+    let out = out_path("buildlut3.v");
+    run_viprs_ok(&[
+        "buildlut",
+        &fx("create/buildlut_points3.mat"),
+        out.to_str().unwrap(),
+    ]);
+    decode_compare(&out, &cli_fixture("create/buildlut3_expected.v"), FLOAT_EPS);
+}
+
+#[test]
 fn tonelut_matches_vips_exact() {
     if skip_if_no_cli("tonelut") {
         return;
@@ -293,10 +310,27 @@ fn mask_gaussian_matches_vips_bounded() {
     if skip_if_no_cli("mask_gaussian") {
         return;
     }
+    // Distinct fc (0.4) != ac (0.6) so a handler swapping the two positionals
+    // would flip the output and fail (create finding 1); equal 0.5/0.5 could not.
     creator_case(
         "mask_gaussian.v",
-        &["mask_gaussian", "64", "64", "0.5", "0.5"],
+        &["mask_gaussian", "64", "64", "0.4", "0.6"],
         "create/mask_gaussian_expected.v",
+        FLOAT_EPS,
+    );
+}
+
+#[test]
+fn mask_gaussian_nodc_matches_vips_bounded() {
+    if skip_if_no_cli("mask_gaussian_nodc") {
+        return;
+    }
+    // Isolated --nodc on a gaussian mask (float .v): independently pins the
+    // gaussian-family --nodc wiring (create finding 4); --nodc changes the DC pixel.
+    creator_case(
+        "mask_gaussian_nodc.v",
+        &["mask_gaussian", "64", "64", "0.4", "0.6", "--nodc"],
+        "create/mask_gaussian_nodc_expected.v",
         FLOAT_EPS,
     );
 }
@@ -308,7 +342,7 @@ fn mask_gaussian_ring_matches_vips_bounded() {
     }
     creator_case(
         "mask_gaussian_ring.v",
-        &["mask_gaussian_ring", "64", "64", "0.5", "0.5", "0.2"],
+        &["mask_gaussian_ring", "64", "64", "0.4", "0.6", "0.2"],
         "create/mask_gaussian_ring_expected.v",
         FLOAT_EPS,
     );
@@ -332,10 +366,34 @@ fn mask_butterworth_matches_vips_bounded() {
     if skip_if_no_cli("mask_butterworth") {
         return;
     }
+    // Distinct fc (0.4) != ac (0.6) so an fc/ac positional swap fails (finding 1).
     creator_case(
         "mask_butterworth.v",
-        &["mask_butterworth", "64", "64", "2", "0.5", "0.5"],
+        &["mask_butterworth", "64", "64", "2", "0.4", "0.6"],
         "create/mask_butterworth_expected.v",
+        FLOAT_EPS,
+    );
+}
+
+#[test]
+fn mask_butterworth_optical_matches_vips_bounded() {
+    if skip_if_no_cli("mask_butterworth_optical") {
+        return;
+    }
+    // Isolated --optical on a FLOAT .v (bit-checkable quadrant rotation): --optical
+    // was otherwise exercised only jointly with --uchar on a PNG (create finding 4).
+    creator_case(
+        "mask_butterworth_optical.v",
+        &[
+            "mask_butterworth",
+            "64",
+            "64",
+            "2",
+            "0.4",
+            "0.6",
+            "--optical",
+        ],
+        "create/mask_butterworth_optical_expected.v",
         FLOAT_EPS,
     );
 }
@@ -375,8 +433,8 @@ fn mask_butterworth_ring_matches_vips_bounded() {
             "64",
             "64",
             "2",
-            "0.5",
-            "0.5",
+            "0.4",
+            "0.6",
             "0.2",
         ],
         "create/mask_butterworth_ring_expected.v",

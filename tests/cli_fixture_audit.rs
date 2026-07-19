@@ -179,8 +179,10 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "core/getpoint_float_expected.txt",
     "core/getpoint_float_nd_expected.txt",
     // ---- create family (cli_create_diff.rs) ----
-    // Common input: a buildlut control-point matrix (read by both sides).
+    // Common input: a buildlut control-point matrix (read by both sides), plus a
+    // >=3-point non-collinear matrix pinning multi-segment interpolation.
     "create/buildlut_points.mat",
+    "create/buildlut_points3.mat",
     // EXACT (tol 0): black (+--bands), xyz (vips uint→float).
     "create/black_expected.v",
     "create/black_bands3_expected.v",
@@ -191,6 +193,7 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "create/zone_expected.v",
     "create/sines_expected.v",
     "create/buildlut_expected.v",
+    "create/buildlut3_expected.v",
     "create/tonelut_expected.v",
     // BOUNDED-TOL frequency-domain masks (ideal/gaussian/butterworth/fractal),
     // incl. --nodc and --uchar --optical flag paths.
@@ -199,10 +202,12 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "create/mask_ideal_ring_expected.v",
     "create/mask_ideal_band_expected.v",
     "create/mask_gaussian_expected.v",
+    "create/mask_gaussian_nodc_expected.v",
     "create/mask_gaussian_ring_expected.v",
     "create/mask_gaussian_band_expected.v",
     "create/mask_butterworth_expected.v",
     "create/mask_butterworth_uchar_expected.png",
+    "create/mask_butterworth_optical_expected.v",
     "create/mask_butterworth_ring_expected.v",
     "create/mask_butterworth_band_expected.v",
     "create/mask_fractal_expected.v",

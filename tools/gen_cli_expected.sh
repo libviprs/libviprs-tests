@@ -939,6 +939,16 @@ fi
 echo "==> [create input] buildlut control points (buildlut_points.mat)"
 printf '2 2\n0 0\n255 100\n' > "$CREATE/buildlut_points.mat"
 
+# A >=3-control-point matrix with a NON-COLLINEAR breakpoint (0->0, 128->200,
+# 255->255), so multi-segment interpolation + control-point sort are pinned: a
+# buildlut that ignored the intermediate point and interpolated only the two
+# endpoints would give ~100 at x=128, but the true piecewise curve gives 200
+# (adversarial review create finding 2; verified with vips: 200 at x=128,
+# 100 at x=64). The 2-point matrix above is a single linear segment and cannot
+# discriminate this. '2 3' = 2 columns, 3 rows.
+echo "==> [create input] buildlut 3-point non-collinear (buildlut_points3.mat)"
+printf '2 3\n0 0\n128 200\n255 255\n' > "$CREATE/buildlut_points3.mat"
+
 # --- EXACT references (tol 0) -----------------------------------------------
 echo "==> [black] 1-band + --bands 3 all-zero uchar -> .v (EXACT)"
 "$VIPS" black "$CREATE/black_expected.v"       8 8
@@ -964,6 +974,10 @@ echo "==> [zone] + [sines] float trig patterns (BOUNDED-TOL f32)"
 echo "==> [buildlut] control-point LUT (vips double -> float .v, BOUNDED-TOL)"
 "$VIPS" buildlut "$CREATE/buildlut_points.mat" "$TMP/buildlut_d.v"
 "$VIPS" cast "$TMP/buildlut_d.v" "$CREATE/buildlut_expected.v" float
+# >=3-control-point (multi-segment) LUT — pins piecewise interpolation + point sort.
+echo "==> [buildlut] 3-point non-collinear LUT (multi-segment interp, BOUNDED-TOL)"
+"$VIPS" buildlut "$CREATE/buildlut_points3.mat" "$TMP/buildlut3_d.v"
+"$VIPS" cast "$TMP/buildlut3_d.v" "$CREATE/buildlut3_expected.v" float
 
 echo "==> [tonelut] Gray16 tone curve -> .v (BOUNDED-TOL, measured exact)"
 "$VIPS" tonelut "$CREATE/tonelut_expected.v"
@@ -974,15 +988,31 @@ echo "==> [mask_ideal] highpass + --nodc (BOUNDED-TOL f32)"
 echo "==> [mask_ideal_ring/band]"
 "$VIPS" mask_ideal_ring "$CREATE/mask_ideal_ring_expected.v" 64 64 0.5 0.2
 "$VIPS" mask_ideal_band "$CREATE/mask_ideal_band_expected.v" 64 64 0.3 0.3 0.1
-echo "==> [mask_gaussian family]"
-"$VIPS" mask_gaussian      "$CREATE/mask_gaussian_expected.v"      64 64 0.5 0.5
-"$VIPS" mask_gaussian_ring "$CREATE/mask_gaussian_ring_expected.v" 64 64 0.5 0.5 0.2
+# DISTINCT frequency-cutoff != amplitude-cutoff (0.4 != 0.6) so a handler that
+# SWAPPED the fc/ac positionals would flip the output and fail the compare —
+# equal 0.5/0.5 values left the two positionals interchangeable (adversarial
+# review create finding 1). Verified with vips: mask_gaussian 0.4 0.6 vs 0.6 0.4
+# differ (max-abs-diff 0.083).
+echo "==> [mask_gaussian family] (distinct fc 0.4 != ac 0.6)"
+"$VIPS" mask_gaussian      "$CREATE/mask_gaussian_expected.v"      64 64 0.4 0.6
+"$VIPS" mask_gaussian_ring "$CREATE/mask_gaussian_ring_expected.v" 64 64 0.4 0.6 0.2
 "$VIPS" mask_gaussian_band "$CREATE/mask_gaussian_band_expected.v" 64 64 0.3 0.3 0.1 0.5
-echo "==> [mask_butterworth family incl. --uchar --optical]"
-"$VIPS" mask_butterworth      "$CREATE/mask_butterworth_expected.v"       64 64 2 0.5 0.5
+# Isolated --nodc on a gaussian mask (float `.v`): --nodc is otherwise pinned
+# only on mask_ideal, so a per-op nodc mis-wire on the gaussian family would not
+# be caught by any differential (adversarial review create finding 4). vips:
+# --nodc changes the DC pixel (max-abs-diff 1.0 vs the plain mask).
+echo "==> [mask_gaussian] isolated --nodc (float .v; DC pixel changes)"
+"$VIPS" mask_gaussian "$CREATE/mask_gaussian_nodc_expected.v" 64 64 0.4 0.6 --nodc
+echo "==> [mask_butterworth family incl. --uchar --optical] (distinct fc 0.4 != ac 0.6)"
+"$VIPS" mask_butterworth      "$CREATE/mask_butterworth_expected.v"       64 64 2 0.4 0.6
 "$VIPS" mask_butterworth      "$CREATE/mask_butterworth_uchar_expected.png" 64 64 2 0.5 0.5 --uchar --optical
-"$VIPS" mask_butterworth_ring "$CREATE/mask_butterworth_ring_expected.v"  64 64 2 0.5 0.5 0.2
+"$VIPS" mask_butterworth_ring "$CREATE/mask_butterworth_ring_expected.v"  64 64 2 0.4 0.6 0.2
 "$VIPS" mask_butterworth_band "$CREATE/mask_butterworth_band_expected.v"  64 64 2 0.3 0.3 0.1 0.5
+# Isolated --optical on a FLOAT `.v` mask: --optical was exercised only jointly
+# with --uchar on a PNG, never bit-checkable in isolation (adversarial review
+# create finding 4). vips: --optical rotates quadrants (max-abs-diff ~1.0).
+echo "==> [mask_butterworth] isolated --optical (float .v; quadrant rotation)"
+"$VIPS" mask_butterworth "$CREATE/mask_butterworth_optical_expected.v" 64 64 2 0.4 0.6 --optical
 echo "==> [mask_fractal]"
 "$VIPS" mask_fractal "$CREATE/mask_fractal_expected.v" 64 64 2.5
 
@@ -1022,7 +1052,10 @@ NEVER by CI.
 - **Oracle**: \`$VIPS_VERSION\`
 - **Common input** (under \`create/\`): \`buildlut_points.mat\` — a 2-point control
   matrix (\`0->0\`, \`255->100\`) in the vips text-matrix format, read by BOTH
-  \`vips buildlut\` (matrix image) and \`viprs buildlut\` (MatFile loader).
+  \`vips buildlut\` (matrix image) and \`viprs buildlut\` (MatFile loader); and
+  \`buildlut_points3.mat\` — a >=3-point NON-COLLINEAR matrix (\`0->0\`, \`128->200\`,
+  \`255->255\`) that pins multi-segment interpolation + control-point sort (a
+  2-point single-segment matrix cannot; create finding 2).
 - **Carriers**: float creators → \`.v\`; \`--uchar\` variants → PNG; \`tonelut\`
   (Gray16) → \`.v\`. vips \`xyz\` (uint) and \`buildlut\` (double) are cast to
   \`float\` before the reference \`.v\` is written, because the libviprs \`.v\`
@@ -1053,17 +1086,20 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`create/zone_expected.v\` | BOUNDED-TOL | \`vips zone zone_expected.v 32 32\` |
 | \`create/sines_expected.v\` | BOUNDED-TOL | \`vips sines sines_expected.v 32 32\` |
 | \`create/buildlut_expected.v\` | BOUNDED-TOL | \`vips buildlut buildlut_points.mat buildlut_d.v\` then \`vips cast buildlut_d.v buildlut_expected.v float\` |
+| \`create/buildlut3_expected.v\` | BOUNDED-TOL | \`vips buildlut buildlut_points3.mat buildlut3_d.v\` then \`vips cast buildlut3_d.v buildlut3_expected.v float\` (>=3-point multi-segment) |
 | \`create/tonelut_expected.v\` | BOUNDED-TOL (measured 0) | \`vips tonelut tonelut_expected.v\` |
 | \`create/mask_ideal_expected.v\` | BOUNDED-TOL | \`vips mask_ideal mask_ideal_expected.v 64 64 0.5\` |
 | \`create/mask_ideal_nodc_expected.v\` | BOUNDED-TOL | \`vips mask_ideal mask_ideal_nodc_expected.v 64 64 0.5 --nodc\` |
 | \`create/mask_ideal_ring_expected.v\` | BOUNDED-TOL | \`vips mask_ideal_ring mask_ideal_ring_expected.v 64 64 0.5 0.2\` |
 | \`create/mask_ideal_band_expected.v\` | BOUNDED-TOL | \`vips mask_ideal_band mask_ideal_band_expected.v 64 64 0.3 0.3 0.1\` |
-| \`create/mask_gaussian_expected.v\` | BOUNDED-TOL | \`vips mask_gaussian mask_gaussian_expected.v 64 64 0.5 0.5\` |
-| \`create/mask_gaussian_ring_expected.v\` | BOUNDED-TOL | \`vips mask_gaussian_ring mask_gaussian_ring_expected.v 64 64 0.5 0.5 0.2\` |
+| \`create/mask_gaussian_expected.v\` | BOUNDED-TOL | \`vips mask_gaussian mask_gaussian_expected.v 64 64 0.4 0.6\` (distinct fc != ac) |
+| \`create/mask_gaussian_nodc_expected.v\` | BOUNDED-TOL | \`vips mask_gaussian mask_gaussian_nodc_expected.v 64 64 0.4 0.6 --nodc\` (isolated --nodc) |
+| \`create/mask_gaussian_ring_expected.v\` | BOUNDED-TOL | \`vips mask_gaussian_ring mask_gaussian_ring_expected.v 64 64 0.4 0.6 0.2\` |
 | \`create/mask_gaussian_band_expected.v\` | BOUNDED-TOL | \`vips mask_gaussian_band mask_gaussian_band_expected.v 64 64 0.3 0.3 0.1 0.5\` |
-| \`create/mask_butterworth_expected.v\` | BOUNDED-TOL | \`vips mask_butterworth mask_butterworth_expected.v 64 64 2 0.5 0.5\` |
+| \`create/mask_butterworth_expected.v\` | BOUNDED-TOL | \`vips mask_butterworth mask_butterworth_expected.v 64 64 2 0.4 0.6\` (distinct fc != ac) |
 | \`create/mask_butterworth_uchar_expected.png\` | BOUNDED-TOL (<=1 LSB) | \`vips mask_butterworth mask_butterworth_uchar_expected.png 64 64 2 0.5 0.5 --uchar --optical\` |
-| \`create/mask_butterworth_ring_expected.v\` | BOUNDED-TOL | \`vips mask_butterworth_ring mask_butterworth_ring_expected.v 64 64 2 0.5 0.5 0.2\` |
+| \`create/mask_butterworth_optical_expected.v\` | BOUNDED-TOL | \`vips mask_butterworth mask_butterworth_optical_expected.v 64 64 2 0.4 0.6 --optical\` (isolated --optical on float .v) |
+| \`create/mask_butterworth_ring_expected.v\` | BOUNDED-TOL | \`vips mask_butterworth_ring mask_butterworth_ring_expected.v 64 64 2 0.4 0.6 0.2\` |
 | \`create/mask_butterworth_band_expected.v\` | BOUNDED-TOL | \`vips mask_butterworth_band mask_butterworth_band_expected.v 64 64 2 0.3 0.3 0.1 0.5\` |
 | \`create/mask_fractal_expected.v\` | BOUNDED-TOL | \`vips mask_fractal mask_fractal_expected.v 64 64 2.5\` |
 | \`create/sdf_circle_expected.v\` | BOUNDED-TOL | \`vips sdf sdf_circle_expected.v 64 64 circle --a "32 32" --r 16\` |

@@ -329,7 +329,10 @@ NEVER by CI.
 - **Oracle**: `vips-8.18.4`
 - **Common input** (under `create/`): `buildlut_points.mat` — a 2-point control
   matrix (`0->0`, `255->100`) in the vips text-matrix format, read by BOTH
-  `vips buildlut` (matrix image) and `viprs buildlut` (MatFile loader).
+  `vips buildlut` (matrix image) and `viprs buildlut` (MatFile loader); and
+  `buildlut_points3.mat` — a >=3-point NON-COLLINEAR matrix (`0->0`, `128->200`,
+  `255->255`) that pins multi-segment interpolation + control-point sort (a
+  2-point single-segment matrix cannot; create finding 2).
 - **Carriers**: float creators → `.v`; `--uchar` variants → PNG; `tonelut`
   (Gray16) → `.v`. vips `xyz` (uint) and `buildlut` (double) are cast to
   `float` before the reference `.v` is written, because the libviprs `.v`
@@ -360,17 +363,20 @@ References (paths relative to `tests/fixtures/cli/`):
 | `create/zone_expected.v` | BOUNDED-TOL | `vips zone zone_expected.v 32 32` |
 | `create/sines_expected.v` | BOUNDED-TOL | `vips sines sines_expected.v 32 32` |
 | `create/buildlut_expected.v` | BOUNDED-TOL | `vips buildlut buildlut_points.mat buildlut_d.v` then `vips cast buildlut_d.v buildlut_expected.v float` |
+| `create/buildlut3_expected.v` | BOUNDED-TOL | `vips buildlut buildlut_points3.mat buildlut3_d.v` then `vips cast buildlut3_d.v buildlut3_expected.v float` (>=3-point multi-segment) |
 | `create/tonelut_expected.v` | BOUNDED-TOL (measured 0) | `vips tonelut tonelut_expected.v` |
 | `create/mask_ideal_expected.v` | BOUNDED-TOL | `vips mask_ideal mask_ideal_expected.v 64 64 0.5` |
 | `create/mask_ideal_nodc_expected.v` | BOUNDED-TOL | `vips mask_ideal mask_ideal_nodc_expected.v 64 64 0.5 --nodc` |
 | `create/mask_ideal_ring_expected.v` | BOUNDED-TOL | `vips mask_ideal_ring mask_ideal_ring_expected.v 64 64 0.5 0.2` |
 | `create/mask_ideal_band_expected.v` | BOUNDED-TOL | `vips mask_ideal_band mask_ideal_band_expected.v 64 64 0.3 0.3 0.1` |
-| `create/mask_gaussian_expected.v` | BOUNDED-TOL | `vips mask_gaussian mask_gaussian_expected.v 64 64 0.5 0.5` |
-| `create/mask_gaussian_ring_expected.v` | BOUNDED-TOL | `vips mask_gaussian_ring mask_gaussian_ring_expected.v 64 64 0.5 0.5 0.2` |
+| `create/mask_gaussian_expected.v` | BOUNDED-TOL | `vips mask_gaussian mask_gaussian_expected.v 64 64 0.4 0.6` (distinct fc != ac) |
+| `create/mask_gaussian_nodc_expected.v` | BOUNDED-TOL | `vips mask_gaussian mask_gaussian_nodc_expected.v 64 64 0.4 0.6 --nodc` (isolated --nodc) |
+| `create/mask_gaussian_ring_expected.v` | BOUNDED-TOL | `vips mask_gaussian_ring mask_gaussian_ring_expected.v 64 64 0.4 0.6 0.2` |
 | `create/mask_gaussian_band_expected.v` | BOUNDED-TOL | `vips mask_gaussian_band mask_gaussian_band_expected.v 64 64 0.3 0.3 0.1 0.5` |
-| `create/mask_butterworth_expected.v` | BOUNDED-TOL | `vips mask_butterworth mask_butterworth_expected.v 64 64 2 0.5 0.5` |
+| `create/mask_butterworth_expected.v` | BOUNDED-TOL | `vips mask_butterworth mask_butterworth_expected.v 64 64 2 0.4 0.6` (distinct fc != ac) |
 | `create/mask_butterworth_uchar_expected.png` | BOUNDED-TOL (<=1 LSB) | `vips mask_butterworth mask_butterworth_uchar_expected.png 64 64 2 0.5 0.5 --uchar --optical` |
-| `create/mask_butterworth_ring_expected.v` | BOUNDED-TOL | `vips mask_butterworth_ring mask_butterworth_ring_expected.v 64 64 2 0.5 0.5 0.2` |
+| `create/mask_butterworth_optical_expected.v` | BOUNDED-TOL | `vips mask_butterworth mask_butterworth_optical_expected.v 64 64 2 0.4 0.6 --optical` (isolated --optical on float .v) |
+| `create/mask_butterworth_ring_expected.v` | BOUNDED-TOL | `vips mask_butterworth_ring mask_butterworth_ring_expected.v 64 64 2 0.4 0.6 0.2` |
 | `create/mask_butterworth_band_expected.v` | BOUNDED-TOL | `vips mask_butterworth_band mask_butterworth_band_expected.v 64 64 2 0.3 0.3 0.1 0.5` |
 | `create/mask_fractal_expected.v` | BOUNDED-TOL | `vips mask_fractal mask_fractal_expected.v 64 64 2.5` |
 | `create/sdf_circle_expected.v` | BOUNDED-TOL | `vips sdf sdf_circle_expected.v 64 64 circle --a "32 32" --r 16` |
