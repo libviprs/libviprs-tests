@@ -208,9 +208,11 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // mapim (S2: index is a 2nd input) bilinear + bicubic.
     "resample/mapim_bilinear_expected.png",
     "resample/mapim_bicubic_expected.png",
-    // thumbnail (FILENAME input + --crop) / thumbnail_image (decoded variant).
+    // thumbnail (FILENAME input + non-square --crop + --linear) / thumbnail_image
+    // (decoded variant).
     "resample/thumbnail_expected.png",
     "resample/thumbnail_crop_expected.png",
+    "resample/thumbnail_linear_expected.png",
     "resample/thumbnail_image_expected.png",
 ];
 

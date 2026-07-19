@@ -21,11 +21,19 @@
 //! Inputs are DISCRIMINATING (an identity / no-op op would FAIL): `grad.png` is a
 //! 2-D gradient varying in BOTH axes (so `shrinkv`/`reducev`/`rot` are
 //! non-vacuous), and `index.v` maps every output to HALF its source coordinate (a
-//! real 2× zoom, so `mapim` moves data rather than reproducing its input).
-//! Non-alpha inputs are used deliberately: the core `reduce`/`shrink` premultiply
-//! alpha (a documented divergence from bare `vips_reduce`/`vips_shrink`), so an
-//! alpha input would diverge wholesale — the honest ≤1 LSB oracle needs the
-//! no-alpha `grad`/`rgb`.
+//! real 2× zoom, so `mapim` moves data rather than reproducing its input). The
+//! `thumbnail --crop` case fits a NON-square 16×8 box so centre-crop actually
+//! removes pixels — its reference is distinct from the no-crop 16×16 fixtures, so
+//! a dropped / ignored `--crop` FAILS (a square box on a square source would crop
+//! nothing and be vacuous).
+//!
+//! **Oracle scope — non-alpha only.** The ≤1 LSB BOUNDED-TOL contract holds for
+//! inputs WITHOUT alpha. The core `reduce`/`shrink`/`resize` premultiply alpha
+//! before resampling (a documented, intentional divergence from bare
+//! `vips_reduce`/`vips_shrink`, which do not), so on an RGBA / GrayA input these
+//! ops diverge from vips WHOLESALE — well beyond ≤1 LSB (measured max-abs-diff 4
+//! for `shrink 2 2` on a 4-band sRGB ramp). That is deliberate and OUT of this
+//! oracle class; every case here uses the no-alpha `grad`/`rgb` carriers.
 //!
 //! If the `libviprs-cli` sibling is not checked out (the default CI `test` job
 //! and the Docker gate clone only the core counterpart), every test SKIPS with a
@@ -412,11 +420,42 @@ fn thumbnail_crop_matches_vips_bounded_tol() {
         return;
     }
     let out = op("thumbnail_crop.png");
-    // viprs boolean --crop == vips `--crop centre` (the core supports centre crop).
-    run_viprs_ok(&["thumbnail", &fx(RGB), &out, "16", "--crop"]);
+    // DISCRIMINATING crop: a NON-square target (16×8) so centre-cropping a square
+    // source actually removes pixels — the reference is DISTINCT from every
+    // no-crop 16×16 fixture, so a build that ignored / dropped --crop would FAIL.
+    // (A square 16 box on a square source crops nothing — the vacuous identity
+    // case the adversarial review flagged.) `--crop centre` is the literal vips
+    // spelling, now accepted by the optional-value flag arity (bare `--crop`
+    // means the same `centre`).
+    run_viprs_ok(&[
+        "thumbnail",
+        &fx(RGB),
+        &out,
+        "16",
+        "--height",
+        "8",
+        "--crop",
+        "centre",
+    ]);
     decode_compare(
         &PathBuf::from(&out),
         &cli_fixture("resample/thumbnail_crop_expected.png"),
+        BT1,
+    );
+}
+
+#[test]
+fn thumbnail_linear_matches_vips_bounded_tol() {
+    if skip_if_no_cli("thumbnail_linear") {
+        return;
+    }
+    let out = op("thumbnail_linear.png");
+    // --linear routes to the linear-light reduce core entry point (distinct from
+    // the default sRGB-space reduce), directly covering that path against vips.
+    run_viprs_ok(&["thumbnail", &fx(RGB), &out, "16", "--linear"]);
+    decode_compare(
+        &PathBuf::from(&out),
+        &cli_fixture("resample/thumbnail_linear_expected.png"),
         BT1,
     );
 }

@@ -983,9 +983,17 @@ echo "==> [mapim] rgb + index.v bilinear (default) + bicubic (S2, ≤1 LSB)"
 "$VIPS" mapim "$RESAMPLE/rgb.png" "$RESAMPLE/mapim_bilinear_expected.png" "$RESAMPLE/index.v"
 "$VIPS" mapim "$RESAMPLE/rgb.png" "$RESAMPLE/mapim_bicubic_expected.png"  "$RESAMPLE/index.v" --interpolate bicubic
 
-echo "==> [thumbnail] rgb file 16 + --crop centre; thumbnail_image rgb 16 (≤1 LSB)"
+echo "==> [thumbnail] rgb file 16 + non-square --crop centre + --linear; thumbnail_image rgb 16 (≤1 LSB)"
 "$VIPS" thumbnail "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_expected.png"      16
-"$VIPS" thumbnail "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_crop_expected.png" 16 --crop centre
+# --crop is DISCRIMINATED with a NON-square target (16x8): a centre-crop of a
+# square source into a non-square box actually removes pixels, so the reference
+# is DISTINCT from the no-crop 16x16 fixtures (a build that ignored / dropped
+# --crop would fail). A square 16 box on a square source crops nothing (the
+# identity case) and would be vacuous — see the adversarial-review finding.
+"$VIPS" thumbnail "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_crop_expected.png" 16 --height 8 --crop centre
+# --linear reduces in linear light (a DISTINCT core entry point from the default
+# sRGB-space reduce), so this reference guards the linear-light path directly.
+"$VIPS" thumbnail "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_linear_expected.png" 16 --linear
 "$VIPS" thumbnail_image "$RESAMPLE/rgb.png" "$RESAMPLE/thumbnail_image_expected.png" 16
 
 # --- Provenance (append the resample section) --------------------------------
@@ -1006,13 +1014,16 @@ output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
   3-band sRGB with 2-D structure), \`index.v\` (32×32 FLOAT 2-band coordinate map
   sampling each output at HALF its source coordinate — a real 2× zoom with
   fractional taps, so \`mapim\` moves data and interpolates).
-- **EVERY op is BOUNDED-TOL** (the premultiply / rounding campaign #406-418): the
-  core computes reduce / interpolate masks in f64 per output position while vips
-  quantises the sub-pixel offset into fixed-point tables, so the two agree to
-  ≤1 LSB. Non-alpha inputs are used deliberately: the core \`reduce\`/\`shrink\`
-  premultiply alpha (a documented divergence from bare \`vips_reduce\`/\`shrink\`),
-  so an alpha input would diverge wholesale — the honest ≤1 LSB oracle needs the
-  no-alpha \`grad\`/\`rgb\`.
+- **EVERY op is BOUNDED-TOL for NON-ALPHA inputs** (the premultiply / rounding
+  campaign #406-418): the core computes reduce / interpolate masks in f64 per
+  output position while vips quantises the sub-pixel offset into fixed-point
+  tables, so the two agree to ≤1 LSB. Non-alpha inputs are used deliberately:
+  the core \`reduce\`/\`shrink\`/\`resize\` premultiply alpha before resampling (a
+  documented, intentional divergence from bare \`vips_reduce\`/\`vips_shrink\`,
+  which do not), so on an RGBA / GrayA input these ops diverge from vips
+  WHOLESALE — well beyond ≤1 LSB (measured max-abs-diff 4 for \`shrink 2 2\` on a
+  4-band sRGB ramp). That divergence is deliberate and OUT of the ≤1 LSB oracle
+  class; the differential exercises only the no-alpha \`grad\`/\`rgb\` carriers.
 
 ## Measured max-abs-diff (per case)
 
@@ -1039,7 +1050,8 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`resample/mapim_bilinear_expected.png\` | ≤1 LSB (0) | \`vips mapim rgb.png mapim_bilinear_expected.png index.v\` (S2; index is a 2nd input) |
 | \`resample/mapim_bicubic_expected.png\` | ≤1 LSB (1) | \`vips mapim rgb.png mapim_bicubic_expected.png index.v --interpolate bicubic\` |
 | \`resample/thumbnail_expected.png\` | ≤1 LSB (0) | \`vips thumbnail rgb.png thumbnail_expected.png 16\` (FILENAME input) |
-| \`resample/thumbnail_crop_expected.png\` | ≤1 LSB (0) | \`vips thumbnail rgb.png thumbnail_crop_expected.png 16 --crop centre\` |
+| \`resample/thumbnail_crop_expected.png\` | ≤1 LSB (0) | \`vips thumbnail rgb.png thumbnail_crop_expected.png 16 --height 8 --crop centre\` (NON-square target — centre-crop removes pixels, 16×8, distinct from the no-crop fixtures) |
+| \`resample/thumbnail_linear_expected.png\` | ≤1 LSB (1) | \`vips thumbnail rgb.png thumbnail_linear_expected.png 16 --linear\` (linear-light reduce path) |
 | \`resample/thumbnail_image_expected.png\` | ≤1 LSB (0) | \`vips thumbnail_image rgb.png thumbnail_image_expected.png 16\` |
 
 **Open question**: \`affine … --interpolate bicubic\` measures **2 LSB** (not the
