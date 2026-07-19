@@ -130,13 +130,20 @@ jobs:
       - uses: ./.github/actions/clone-cli-counterpart
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # No libvips and no pdfium are installed here: the vips references are
-      # committed under tests/fixtures/cli/ (regenerated offline by
-      # tools/gen_cli_expected.sh), and the harness builds the CLI
-      # `--no-default-features` and only exercises morphology ops, which never
-      # touch a PDF path. If the sibling checkout were absent the cell would
-      # skip with a clear message rather than fail (CLI_CONTRACT.md §7).
-      - run: cargo test --test cli_morphology_diff
+      # No libvips is installed here: the vips references are committed under
+      # tests/fixtures/cli/ (regenerated offline by tools/gen_cli_expected.sh).
+      # No libpdfium.so is installed either, yet the harness builds the CLI with
+      # pdfium compiled in: libviprs-cli depends on the core crate with
+      # `features=["pdfium"]` (non-optional), so `--no-default-features` (which
+      # disables only the CLI crate's OWN default features) does NOT drop pdfium.
+      # The build still links because `pdfium-render` binds libpdfium at RUNTIME,
+      # not build/link time, and the morphology ops never touch a PDF path so
+      # libpdfium is never loaded. VIPRS_REQUIRE_CLI=1 turns a would-be silent
+      # SKIP (which reads to cargo as a pass) into a hard panic, so this job can
+      # never go green while failing to actually run viprs (CLI_CONTRACT.md §7).
+      - env:
+          VIPRS_REQUIRE_CLI: 1
+        run: cargo test --test cli_morphology_diff
 
   lint:
     name: Lint

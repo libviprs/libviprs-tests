@@ -32,7 +32,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use libviprs::Raster;
 
@@ -55,11 +55,42 @@ pub fn cli_dir() -> PathBuf {
 /// (CLI_CONTRACT.md §7): the default CI `test` job and the Docker gate clone
 /// only the core counterpart, so the differential cell skips there and runs in
 /// the dedicated `cli-differential` job that lays the CLI down.
+///
+/// # False-green guard (`$VIPRS_REQUIRE_CLI`)
+///
+/// A skip reads to `cargo test` as a **pass**, so a `cli-differential` CI job
+/// that silently fails to lay the CLI down would go green while comparing
+/// nothing. When `$VIPRS_REQUIRE_CLI=1` (set on that dedicated job, unset on dev
+/// machines and the default `test` job) this function **panics loudly** instead
+/// of returning `false`, converting a would-be silent skip into a hard failure.
+/// Dev machines and the default job leave the var unset and still skip cleanly.
 pub fn cli_available() -> bool {
     if std::env::var_os("VIPRS_BIN").is_some() {
         return true;
     }
-    cli_dir().join("Cargo.toml").is_file()
+    if cli_dir().join("Cargo.toml").is_file() {
+        return true;
+    }
+    if require_cli() {
+        panic!(
+            "VIPRS_REQUIRE_CLI=1 but the libviprs-cli sibling is absent at {} and \
+             $VIPRS_BIN is unset: the CLI-differential job would SKIP every comparison \
+             and report a false green. Ensure clone-cli-counterpart laid the sibling \
+             down (or set $VIPRS_BIN/$VIPRS_CLI_DIR).",
+            cli_dir().display(),
+        );
+    }
+    false
+}
+
+/// Whether the caller demands the CLI actually run (`$VIPRS_REQUIRE_CLI=1`).
+///
+/// The dedicated `cli-differential` CI job sets this so a failure to lay the CLI
+/// sibling down hard-fails rather than skipping to a false green (see
+/// [`cli_available`]). Any other value, or an unset var, means "skip cleanly if
+/// the CLI is absent" — the dev-machine and default-`test`-job behaviour.
+pub fn require_cli() -> bool {
+    std::env::var("VIPRS_REQUIRE_CLI").is_ok_and(|v| v == "1")
 }
 
 /// Path to the `cargo` executable (`$CARGO` under `cargo test`, else `cargo`).
@@ -72,10 +103,16 @@ fn cargo_bin() -> PathBuf {
 /// Build the `viprs` binary once and return its path.
 ///
 /// * `$VIPRS_BIN` — used verbatim (asserted to exist).
-/// * otherwise build `<cli>/Cargo.toml` with `cargo build --no-default-features
-///   --bin viprs` (no default features keeps pdfium off the critical path per
-///   CLI_CONTRACT.md §7/§9) under the cross-process lock, and return
-///   `<cli>/target/debug/viprs`.
+/// * otherwise build `<cli>/Cargo.toml` with `cargo build --release
+///   --no-default-features --bin viprs` under the cross-process lock, and return
+///   `<cli>/target/release/viprs`.
+///
+/// `--release` is mandated by CLI_CONTRACT.md §7 (`--release
+/// --no-default-features`); it matters for the future BOUNDED-TOL / FOURIER
+/// codegen whose numerics differ between debug and release. `--no-default-features`
+/// disables the CLI crate's *own* default features — it does **not** turn off
+/// pdfium (see [`build_viprs_once`] for why pdfium is compiled in regardless yet
+/// never links or loads libpdfium for the morphology ops).
 ///
 /// # Panics
 ///
@@ -107,10 +144,33 @@ fn build_viprs_once() -> PathBuf {
     );
 
     let target_dir = cli.join("target");
+    let bin = cli.join("target/release/viprs");
+
     let _lock = BuildLock::acquire(target_dir.join(".viprs-build.lock"));
 
+    // Short-circuit once we hold the lock: if a sibling test binary already
+    // built `viprs` and it is newer than every CLI source, there is nothing to
+    // rebuild — each waiter that acquires the lock must NOT re-invoke cargo
+    // (which would otherwise re-run a no-op `cargo build` per test binary).
+    if bin.is_file() && !cli_sources_newer_than(&bin, &cli) {
+        return bin;
+    }
+
     let status = Command::new(cargo_bin())
-        .args(["build", "--no-default-features", "--bin", "viprs"])
+        // `--release` per CLI_CONTRACT.md §7. `--no-default-features` disables
+        // the CLI crate's OWN default features; it does NOT disable pdfium,
+        // which `libviprs-cli/Cargo.toml` depends on non-optionally
+        // (`features=["pdfium"]`) — so pdfium IS compiled into this build. That
+        // links fine with no libpdfium.so present because `pdfium-render` binds
+        // libpdfium dynamically at RUNTIME, not at build/link time, and the
+        // morphology ops never touch a PDF path so libpdfium is never loaded.
+        .args([
+            "build",
+            "--release",
+            "--no-default-features",
+            "--bin",
+            "viprs",
+        ])
         .arg("--manifest-path")
         .arg(&manifest)
         // Do NOT inherit the tests-repo `-Dwarnings` RUSTFLAGS: we are building
@@ -121,16 +181,50 @@ fn build_viprs_once() -> PathBuf {
         .unwrap_or_else(|e| panic!("failed to spawn `cargo build` for viprs: {e}"));
     assert!(
         status.success(),
-        "`cargo build --bin viprs` failed: {status}"
+        "`cargo build --release --bin viprs` failed: {status}"
     );
 
-    let bin = cli.join("target/debug/viprs");
     assert!(
         bin.is_file(),
         "viprs build reported success but {} is missing",
         bin.display()
     );
     bin
+}
+
+/// Whether any CLI source (the crate `Cargo.toml` or anything under `src/`) is
+/// newer than the already-built `bin`, i.e. a rebuild is actually needed. A
+/// conservative `true` on any I/O error (missing metadata) forces the rebuild.
+fn cli_sources_newer_than(bin: &Path, cli: &Path) -> bool {
+    let bin_mtime = match fs::metadata(bin).and_then(|m| m.modified()) {
+        Ok(t) => t,
+        Err(_) => return true,
+    };
+    let mut newer = false;
+    let mut newer_than = |p: &Path| {
+        if let Ok(t) = fs::metadata(p).and_then(|m| m.modified()) {
+            if t > bin_mtime {
+                newer = true;
+            }
+        }
+    };
+    newer_than(&cli.join("Cargo.toml"));
+    // Walk src/ iteratively (no external deps).
+    let mut stack = vec![cli.join("src")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(ft) if ft.is_dir() => stack.push(path),
+                Ok(_) => newer_than(&path),
+                Err(_) => return true,
+            }
+        }
+    }
+    newer
 }
 
 /// Run `viprs <args…>` and capture its [`Output`]. Callers pass absolute paths
@@ -263,6 +357,27 @@ fn decode(path: &Path) -> Raster {
 // Scalar (S3) compare.
 // ---------------------------------------------------------------------------
 
+/// Tolerance for **integer-valued** scalar comparisons — segment counts, pixel
+/// counts, and any exact-integer stdout scalar: bit-exact (`rel_eps = 0`).
+///
+/// Use this ONLY when the reference is mathematically an integer (e.g.
+/// `labelregions`' segment count). It is a copy-hazard to reuse it for a
+/// floating-point statistic that merely *happens* to print a short dyadic
+/// value: see [`SCALAR_S3_REL_EPS`].
+pub const SCALAR_INT_EXACT: f64 = 0.0;
+
+/// Relative epsilon for **floating** S3 scalar means / order statistics
+/// (CLI_CONTRACT.md §3, scalar tol).
+///
+/// The S3 scalar ops (`avg`, `countlines`, …) return a real-valued mean. Such a
+/// value is only bit-exact against vips when it lands on a dyadic rational
+/// (e.g. `countlines` on this binary input yields `0.578125 = 37/64`); a
+/// different input or op would produce a non-terminating binary fraction that
+/// vips prints rounded to 6 places. Comparing those with `rel_eps = 0` is a
+/// latent false-red. Use this documented `1e-6` epsilon for every floating S3
+/// scalar and reserve [`SCALAR_INT_EXACT`] for genuinely integer samples/counts.
+pub const SCALAR_S3_REL_EPS: f64 = 1e-6;
+
 /// Float-parse a `viprs` S3 stdout scalar and assert it matches `expected`
 /// within a relative epsilon (`rel_eps == 0.0` for a bit-exact match). Compares
 /// numerically, never as text (CLI_CONTRACT.md §3: vips numeric format).
@@ -303,18 +418,30 @@ pub fn read_scalar_fixture(rel: &str) -> f64 {
 /// A best-effort cross-process advisory lock backed by atomic
 /// `create_new` on a lockfile. Combined with cargo's own target-directory lock
 /// (which prevents corruption) this serialises the `cargo build` so that only
-/// one test binary of a parallel run actually compiles the CLI. A lockfile
-/// older than 10 minutes is treated as stale (crashed holder) and stolen.
+/// one test binary of a parallel run actually compiles the CLI.
+///
+/// Waiters spin on `AlreadyExists`. There is **no timed "steal" of a live
+/// lock**: cargo's own target-dir lock already prevents corruption, so a slow
+/// build simply blocks the waiters until it finishes — stealing at a wall-clock
+/// deadline would let a second cargo start while the first is mid-link (and
+/// races to delete a lock the first holder still owns). The only lock we remove
+/// is one whose mtime is far older than any plausible build (a crashed holder,
+/// [`STALE_LOCK`]); its age guarantees we never delete a lock a live holder
+/// just created.
 struct BuildLock {
     path: PathBuf,
 }
+
+/// A lockfile whose mtime is older than this is treated as a crashed holder and
+/// reclaimed. Kept well above any plausible `cargo build` wall time so a live,
+/// slow build is never stolen from.
+const STALE_LOCK: Duration = Duration::from_secs(1800);
 
 impl BuildLock {
     fn acquire(path: PathBuf) -> BuildLock {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        let start = Instant::now();
         loop {
             match OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut f) => {
@@ -322,13 +449,21 @@ impl BuildLock {
                     return BuildLock { path };
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                    if lockfile_is_stale(&path) || start.elapsed() > Duration::from_secs(1200) {
+                    // Someone else holds the lock. Reclaim it ONLY if it is
+                    // provably stale (crashed holder); otherwise wait.
+                    if lockfile_is_stale(&path) {
                         let _ = fs::remove_file(&path);
-                        continue;
                     }
                     std::thread::sleep(Duration::from_millis(150));
                 }
-                Err(_) => std::thread::sleep(Duration::from_millis(150)),
+                // Any other error (read-only / ENOSPC / EACCES target dir) is a
+                // real fault: retrying forever would hang to the CI timeout with
+                // no diagnostic. Fail loudly instead.
+                Err(e) => panic!(
+                    "cannot create the viprs build lockfile at {} ({e}); the CLI \
+                     `target/` directory is not writable",
+                    path.display()
+                ),
             }
         }
     }
@@ -343,6 +478,6 @@ impl Drop for BuildLock {
 fn lockfile_is_stale(path: &Path) -> bool {
     fs::metadata(path)
         .and_then(|m| m.modified())
-        .map(|t| t.elapsed().unwrap_or_default() > Duration::from_secs(600))
+        .map(|t| t.elapsed().unwrap_or_default() > STALE_LOCK)
         .unwrap_or(false)
 }

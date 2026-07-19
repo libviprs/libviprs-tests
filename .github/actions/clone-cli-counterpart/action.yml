@@ -20,9 +20,15 @@ runs:
           echo "::error file=CLI_COUNTERPART_REV::missing; cannot resolve the libviprs-cli pin"
           exit 1
         fi
-        REV="$(grep -Eom1 '[0-9a-f]{40}' "$rev_file" || true)"
-        if [ -z "$REV" ]; then
-          echo "::error file=CLI_COUNTERPART_REV::no 40-char commit SHA found; refusing to guess a branch"
+        # Read the FIRST non-comment, non-blank line and take it verbatim — the
+        # same semantics as the Rust side (cli_counterpart_pinning.rs), which
+        # reads the first such line and requires exactly 40 lowercase hex. A
+        # broad `grep '[0-9a-f]{40}'` would happily pick a SHA out of a comment
+        # line; anchoring to the payload line keeps both sides identical. Strip
+        # `#`-comments, drop blank lines, take the first remaining line, trim.
+        REV="$(sed -e 's/#.*$//' "$rev_file" | grep -v '^[[:space:]]*$' | head -n1 | tr -d '[:space:]')"
+        if ! printf '%s' "$REV" | grep -Eq '^[0-9a-f]{40}$'; then
+          echo "::error file=CLI_COUNTERPART_REV::first payload line is not a 40-char lowercase commit SHA (got '${REV}'); refusing to guess a branch"
           exit 1
         fi
         echo "Pinned libviprs-cli revision: $REV"
@@ -34,4 +40,12 @@ runs:
         # Fetch exactly the pinned commit (GitHub allows fetching reachable SHAs).
         git -C "$dest" fetch --depth 1 origin "$REV"
         git -C "$dest" checkout -q FETCH_HEAD
-        echo "Checked out libviprs-cli at $(git -C "$dest" rev-parse HEAD)"
+        head="$(git -C "$dest" rev-parse HEAD)"
+        echo "Checked out libviprs-cli at $head"
+        # Coherence assertion: the checked-out HEAD MUST equal the pin. A fetch
+        # that silently resolved to a different commit (or a tampered remote)
+        # fails loudly here rather than building the wrong sources.
+        if [ "$head" != "$REV" ]; then
+          echo "::error file=CLI_COUNTERPART_REV::checked-out HEAD $head != pinned $REV"
+          exit 1
+        fi
