@@ -178,6 +178,19 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "core/getpoint_gray_expected.txt",
     "core/getpoint_float_expected.txt",
     "core/getpoint_float_nd_expected.txt",
+    // ---- matrix family (cli_matrix_diff.rs) ----
+    // Common inputs: vips text-matrix files (consumed by both the generator and
+    // the `viprs` MatFile loader). m3 = 3x3 (matrixinvert direct cofactor path),
+    // m4 = 4x4 (matrixinvert PLU path), lut = 3x3 measured points (invertlut).
+    "matrix/m3.mat",
+    "matrix/m4.mat",
+    "matrix/lut.mat",
+    // matrixinvert (BOUNDED-TOL f32): direct 3x3 + PLU 4x4, cast double->float `.v`.
+    "matrix/matrixinvert3_expected.v",
+    "matrix/matrixinvert4_expected.v",
+    // invertlut (BOUNDED-TOL f32): default size 256 + explicit --size 64.
+    "matrix/invertlut_expected.v",
+    "matrix/invertlut_size64_expected.v",
 ];
 
 #[test]

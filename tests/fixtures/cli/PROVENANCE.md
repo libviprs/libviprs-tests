@@ -314,3 +314,51 @@ substring; CLI_CONTRACT.md §8) and need no vips reference. Note: vips `add`
 BAND-BROADCASTS a 1-band operand across a multi-band one; core requires EQUAL
 band counts, so the channel-mismatch case is a documented SUBSET limitation (core
 cannot broadcast without a core change), not a parity claim.
+
+---
+
+# matrix family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the matrix
+CLI-differential suite (`tests/cli_matrix_diff.rs`) decode-compares `viprs`
+output against. Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
+
+- **Oracle**: `vips-8.18.4`
+- **Common inputs** (under `matrix/`, vips text-matrix files): `m3.mat` (3x3,
+  the matrixinvert **direct cofactor** path, n<4), `m4.mat` (4x4, the
+  matrixinvert **PLU decomposition** path, n>=4), `lut.mat` (3x3 measured
+  points: column 0 = input level, columns 1/2 = two bands' responses, all in
+  0..=1, for invertlut). Consumed identically by both vips and the `viprs`
+  `MatFile` loader (no scale/offset header, so the raw cells are read on both
+  sides).
+- **Oracle class BOUNDED-TOL (f32 carrier)**: the core computes in f64 but stores
+  results as **f32** (libvips stores double), so every reference is the vips
+  double result **cast to float** (`vips cast … float`) — the libviprs `.v`
+  decoder rejects a DOUBLE band format, and the compare is f32-vs-f32. Measured
+  max-abs-diff: `0` for `matrixinvert` (both paths), `5.96e-8` (one f32 ULP
+  at 1.0) for `invertlut`. The test tol is `1e-6`; the OP_MAP `1e-9` was
+  written assuming a double carrier and is unreachable with f32.
+
+## Exact commands
+
+Inputs:
+
+```
+printf '3 3\n2 0 1\n1 3 0\n0 1 4\n'                > matrix/m3.mat
+printf '4 4\n2 1 0.5 0\n1 3 0 1\n0 1 4 2\n1 0 2 5\n' > matrix/m4.mat
+printf '3 3\n0.1 0.2 0.3\n0.2 0.4 0.4\n0.7 0.5 0.6\n' > matrix/lut.mat
+```
+
+References (paths relative to `tests/fixtures/cli/`):
+
+| reference | oracle class | vips command |
+|---|---|---|
+| `matrix/matrixinvert3_expected.v` | BOUNDED-TOL (f32, measured 0) | `vips matrixinvert m3.mat mi3.v` then `vips cast mi3.v matrixinvert3_expected.v float` (direct cofactor path) |
+| `matrix/matrixinvert4_expected.v` | BOUNDED-TOL (f32, measured 0) | `vips matrixinvert m4.mat mi4.v` then `vips cast mi4.v matrixinvert4_expected.v float` (PLU path) |
+| `matrix/invertlut_expected.v` | BOUNDED-TOL (f32, 1 ULP = 5.96e-8) | `vips invertlut lut.mat il.v` then `vips cast il.v invertlut_expected.v float` (default size 256) |
+| `matrix/invertlut_size64_expected.v` | BOUNDED-TOL (f32, 1 ULP = 5.96e-8) | `vips invertlut lut.mat il64.v --size 64` then `vips cast il64.v invertlut_size64_expected.v float` |
+
+Bounds rejection (singular / non-square matrixinvert, out-of-range /
+too-few-columns invertlut, sub-range `--size`) is a typed exit-1 (or usage
+exit-2) error with a `viprs`-side message, never a panic (CLI_CONTRACT.md §8);
+those cases build their tiny matrices in-test and need no committed reference.
