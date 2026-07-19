@@ -314,3 +314,94 @@ substring; CLI_CONTRACT.md §8) and need no vips reference. Note: vips `add`
 BAND-BROADCASTS a 1-band operand across a multi-band one; core requires EQUAL
 band counts, so the channel-mismatch case is a documented SUBSET limitation (core
 cannot broadcast without a core change), not a parity claim.
+
+---
+
+# arithmetic part-B (arith-b lane) CLI-differential reference provenance
+
+Committed vips oracle references the arith-b CLI-differential suite
+(`tests/cli_arithb_diff.rs`) decode-compares `viprs` output against. Generated
+offline by `tools/gen_cli_expected.sh`, NEVER by CI.
+
+- **Oracle**: `vips-8.18.4`
+- **Common inputs** (under `arithb/`): `a.png` (16×16 Gray8 horizontal ramp
+  0..255), `b.png` (vertical ramp 40..168; > 0 divisor, straddles `a` in 2-D),
+  `c.png` (horizontal ramp 20..120; third `sum` input), `rgb.png` (their
+  bandjoin, sRGB) and `rgba.png` (`rgb` + `a` alpha, sRGB) for
+  recomb/(un)premultiply, `small.png` (0..15) + `small2.png` (0..3) for the
+  `math2 pow` 0^0 edge, `eye.png` (2-D zone-plate) for `stdif`, `recomb.mat`
+  (3×3 coefficient matrix), and `complex_in.v` (a 2-band float reinterpret of
+  `complexform a b`, the viprs-side complex input).
+- **Carriers / oracle classes**: PNG + tol 0 for the integer-exact ops
+  (subtract EAC, minpair/maxpair EXACT, relational(_const)/boolean(_const)
+  EXACT); native `.v` for the ushort (`multiply`, `sum` cast from vips UINT)
+  and float (`divide`, `math`, `math2`, complex) outputs the PNG path would
+  lose. **BOUNDED-TOL** (measured, honest): `scale` ≤1 LSB (log transcendental),
+  `recomb` 1 (per-band round+saturate vs vips float-then-cast — a documented
+  deviation from OP_MAP's EAC prediction), `premultiply`/`unpremultiply` 1,
+  `stdif` 6 (core clips the border window while vips mirrors — an edge-handling
+  divergence, filed as an issue, exercised on a 2-D input not hidden), `math2
+  pow` 1 (the single `pow(0,0)` sample: Rust `f64::powf(0,0)=1` vs libvips 0,
+  filed as an issue). **FOURIER** eps 1e-6 for the complex band-pair ops; the
+  vips complex-format outputs are reinterpreted to 2-band float `.v`
+  (`vips copy … --format float --bands 2`, a header relabel of the same
+  interleaved (re,im) f32 bytes) because the libviprs decoder rejects the native
+  complex band format.
+
+## Exact commands
+
+Inputs:
+
+```
+vips grey ag.v 16 16
+vips linear ag.v arithb/a.png 255 0 --uchar
+vips rot ag.v agv.v d90
+vips linear agv.v arithb/b.png 128 40 --uchar
+vips linear ag.v arithb/c.png 100 20 --uchar
+vips bandjoin "arithb/a.png arithb/b.png arithb/c.png" rgb.v
+vips copy rgb.v arithb/rgb.png --interpretation srgb
+vips bandjoin "arithb/rgb.png arithb/a.png" rgba.v
+vips copy rgba.v arithb/rgba.png --interpretation srgb
+vips linear ag.v arithb/small.png 15 0 --uchar
+vips linear ag.v arithb/small2.png 3 0 --uchar
+vips eye eye.v 16 16
+vips linear eye.v arithb/eye.png 127 128 --uchar
+printf '3 3\n0.5 0.25 0.25\n0.2 0.6 0.2\n0.1 0.3 0.6\n' > arithb/recomb.mat
+vips complexform arithb/a.png arithb/b.png cpx_c.v
+vips copy cpx_c.v arithb/complex_in.v --format float --bands 2
+```
+
+References (paths relative to `tests/fixtures/cli/`):
+
+| reference | oracle class | vips command |
+|---|---|---|
+| `arithb/subtract_expected.png` | EXACT-AFTER-CAST (tol 0) | `vips subtract a.png b.png subtract_expected.png` |
+| `arithb/multiply_expected.v` | EXACT-AFTER-CAST (tol 0) | `vips multiply a.png b.png multiply_expected.v` (ushort) |
+| `arithb/divide_expected.v` | EXACT-AFTER-CAST (tol 0) | `vips divide a.png b.png divide_expected.v` (float) |
+| `arithb/minpair_expected.png` | EXACT | `vips minpair a.png b.png minpair_expected.png` |
+| `arithb/maxpair_expected.png` | EXACT | `vips maxpair a.png b.png maxpair_expected.png` |
+| `arithb/sum_expected.v` | EXACT-AFTER-CAST (tol 0) | `vips sum "a.png b.png c.png" sum_u32.v` then `vips cast sum_u32.v sum_expected.v ushort` (>=3 inputs; vips UINT→ushort) |
+| `arithb/relational_more_expected.png` | EXACT | `vips relational a.png b.png relational_more_expected.png more` |
+| `arithb/relational_less_expected.png` | EXACT | `vips relational a.png b.png relational_less_expected.png less` |
+| `arithb/relational_const_more_expected.png` | EXACT | `vips relational_const a.png relational_const_more_expected.png more 128` |
+| `arithb/boolean_eor_expected.png` | EXACT | `vips boolean a.png b.png boolean_eor_expected.png eor` |
+| `arithb/boolean_and_expected.png` | EXACT | `vips boolean a.png b.png boolean_and_expected.png and` |
+| `arithb/boolean_const_and_expected.png` | EXACT | `vips boolean_const a.png boolean_const_and_expected.png and 200` |
+| `arithb/boolean_const_lshift_expected.png` | EXACT | `vips boolean_const a.png boolean_const_lshift_expected.png lshift 2` |
+| `arithb/scale_expected.png` | BOUNDED-TOL ≤1 LSB | `vips scale rgb.png scale_expected.png` (linear) |
+| `arithb/scale_log_expected.png` | BOUNDED-TOL ≤1 LSB | `vips scale rgb.png scale_log_expected.png --log` |
+| `arithb/stdif_expected.png` | BOUNDED-TOL 6 | `vips stdif eye.png stdif_expected.png 3 3` (border clip vs mirror — issue) |
+| `arithb/recomb_expected.png` | BOUNDED-TOL 1 | `vips recomb rgb.png recomb_expected.png recomb.mat` (per-band round vs float — OP_MAP EAC deviation) |
+| `arithb/premultiply_expected.png` | BOUNDED-TOL 1 | `vips premultiply rgba.png premultiply_expected.png` |
+| `arithb/unpremultiply_expected.png` | BOUNDED-TOL 1 | `vips unpremultiply rgba.png unpremultiply_expected.png` |
+| `arithb/math_sin_expected.v` | EAC (float, eps 1e-6) | `vips math a.png math_sin_expected.v sin` |
+| `arithb/math_cos_expected.v` | EAC (float, eps 1e-6) | `vips math a.png math_cos_expected.v cos` |
+| `arithb/math_atan_expected.v` | EAC (float, eps 1e-6) | `vips math a.png math_atan_expected.v atan` |
+| `arithb/math2_atan2_expected.v` | EAC (float, eps 1e-6) | `vips math2 a.png b.png math2_atan2_expected.v atan2` |
+| `arithb/math2_pow_expected.v` | BOUNDED-TOL 1 | `vips math2 small.png small2.png math2_pow_expected.v pow` (pow(0,0): Rust 1 vs vips 0 — issue) |
+| `arithb/complexform_expected.v` | FOURIER (eps 1e-6) | `vips complexform a.png b.png cf_c.v` then `vips copy cf_c.v complexform_expected.v --format float --bands 2` |
+| `arithb/complex_polar_expected.v` | FOURIER (eps 1e-6) | `vips complex cpx_c.v cpol.v polar` then reinterpret `--format float --bands 2` |
+| `arithb/complex_rect_expected.v` | FOURIER (eps 1e-6) | `vips complex cpx_c.v crect.v rect` then reinterpret |
+| `arithb/complex_conj_expected.v` | FOURIER (eps 1e-6) | `vips complex cpx_c.v cconj.v conj` then reinterpret |
+| `arithb/complexget_real_expected.v` | FOURIER (eps 1e-6) | `vips complexget cpx_c.v complexget_real_expected.v real` |
+| `arithb/complexget_imag_expected.v` | FOURIER (eps 1e-6) | `vips complexget cpx_c.v complexget_imag_expected.v imag` |

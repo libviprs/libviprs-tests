@@ -178,6 +178,56 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "core/getpoint_gray_expected.txt",
     "core/getpoint_float_expected.txt",
     "core/getpoint_float_nd_expected.txt",
+    // ---- arithmetic part-B (cli_arithb_diff.rs) ----
+    // Common inputs: a/b/c Gray8 ramps, rgb/rgba, small/small2 (pow 0^0),
+    // eye (2-D stdif), the recomb matrix, and the 2-band-float complex input.
+    "arithb/a.png",
+    "arithb/b.png",
+    "arithb/c.png",
+    "arithb/rgb.png",
+    "arithb/rgba.png",
+    "arithb/small.png",
+    "arithb/small2.png",
+    "arithb/eye.png",
+    "arithb/recomb.mat",
+    "arithb/complex_in.v",
+    // Binary: subtract (PNG), multiply/divide (.v), minpair/maxpair (PNG).
+    "arithb/subtract_expected.png",
+    "arithb/multiply_expected.v",
+    "arithb/divide_expected.v",
+    "arithb/minpair_expected.png",
+    "arithb/maxpair_expected.png",
+    // sum (>=3 variadic, ushort .v).
+    "arithb/sum_expected.v",
+    // relational / relational_const (enum variants).
+    "arithb/relational_more_expected.png",
+    "arithb/relational_less_expected.png",
+    "arithb/relational_const_more_expected.png",
+    // boolean / boolean_const (enum + const-shift).
+    "arithb/boolean_eor_expected.png",
+    "arithb/boolean_and_expected.png",
+    "arithb/boolean_const_and_expected.png",
+    "arithb/boolean_const_lshift_expected.png",
+    // Windowed: scale (linear + log), stdif, recomb, (un)premultiply.
+    "arithb/scale_expected.png",
+    "arithb/scale_log_expected.png",
+    "arithb/stdif_expected.png",
+    "arithb/recomb_expected.png",
+    "arithb/premultiply_expected.png",
+    "arithb/unpremultiply_expected.png",
+    // Math (float .v): math sin/cos/atan, math2 atan2/pow.
+    "arithb/math_sin_expected.v",
+    "arithb/math_cos_expected.v",
+    "arithb/math_atan_expected.v",
+    "arithb/math2_atan2_expected.v",
+    "arithb/math2_pow_expected.v",
+    // Complex (FOURIER float band-pairs .v): complexform, complex, complexget.
+    "arithb/complexform_expected.v",
+    "arithb/complex_polar_expected.v",
+    "arithb/complex_rect_expected.v",
+    "arithb/complex_conj_expected.v",
+    "arithb/complexget_real_expected.v",
+    "arithb/complexget_imag_expected.v",
 ];
 
 #[test]

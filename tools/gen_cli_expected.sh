@@ -898,6 +898,245 @@ band counts, so the channel-mismatch case is a documented SUBSET limitation (cor
 cannot broadcast without a core change), not a parity claim.
 EOF
 
+# ===========================================================================
+# ARITHMETIC — part B (the Wave-2 arith-b lane; OP_MAP.md arithmetic section,
+# binary/relational/boolean/windowed/math/complex ops).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_arithb_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. Carrier + oracle-class choices, all
+# MEASURED against vips 8.18.4 on the committed inputs (max-abs-diff in raw
+# sample units):
+#
+#   * subtract  → PNG, EXACT-AFTER-CAST tol 0 (float diff, save-cast clips
+#     negatives to 0; integer inputs so no rounding — measured 0).
+#   * multiply  → `.v` ushort, EXACT-AFTER-CAST tol 0 (uchar*uchar widens to
+#     ushort in both — measured 0).
+#   * divide    → `.v` float, EXACT-AFTER-CAST tol 0 (both compute the quotient
+#     in float — measured 0; the uchar save-cast path instead diverges by 1 LSB,
+#     so the float `.v` carrier is used).
+#   * minpair / maxpair → PNG, EXACT tol 0.
+#   * sum       → `.v` ushort. vips `sum` promotes to UINT (band format the
+#     libviprs decoder rejects) while core clamps into ushort; the reference is
+#     therefore `vips cast … ushort` — lossless here (the 3-image sum ≤ 543 never
+#     overflows) and matching core's ushort output exactly (measured 0).
+#   * relational / relational_const → PNG, EXACT tol 0 (0/255 masks).
+#   * boolean / boolean_const       → PNG, EXACT tol 0.
+#   * scale (linear + --log)        → PNG, BOUNDED-TOL ≤1 LSB (log path is
+#     transcendental; measured 0 on these inputs, tol 1 is the honest bound).
+#   * stdif    → PNG, BOUNDED-TOL. Core CLIPS the window at the image border
+#     while vips MIRRORS, so a genuinely 2-D input (the `eye` zone-plate) diverges
+#     by up to 6 raw units in the border ring (interior is exact). Measured 6 on
+#     eye 3x3 → tol 6, a documented core-vs-vips edge-handling divergence (see
+#     PROVENANCE / cli_arithb_diff.rs; filed as an issue, NOT hidden by picking a
+#     y-degenerate ramp).
+#   * recomb   → PNG, BOUNDED-TOL 1. OP_MAP predicted EAC, but core rounds &
+#     saturates per output band into the input depth while vips computes in float
+#     and casts once, so they diverge by 1 LSB (measured 1). Honest class is
+#     BOUNDED-TOL — a documented deviation from OP_MAP's EAC prediction.
+#   * premultiply / unpremultiply   → PNG, BOUNDED-TOL 1 (vips emits float, core
+#     rounds into the uchar depth; ≤1 LSB post-cast, measured 1).
+#   * math (sin/cos/atan)           → `.v` float, tol 1e-6 (measured 0).
+#   * math2 atan2                   → `.v` float, tol 1e-6 (measured 0).
+#   * math2 pow                     → `.v` float, BOUNDED-TOL 1. The ONLY
+#     divergent sample is `pow(0,0)`: Rust's `f64::powf(0,0)=1` vs libvips `0`.
+#     Kept in the input (base and exponent both span 0) so the 0^0 edge is
+#     EXERCISED, not hidden; tol 1, documented + filed as core issue #489.
+#   * complexform / complex / complexget → `.v` float band-pairs, FOURIER eps
+#     1e-6 (measured 0). vips complex-format outputs are REINTERPRETED to a
+#     2-band float `.v` (`vips copy … --format float --bands 2`) because the
+#     libviprs decoder rejects the native complex band format; the reinterpret is
+#     a pure header relabel of the same interleaved (re,im) f32 bytes, matching
+#     core's float-pair layout exactly.
+# ===========================================================================
+ARITHB="$FIX_ROOT/arithb"
+mkdir -p "$ARITHB"
+
+# --- Common inputs -----------------------------------------------------------
+# `vips grey` is a pure coordinate function (0..1 float ramp), so every fixture
+# is bit-reproducible. a: 16x16 Gray8 horizontal ramp 0..255; b: vertical ramp
+# 40..168 (all > 0 — a safe, non-zero divisor for `divide`, and a and b straddle
+# so subtract/relational/boolean vary in 2-D); c: a third distinct horizontal
+# ramp 20..120 for the >=3-input `sum` fold.
+echo "==> [arithb input] a/b/c 16x16 Gray8 ramps + rgb/rgba + small/small2 + eye"
+"$VIPS" grey "$TMP/ag.v" 16 16
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/a.png" 255 0 --uchar
+"$VIPS" rot "$TMP/ag.v" "$TMP/agv.v" d90
+"$VIPS" linear "$TMP/agv.v" "$ARITHB/b.png" 128 40 --uchar
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/c.png" 100 20 --uchar
+# rgb (srgb, 3-band) for recomb; rgba (srgb, 4-band, varying alpha = a) for
+# (un)premultiply.
+"$VIPS" bandjoin "$ARITHB/a.png $ARITHB/b.png $ARITHB/c.png" "$TMP/rgb.v"
+"$VIPS" copy "$TMP/rgb.v" "$ARITHB/rgb.png" --interpretation srgb
+"$VIPS" bandjoin "$ARITHB/rgb.png $ARITHB/a.png" "$TMP/rgba.v"
+"$VIPS" copy "$TMP/rgba.v" "$ARITHB/rgba.png" --interpretation srgb
+# small base (0..15) + small exponent (0..3) for math2 pow — both span 0 so the
+# pow(0,0) edge is exercised; results stay small (<=3375) for f32 headroom.
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/small.png" 15 0 --uchar
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/small2.png" 3 0 --uchar
+# eye: a 2-D zone-plate (varies in BOTH axes) so stdif's window statistics — and
+# its border clip-vs-mirror divergence from vips — are genuinely exercised.
+"$VIPS" eye "$TMP/eye.v" 16 16
+"$VIPS" linear "$TMP/eye.v" "$ARITHB/eye.png" 127 128 --uchar
+# recomb coefficient matrix (3 output bands x 3 input bands), a vips text matrix.
+printf '3 3\n0.5 0.25 0.25\n0.2 0.6 0.2\n0.1 0.3 0.6\n' > "$ARITHB/recomb.mat"
+# complex input in TWO carriers from complexform(a,b): the complex-format `.v`
+# (used ONLY here to drive the vips complex/complexget references) and the
+# 2-band float reinterpret committed as the viprs-side input (identical bytes).
+"$VIPS" complexform "$ARITHB/a.png" "$ARITHB/b.png" "$TMP/cpx_c.v"
+"$VIPS" copy "$TMP/cpx_c.v" "$ARITHB/complex_in.v" --format float --bands 2
+
+# --- References — one vips run per differential case -------------------------
+echo "==> [subtract] a - b (EAC, PNG; negatives clip to 0)"
+"$VIPS" subtract "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/subtract_expected.png"
+echo "==> [multiply] a * b (EAC, ushort .v)"
+"$VIPS" multiply "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/multiply_expected.v"
+echo "==> [divide] a / b (EAC, float .v)"
+"$VIPS" divide "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/divide_expected.v"
+echo "==> [minpair/maxpair] (EXACT, PNG)"
+"$VIPS" minpair "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/minpair_expected.png"
+"$VIPS" maxpair "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/maxpair_expected.png"
+echo "==> [sum] a + b + c (>=3 variadic, EAC; vips UINT cast to ushort .v)"
+"$VIPS" sum "$ARITHB/a.png $ARITHB/b.png $ARITHB/c.png" "$TMP/sum_u32.v"
+"$VIPS" cast "$TMP/sum_u32.v" "$ARITHB/sum_expected.v" ushort
+echo "==> [relational] more + less (EXACT, PNG)"
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/relational_more_expected.png" more
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/relational_less_expected.png" less
+echo "==> [relational_const] more 128 (EXACT, PNG)"
+"$VIPS" relational_const "$ARITHB/a.png" "$ARITHB/relational_const_more_expected.png" more 128
+echo "==> [boolean] eor + and (EXACT, PNG)"
+"$VIPS" boolean "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/boolean_eor_expected.png" eor
+"$VIPS" boolean "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/boolean_and_expected.png" and
+echo "==> [boolean_const] and 200 + lshift 2 (EXACT, PNG)"
+"$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_and_expected.png" and 200
+"$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_lshift_expected.png" lshift 2
+echo "==> [scale] linear + --log (BOUNDED-TOL <=1 LSB, PNG)"
+"$VIPS" scale "$ARITHB/rgb.png" "$ARITHB/scale_expected.png"
+"$VIPS" scale "$ARITHB/rgb.png" "$ARITHB/scale_log_expected.png" --log
+echo "==> [stdif] 3x3 on 2-D eye (BOUNDED-TOL border clip-vs-mirror, PNG)"
+"$VIPS" stdif "$ARITHB/eye.png" "$ARITHB/stdif_expected.png" 3 3
+echo "==> [recomb] 3x3 matrix (BOUNDED-TOL 1, PNG)"
+"$VIPS" recomb "$ARITHB/rgb.png" "$ARITHB/recomb_expected.png" "$ARITHB/recomb.mat"
+echo "==> [premultiply/unpremultiply] rgba (BOUNDED-TOL 1, PNG)"
+"$VIPS" premultiply "$ARITHB/rgba.png" "$ARITHB/premultiply_expected.png"
+"$VIPS" unpremultiply "$ARITHB/rgba.png" "$ARITHB/unpremultiply_expected.png"
+echo "==> [math] sin + cos + atan (float .v, eps 1e-6)"
+"$VIPS" math "$ARITHB/a.png" "$ARITHB/math_sin_expected.v" sin
+"$VIPS" math "$ARITHB/a.png" "$ARITHB/math_cos_expected.v" cos
+"$VIPS" math "$ARITHB/a.png" "$ARITHB/math_atan_expected.v" atan
+echo "==> [math2] atan2 (eps 1e-6) + pow (BOUNDED-TOL 1, 0^0 edge; float .v)"
+"$VIPS" math2 "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/math2_atan2_expected.v" atan2
+"$VIPS" math2 "$ARITHB/small.png" "$ARITHB/small2.png" "$ARITHB/math2_pow_expected.v" pow
+echo "==> [complexform] a + i*b (FOURIER, float band-pair .v via reinterpret)"
+"$VIPS" complexform "$ARITHB/a.png" "$ARITHB/b.png" "$TMP/cf_c.v"
+"$VIPS" copy "$TMP/cf_c.v" "$ARITHB/complexform_expected.v" --format float --bands 2
+echo "==> [complex] polar + rect + conj (FOURIER, reinterpret)"
+"$VIPS" complex "$TMP/cpx_c.v" "$TMP/cpol.v" polar
+"$VIPS" copy "$TMP/cpol.v" "$ARITHB/complex_polar_expected.v" --format float --bands 2
+"$VIPS" complex "$TMP/cpx_c.v" "$TMP/crect.v" rect
+"$VIPS" copy "$TMP/crect.v" "$ARITHB/complex_rect_expected.v" --format float --bands 2
+"$VIPS" complex "$TMP/cpx_c.v" "$TMP/cconj.v" conj
+"$VIPS" copy "$TMP/cconj.v" "$ARITHB/complex_conj_expected.v" --format float --bands 2
+echo "==> [complexget] real + imag (FOURIER, plain float .v)"
+"$VIPS" complexget "$TMP/cpx_c.v" "$ARITHB/complexget_real_expected.v" real
+"$VIPS" complexget "$TMP/cpx_c.v" "$ARITHB/complexget_imag_expected.v" imag
+
+# --- Provenance (append the arithb section) ----------------------------------
+echo "==> [provenance] appending arithb section to $FIX_ROOT/PROVENANCE.md"
+cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
+
+---
+
+# arithmetic part-B (arith-b lane) CLI-differential reference provenance
+
+Committed vips oracle references the arith-b CLI-differential suite
+(\`tests/cli_arithb_diff.rs\`) decode-compares \`viprs\` output against. Generated
+offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`arithb/\`): \`a.png\` (16×16 Gray8 horizontal ramp
+  0..255), \`b.png\` (vertical ramp 40..168; > 0 divisor, straddles \`a\` in 2-D),
+  \`c.png\` (horizontal ramp 20..120; third \`sum\` input), \`rgb.png\` (their
+  bandjoin, sRGB) and \`rgba.png\` (\`rgb\` + \`a\` alpha, sRGB) for
+  recomb/(un)premultiply, \`small.png\` (0..15) + \`small2.png\` (0..3) for the
+  \`math2 pow\` 0^0 edge, \`eye.png\` (2-D zone-plate) for \`stdif\`, \`recomb.mat\`
+  (3×3 coefficient matrix), and \`complex_in.v\` (a 2-band float reinterpret of
+  \`complexform a b\`, the viprs-side complex input).
+- **Carriers / oracle classes**: PNG + tol 0 for the integer-exact ops
+  (subtract EAC, minpair/maxpair EXACT, relational(_const)/boolean(_const)
+  EXACT); native \`.v\` for the ushort (\`multiply\`, \`sum\` cast from vips UINT)
+  and float (\`divide\`, \`math\`, \`math2\`, complex) outputs the PNG path would
+  lose. **BOUNDED-TOL** (measured, honest): \`scale\` ≤1 LSB (log transcendental),
+  \`recomb\` 1 (per-band round+saturate vs vips float-then-cast — a documented
+  deviation from OP_MAP's EAC prediction), \`premultiply\`/\`unpremultiply\` 1,
+  \`stdif\` 6 (core clips the border window while vips mirrors — an edge-handling
+  divergence, core issue #490, exercised on a 2-D input not hidden), \`math2
+  pow\` 1 (the single \`pow(0,0)\` sample: Rust \`f64::powf(0,0)=1\` vs libvips 0,
+  filed as an issue). **FOURIER** eps 1e-6 for the complex band-pair ops; the
+  vips complex-format outputs are reinterpreted to 2-band float \`.v\`
+  (\`vips copy … --format float --bands 2\`, a header relabel of the same
+  interleaved (re,im) f32 bytes) because the libviprs decoder rejects the native
+  complex band format.
+
+## Exact commands
+
+Inputs:
+
+\`\`\`
+vips grey ag.v 16 16
+vips linear ag.v arithb/a.png 255 0 --uchar
+vips rot ag.v agv.v d90
+vips linear agv.v arithb/b.png 128 40 --uchar
+vips linear ag.v arithb/c.png 100 20 --uchar
+vips bandjoin "arithb/a.png arithb/b.png arithb/c.png" rgb.v
+vips copy rgb.v arithb/rgb.png --interpretation srgb
+vips bandjoin "arithb/rgb.png arithb/a.png" rgba.v
+vips copy rgba.v arithb/rgba.png --interpretation srgb
+vips linear ag.v arithb/small.png 15 0 --uchar
+vips linear ag.v arithb/small2.png 3 0 --uchar
+vips eye eye.v 16 16
+vips linear eye.v arithb/eye.png 127 128 --uchar
+printf '3 3\\n0.5 0.25 0.25\\n0.2 0.6 0.2\\n0.1 0.3 0.6\\n' > arithb/recomb.mat
+vips complexform arithb/a.png arithb/b.png cpx_c.v
+vips copy cpx_c.v arithb/complex_in.v --format float --bands 2
+\`\`\`
+
+References (paths relative to \`tests/fixtures/cli/\`):
+
+| reference | oracle class | vips command |
+|---|---|---|
+| \`arithb/subtract_expected.png\` | EXACT-AFTER-CAST (tol 0) | \`vips subtract a.png b.png subtract_expected.png\` |
+| \`arithb/multiply_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips multiply a.png b.png multiply_expected.v\` (ushort) |
+| \`arithb/divide_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips divide a.png b.png divide_expected.v\` (float) |
+| \`arithb/minpair_expected.png\` | EXACT | \`vips minpair a.png b.png minpair_expected.png\` |
+| \`arithb/maxpair_expected.png\` | EXACT | \`vips maxpair a.png b.png maxpair_expected.png\` |
+| \`arithb/sum_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips sum "a.png b.png c.png" sum_u32.v\` then \`vips cast sum_u32.v sum_expected.v ushort\` (>=3 inputs; vips UINT→ushort) |
+| \`arithb/relational_more_expected.png\` | EXACT | \`vips relational a.png b.png relational_more_expected.png more\` |
+| \`arithb/relational_less_expected.png\` | EXACT | \`vips relational a.png b.png relational_less_expected.png less\` |
+| \`arithb/relational_const_more_expected.png\` | EXACT | \`vips relational_const a.png relational_const_more_expected.png more 128\` |
+| \`arithb/boolean_eor_expected.png\` | EXACT | \`vips boolean a.png b.png boolean_eor_expected.png eor\` |
+| \`arithb/boolean_and_expected.png\` | EXACT | \`vips boolean a.png b.png boolean_and_expected.png and\` |
+| \`arithb/boolean_const_and_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_and_expected.png and 200\` |
+| \`arithb/boolean_const_lshift_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_lshift_expected.png lshift 2\` |
+| \`arithb/scale_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips scale rgb.png scale_expected.png\` (linear) |
+| \`arithb/scale_log_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips scale rgb.png scale_log_expected.png --log\` |
+| \`arithb/stdif_expected.png\` | BOUNDED-TOL 6 | \`vips stdif eye.png stdif_expected.png 3 3\` (border clip vs mirror — core issue #490) |
+| \`arithb/recomb_expected.png\` | BOUNDED-TOL 1 | \`vips recomb rgb.png recomb_expected.png recomb.mat\` (per-band round vs float — OP_MAP EAC deviation, core issue #491) |
+| \`arithb/premultiply_expected.png\` | BOUNDED-TOL 1 | \`vips premultiply rgba.png premultiply_expected.png\` |
+| \`arithb/unpremultiply_expected.png\` | BOUNDED-TOL 1 | \`vips unpremultiply rgba.png unpremultiply_expected.png\` |
+| \`arithb/math_sin_expected.v\` | EAC (float, eps 1e-6) | \`vips math a.png math_sin_expected.v sin\` |
+| \`arithb/math_cos_expected.v\` | EAC (float, eps 1e-6) | \`vips math a.png math_cos_expected.v cos\` |
+| \`arithb/math_atan_expected.v\` | EAC (float, eps 1e-6) | \`vips math a.png math_atan_expected.v atan\` |
+| \`arithb/math2_atan2_expected.v\` | EAC (float, eps 1e-6) | \`vips math2 a.png b.png math2_atan2_expected.v atan2\` |
+| \`arithb/math2_pow_expected.v\` | BOUNDED-TOL 1 | \`vips math2 small.png small2.png math2_pow_expected.v pow\` (pow(0,0): Rust 1 vs vips 0 — core issue #489) |
+| \`arithb/complexform_expected.v\` | FOURIER (eps 1e-6) | \`vips complexform a.png b.png cf_c.v\` then \`vips copy cf_c.v complexform_expected.v --format float --bands 2\` |
+| \`arithb/complex_polar_expected.v\` | FOURIER (eps 1e-6) | \`vips complex cpx_c.v cpol.v polar\` then reinterpret \`--format float --bands 2\` |
+| \`arithb/complex_rect_expected.v\` | FOURIER (eps 1e-6) | \`vips complex cpx_c.v crect.v rect\` then reinterpret |
+| \`arithb/complex_conj_expected.v\` | FOURIER (eps 1e-6) | \`vips complex cpx_c.v cconj.v conj\` then reinterpret |
+| \`arithb/complexget_real_expected.v\` | FOURIER (eps 1e-6) | \`vips complexget cpx_c.v complexget_real_expected.v real\` |
+| \`arithb/complexget_imag_expected.v\` | FOURIER (eps 1e-6) | \`vips complexget cpx_c.v complexget_imag_expected.v imag\` |
+EOF
+
 echo "==> Done. Generated fixtures under $FIX_ROOT"
 ls -1 "$FIX"
 echo "--- bands ---"
@@ -908,3 +1147,5 @@ echo "--- conversion ---"
 ls -1 "$CONV"
 echo "--- core ---"
 ls -1 "$CORE"
+echo "--- arithb ---"
+ls -1 "$ARITHB"
