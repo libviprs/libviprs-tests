@@ -118,7 +118,7 @@ jobs:
       - run: cargo clippy --all-targets --features ${{ matrix.feature }} -- -D warnings
 
   cli-differential:
-    name: CLI Differential (morphology, bands, extract, conversion, core)
+    name: CLI Differential (morphology, bands, extract, conversion, core, create)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -143,7 +143,7 @@ jobs:
       # never go green while failing to actually run viprs (CLI_CONTRACT.md §7).
       - env:
           VIPRS_REQUIRE_CLI: 1
-        run: cargo test --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff
+        run: cargo test --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_create_diff
 
   lint:
     name: Lint
