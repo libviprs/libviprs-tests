@@ -194,3 +194,62 @@ Expected output (`blank_tile_strategy/expected/`):
 - `placeholder_solid_white/`, `placeholder_gradient/`, `placeholder_half_white/` — `BlankTileStrategy::Placeholder`, `TileFormat::Raw`
 
 Settings: `Layout::DeepZoom`, `tile_size=64`, `overlap=0`, `TileFormat::Raw`.
+
+## Premultiplied-alpha resampler reference (`resample_premultiplied_alpha_reference_*`)
+
+Reference for `tests/resample_premultiplied_alpha_reference.rs`, the
+vips-differential regression for the premultiplied-alpha resampler follow-ups
+(libviprs/libviprs #406–#413, #415; part of #348). libviprs' averaging
+resamplers (`reduce` / `shrink` / `resize`) deliberately premultiply alpha once
+into a float working buffer around the whole separable pipeline and
+un-premultiply once at the end, so they match a **premultiplied** vips pipeline,
+not the bare `vips reduce` / `vips shrink` namesakes (which do not premultiply).
+Generated offline with **vips 8.18.4**.
+
+Inputs (`resample_premultiplied_alpha_reference_input/`, written by PIL, straight
+alpha with meaningful RGB under zero-alpha pixels):
+- `checker_rgba.png` — 16×16, `(x+y)` even → opaque red `(255,0,0,255)`, else
+  transparent green `(0,255,0,0)`.
+- `split_rgba.png` — 16×16, left half opaque red, right half transparent green
+  (a vertical transparency boundary the horizontal affine upscale crosses).
+- `lowalpha_rgba.png` — 16×16 uniform `(200,100,50, alpha=4)` (low-alpha
+  precision case).
+
+Expected (`resample_premultiplied_alpha_reference_expected/`):
+
+```bash
+IN=resample_premultiplied_alpha_reference_input
+EXP=resample_premultiplied_alpha_reference_expected
+
+# Integer box shrink 2×2 (#407)
+vips premultiply   $IN/checker_rgba.png   /tmp/pm.v
+vips shrink        /tmp/pm.v              /tmp/op.v 2 2
+vips unpremultiply /tmp/op.v              /tmp/un.v
+vips cast          /tmp/un.v              $EXP/checker_shrink2_expected.png uchar
+
+# Two-axis low-alpha reduce 2×2 lanczos3 (#408/#411/#413)
+vips premultiply   $IN/lowalpha_rgba.png  /tmp/pm.v
+vips reduce        /tmp/pm.v              /tmp/op.v 2 2 --kernel lanczos3
+vips unpremultiply /tmp/op.v              /tmp/un.v
+vips cast          /tmp/un.v              $EXP/lowalpha_reduce2_expected.png uchar
+
+# Mixed resize: horizontal upscale ×2, vertical downscale ×0.5 (#406)
+vips premultiply   $IN/split_rgba.png     /tmp/pm.v
+vips resize        /tmp/pm.v              /tmp/op.v 2.0 --vscale 0.5
+vips unpremultiply /tmp/op.v              /tmp/un.v
+vips cast          /tmp/un.v              $EXP/split_resize_h2_v05_expected.png uchar
+
+# Large-factor resize (gap-driven integer box pre-shrink) (#409)
+vips premultiply   $IN/checker_rgba.png   /tmp/pm.v
+vips resize        /tmp/pm.v              /tmp/op.v 0.2
+vips unpremultiply /tmp/op.v              /tmp/un.v
+vips cast          /tmp/un.v              $EXP/checker_resize_02_expected.png uchar
+```
+
+The premultiply/unpremultiply bracket is idempotent for the checker/split inputs
+(alpha ∈ {0, 255}), so wrapping `vips resize` — which premultiplies internally —
+does not double-premultiply. The `lowalpha` reduce reference uses the bare `vips
+reduce` between an explicit premultiply/unpremultiply pair (no internal
+premultiply to double up). Tests decode both PNGs to raw pixels and compare
+covered pixels within a tight colour tolerance (the bleed shows as a colour
+error in the tens) and a looser alpha tolerance (alpha is kernel-dependent).
