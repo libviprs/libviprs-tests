@@ -1011,6 +1011,53 @@ echo "==> [fastcor] SSD surface (vips uint -> cast float .v, EXACT)"
 
 # --- Provenance (append the convolution section) -----------------------------
 echo "==> [provenance] appending convolution section to $FIX_ROOT/PROVENANCE.md"
+# MATRIX FAMILY (the Wave-2 matrix lane; OP_MAP.md matrix section).
+#
+# The same committed matrix FILES feed BOTH this generator (to make the vips
+# references) and tests/cli_matrix_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. Both ops are oracle class BOUNDED-TOL:
+# the core computes in f64 but STORES results as f32 (libvips stores double), so
+# the vips double result is CAST TO FLOAT (`vips cast … float`) before it is
+# committed — the libviprs `.v` decoder rejects a DOUBLE band format and the
+# compare harness reads f32 samples. The core is a faithful port of libvips'
+# matrixinvert.c / invertlut.c (identical operation order), so the measured
+# max-abs-diff is 0 for matrixinvert (both the direct and PLU paths) and 5.96e-8
+# — one f32 ULP at 1.0 — for invertlut (whose tail extrapolates to 1.0). The
+# OP_MAP's 1e-9 tol assumed a double carrier and is unreachable with f32; the
+# honest measured f32 tol (1e-6) is used in the test.
+#
+# Inputs are DISCRIMINATING (a no-op / identity op FAILS): matrixinvert of a
+# non-identity 3x3 (direct cofactor path, n<4) and 4x4 (PLU decomposition path,
+# n>=4) yields a visibly different inverse; invertlut of a 3x3 measured-points
+# matrix yields a 256x1 (or 64x1) LUT an identity op would mismatch on shape.
+# ===========================================================================
+MATRIX="$FIX_ROOT/matrix"
+mkdir -p "$MATRIX"
+
+# --- Common inputs (vips text-matrix files, header `width height`) -----------
+# A .mat is a pure text file, deterministic and consumed by both sides. No scale
+# / offset header (default 1 / 0): matrixinvert / invertlut read the raw cell
+# values, so both vips and the libviprs MatFile loader see the same matrix.
+echo "==> [matrix input] m3 (3x3, direct path), m4 (4x4, PLU path), lut (3x3 measured points)"
+printf '3 3\n2 0 1\n1 3 0\n0 1 4\n'            > "$MATRIX/m3.mat"
+printf '4 4\n2 1 0.5 0\n1 3 0 1\n0 1 4 2\n1 0 2 5\n' > "$MATRIX/m4.mat"
+printf '3 3\n0.1 0.2 0.3\n0.2 0.4 0.4\n0.7 0.5 0.6\n' > "$MATRIX/lut.mat"
+
+# --- References — one vips run per differential case, cast double -> float ---
+echo "==> [matrixinvert] 3x3 direct + 4x4 PLU -> float .v (BOUNDED-TOL, measured 0)"
+"$VIPS" matrixinvert "$MATRIX/m3.mat" "$TMP/mi3.v"
+"$VIPS" cast "$TMP/mi3.v" "$MATRIX/matrixinvert3_expected.v" float
+"$VIPS" matrixinvert "$MATRIX/m4.mat" "$TMP/mi4.v"
+"$VIPS" cast "$TMP/mi4.v" "$MATRIX/matrixinvert4_expected.v" float
+
+echo "==> [invertlut] default size 256 + --size 64 -> float .v (BOUNDED-TOL, 1 f32 ULP)"
+"$VIPS" invertlut "$MATRIX/lut.mat" "$TMP/il.v"
+"$VIPS" cast "$TMP/il.v" "$MATRIX/invertlut_expected.v" float
+"$VIPS" invertlut "$MATRIX/lut.mat" "$TMP/il64.v" --size 64
+"$VIPS" cast "$TMP/il64.v" "$MATRIX/invertlut_size64_expected.v" float
+
+# --- Provenance (append the matrix section) ----------------------------------
+echo "==> [provenance] appending matrix section to $FIX_ROOT/PROVENANCE.md"
 cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
 
 ---
@@ -1063,6 +1110,36 @@ vips extract_area convolution/eye.png convolution/patch.png 4 4 5 5
 printf '3 3 9\\n1 1 1\\n1 1 1\\n1 1 1\\n'    > convolution/blur.mat
 printf '3 3 1\\n1 2 1\\n0 0 0\\n-1 -2 -1\\n' > convolution/sobel.mat
 printf '5 1 10\\n1 2 4 2 1\\n'              > convolution/sep.mat
+# matrix family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the matrix
+CLI-differential suite (\`tests/cli_matrix_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`matrix/\`, vips text-matrix files): \`m3.mat\` (3x3,
+  the matrixinvert **direct cofactor** path, n<4), \`m4.mat\` (4x4, the
+  matrixinvert **PLU decomposition** path, n>=4), \`lut.mat\` (3x3 measured
+  points: column 0 = input level, columns 1/2 = two bands' responses, all in
+  0..=1, for invertlut). Consumed identically by both vips and the \`viprs\`
+  \`MatFile\` loader (no scale/offset header, so the raw cells are read on both
+  sides).
+- **Oracle class BOUNDED-TOL (f32 carrier)**: the core computes in f64 but stores
+  results as **f32** (libvips stores double), so every reference is the vips
+  double result **cast to float** (\`vips cast … float\`) — the libviprs \`.v\`
+  decoder rejects a DOUBLE band format, and the compare is f32-vs-f32. Measured
+  max-abs-diff: \`0\` for \`matrixinvert\` (both paths), \`5.96e-8\` (one f32 ULP
+  at 1.0) for \`invertlut\`. The test tol is \`1e-6\`; the OP_MAP \`1e-9\` was
+  written assuming a double carrier and is unreachable with f32.
+
+## Exact commands
+
+Inputs:
+
+\`\`\`
+printf '3 3\\n2 0 1\\n1 3 0\\n0 1 4\\n'                > matrix/m3.mat
+printf '4 4\\n2 1 0.5 0\\n1 3 0 1\\n0 1 4 2\\n1 0 2 5\\n' > matrix/m4.mat
+printf '3 3\\n0.1 0.2 0.3\\n0.2 0.4 0.4\\n0.7 0.5 0.6\\n' > matrix/lut.mat
 \`\`\`
 
 References (paths relative to \`tests/fixtures/cli/\`):
@@ -1085,6 +1162,24 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`convolution/sharpen_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips sharpen eye.png sharpen_expected.png --sigma 1 --m1 1 --m2 2\` |
 | \`convolution/spcor_expected.v\` | BOUNDED-TOL (eps 1e-5) | \`vips spcor eye.png patch.png spcor_expected.v\` |
 | \`convolution/fastcor_expected.v\` | EXACT (tol 0) | \`vips fastcor eye.png patch.png fc_uint.v\` then \`vips cast fc_uint.v … float\` |
+| \`matrix/matrixinvert3_expected.v\` | BOUNDED-TOL (f32, measured 0) | \`vips matrixinvert m3.mat mi3.v\` then \`vips cast mi3.v matrixinvert3_expected.v float\` (direct cofactor path) |
+| \`matrix/matrixinvert4_expected.v\` | BOUNDED-TOL (f32, measured 0) | \`vips matrixinvert m4.mat mi4.v\` then \`vips cast mi4.v matrixinvert4_expected.v float\` (PLU path) |
+| \`matrix/invertlut_expected.v\` | BOUNDED-TOL (f32, 1 ULP = 5.96e-8) | \`vips invertlut lut.mat il.v\` then \`vips cast il.v invertlut_expected.v float\` (default size 256) |
+| \`matrix/invertlut_size64_expected.v\` | BOUNDED-TOL (f32, 1 ULP = 5.96e-8) | \`vips invertlut lut.mat il64.v --size 64\` then \`vips cast il64.v invertlut_size64_expected.v float\` |
+
+Bounds rejection (singular / non-square matrixinvert, out-of-range /
+too-few-columns invertlut, sub-range \`--size\`, and a \`--size\` in the
+clap-accepts / core-rejects band 65537..=1000000) is a typed exit-1 (or usage
+exit-2) error with a \`viprs\`-side message, never a panic (CLI_CONTRACT.md §8);
+those cases build their tiny matrices in-test (or reuse \`lut.mat\`) and need no
+committed reference. The size band is a PARITY quirk: clap mirrors vips's
+declared \`1..=1000000\` metadata while the core caps at \`1..=65536\`, and vips
+itself independently rejects a size above 65536 despite its declared max — so a
+\`--size 100000\` is a clean exit-1 \`BadSize\` on both sides, not a panic.
+
+The \`matrixinvert\` cases compare at tol \`0.0\` (EXACT-AFTER-CAST — the f32-cast
+core result is bit-identical to the vips-double-cast-to-float reference); only the
+\`invertlut\` cases use the nonzero \`1e-6\` f32 tol.
 EOF
 
 echo "==> Done. Generated fixtures under $FIX_ROOT"
@@ -1099,3 +1194,5 @@ echo "--- core ---"
 ls -1 "$CORE"
 echo "--- convolution ---"
 ls -1 "$CONVOL"
+echo "--- matrix ---"
+ls -1 "$MATRIX"
