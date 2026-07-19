@@ -212,12 +212,14 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "aritha/linear_uchar_expected.png",
     "aritha/remainder_const_expected.png",
     "aritha/math2_const_pow_expected.v",
-    // unary/rounding on float: abs/sign + round rint/ceil/floor.
+    // unary/rounding on float: abs/sign + round ceil/floor (EXACT vips oracle);
+    // round rint is GOLDEN-ONLY (viprs regression pin — the core half-rounding
+    // rule diverges from vips; see cli_aritha_diff.rs).
     "aritha/abs_expected.v",
     "aritha/sign_expected.v",
-    "aritha/round_rint_expected.v",
     "aritha/round_ceil_expected.v",
     "aritha/round_floor_expected.v",
+    "aritha/round_rint_golden.v",
     // clamp (uchar).
     "aritha/clamp_expected.png",
     // hough: GOLDEN-ONLY viprs regression pins (no vips oracle — the core Hough

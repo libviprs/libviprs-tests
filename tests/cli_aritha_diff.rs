@@ -20,7 +20,13 @@
 //!   columns. Both measured max-abs-diff 0.
 //! * `profile` / `project` — 16-bit `.v` (vips INT/UINT cast to ushort).
 //! * `linear` (float `.v` + `--uchar` PNG), `remainder_const` / `clamp` (PNG),
-//!   `math2_const pow` / `abs` / `sign` / `round` (float `.v`) — all measured 0.
+//!   `math2_const pow` / `abs` / `sign` / `round ceil` / `round floor` (float
+//!   `.v`) — all measured 0. `sign`'s afloat now includes exactly 0.0, so the
+//!   zero→0 branch (not just −1/+1) is exercised.
+//! * `round rint` — **GOLDEN-ONLY**: the core `f64::round` (half away from zero)
+//!   diverges from vips's C `rint` (half to even) at exact half-integers
+//!   (max-abs-diff 1 on the honest afloat that reaches x.5). It is a viprs
+//!   regression pin (tol 0), not a vips oracle; a core issue is filed.
 //! * `hough_line` / `hough_circle` — **GOLDEN-ONLY**: the core Hough numerics
 //!   diverge structurally from vips (a one-cell distance-binning offset that
 //!   amplifies to max-abs-diff 32 on a collinear line; a different circle vote
@@ -399,19 +405,9 @@ fn sign_matches_vips() {
     );
 }
 
-#[test]
-fn round_rint_matches_vips() {
-    if skip_if_no_cli("round_rint") {
-        return;
-    }
-    let out = o("round_rint.v");
-    run_viprs_ok(&["round", &fx(AFLOAT), &out, "rint"]);
-    decode_compare(
-        out_path("round_rint.v").as_path(),
-        &cli_fixture("aritha/round_rint_expected.v"),
-        EXACT,
-    );
-}
+// NOTE: `round rint` is GOLDEN-ONLY (viprs regression pin), NOT a vips oracle —
+// see the module header and the `round_rint_matches_golden_pin` test in the
+// GOLDEN section below. The core's half-rounding rule diverges from vips.
 
 #[test]
 fn round_ceil_matches_vips() {
@@ -462,6 +458,28 @@ fn clamp_matches_vips() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn round_rint_matches_golden_pin() {
+    if skip_if_no_cli("round_rint") {
+        return;
+    }
+    // GOLDEN-ONLY: `viprs round … rint` maps the core `f64::round` (rounds half
+    // AWAY from zero) whereas vips's C `rint` rounds half TO EVEN, so on the
+    // discriminating afloat (which reaches exact half-integers) the two
+    // deterministically diverge at every x.5 (measured max-abs-diff 1: e.g. 0.5→
+    // core 1 / vips 0, 2.5→ core 3 / vips 2, −2.5→ core −3 / vips −2). That is a
+    // structural rule difference, not a bounded tolerance, so the reference is a
+    // committed viprs-generated regression pin (compared at tol 0) — NOT a vips
+    // oracle. A core issue is filed to reconcile `rint` with round-half-to-even.
+    let out = o("round_rint.v");
+    run_viprs_ok(&["round", &fx(AFLOAT), &out, "rint"]);
+    decode_compare(
+        out_path("round_rint.v").as_path(),
+        &cli_fixture("aritha/round_rint_golden.v"),
+        EXACT,
+    );
+}
+
+#[test]
 fn hough_line_matches_golden_pin() {
     if skip_if_no_cli("hough_line") {
         return;
@@ -509,6 +527,31 @@ fn clamp_inverted_bounds_is_rejected() {
     );
     // Exit 1 (op error), never a signal / abort.
     assert_eq!(res.status.code(), Some(1), "expected a clean exit 1");
+}
+
+#[test]
+fn clamp_nan_bound_is_rejected() {
+    if skip_if_no_cli("clamp_nan") {
+        return;
+    }
+    // clap's f64 value_parser accepts "nan". `NaN > hi` is false, so a bare
+    // `lo > hi` guard let a NaN bound slip past into the core `assert!(lo <= hi)`
+    // and abort with exit 101 (§8 violation). The `!(lo <= hi)` guard rejects it
+    // as a clean exit 1. Cover both bounds; NEVER a panic/abort (exit 134).
+    for (min_v, max_v) in [("nan", "200"), ("0", "nan")] {
+        let out = o("clamp_nan.png");
+        let res = run_viprs(&["clamp", &fx(AGRAY), &out, "--min", min_v, "--max", max_v]);
+        assert!(
+            !res.status.success(),
+            "a NaN clamp bound (--min {min_v} --max {max_v}) must be rejected"
+        );
+        assert_eq!(
+            res.status.code(),
+            Some(1),
+            "expected a clean exit 1 for a NaN bound (--min {min_v} --max {max_v}), \
+             not the core assert abort"
+        );
+    }
 }
 
 #[test]
