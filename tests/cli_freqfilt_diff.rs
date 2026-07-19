@@ -125,7 +125,7 @@ fn fwfft_matches_vips_fourier() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn invfft_complex_matches_vips_fourier() {
+fn invfft_real_input_complex_output_matches_vips_fourier() {
     if skip_if_no_cli("invfft") {
         return;
     }
