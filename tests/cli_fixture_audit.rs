@@ -73,6 +73,111 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // extract_band: single band + --n consecutive bands.
     "bands/extract_band1_expected.png",
     "bands/extract_bandn_expected.png",
+    // ---- extract family (cli_extract_diff.rs) ----
+    // Common inputs (sub1.png = 1-band insert-broadcast payload).
+    "extract/gray.png",
+    "extract/rgb.png",
+    "extract/sub.png",
+    "extract/sub1.png",
+    // extract_area / crop (alias).
+    "extract/extract_area_expected.png",
+    "extract/crop_expected.png",
+    // embed: black, copy/repeat/mirror/white extend enum, background vector.
+    "extract/embed_black_expected.png",
+    "extract/embed_copy_expected.png",
+    "extract/embed_repeat_expected.png",
+    "extract/embed_mirror_expected.png",
+    "extract/embed_white_expected.png",
+    "extract/embed_bg_expected.png",
+    // gravity: centre + dash-spelled south-east + north-west.
+    "extract/gravity_centre_expected.png",
+    "extract/gravity_se_expected.png",
+    "extract/gravity_nw_expected.png",
+    // replicate / zoom / subsample.
+    "extract/replicate_expected.png",
+    "extract/zoom_expected.png",
+    "extract/subsample_expected.png",
+    // insert: non-expand + expand (canvas grows) + 1-band-sub bandalike broadcast.
+    "extract/insert_expected.png",
+    "extract/insert_expand_expected.png",
+    "extract/insert_bandalike_expected.png",
+    // smartcrop: EXACT geometry + attention + all, and the GOLDEN-ONLY entropy pin.
+    "extract/smartcrop_centre_expected.png",
+    "extract/smartcrop_low_expected.png",
+    "extract/smartcrop_high_expected.png",
+    "extract/smartcrop_attention_expected.png",
+    "extract/smartcrop_all_expected.png",
+    "extract/smartcrop_entropy_golden.png",
+    // ---- conversion family (cli_conversion_diff.rs) ----
+    // Common inputs.
+    "conversion/gray.png",
+    "conversion/gray2.png",
+    "conversion/gray3.png",
+    "conversion/rgb.png",
+    "conversion/rgba.png",
+    // Discriminating inputs (adversarial-review findings 1/2/3/5): grad (2-D
+    // gradient, for flip/rot/wrap), nb16 (non-palindromic 16-bit, for byteswap),
+    // mb16 (3-band 16-bit, for msb --band), ramp256 (full 0..255 domain, LUT ops).
+    "conversion/grad.png",
+    "conversion/nb16.v",
+    "conversion/mb16.v",
+    "conversion/ramp256.png",
+    "conversion/odd.png",
+    "conversion/stack.png",
+    "conversion/cond.png",
+    "conversion/cond2.png",
+    // autorot: `viprs`-minted oriented input (libviprs ignores vips'
+    // orientation metadata) + the base for the rot-d90 reference.
+    "conversion/autorot_base.png",
+    "conversion/autorot_oriented.v",
+    // References.
+    "conversion/copy_expected.png",
+    "conversion/cast_ushort_expected.v",
+    "conversion/cast_float_expected.v",
+    "conversion/flip_horizontal_expected.png",
+    "conversion/flip_vertical_expected.png",
+    "conversion/rot_d90_expected.png",
+    "conversion/rot_d180_expected.png",
+    "conversion/rot45_d45_expected.png",
+    "conversion/byteswap_expected.v",
+    "conversion/msb_expected.png",
+    "conversion/msb_band0_expected.png",
+    "conversion/grid_expected.png",
+    "conversion/flatten_expected.png",
+    "conversion/ifthenelse_expected.png",
+    "conversion/autorot_expected.png",
+    "conversion/wrap_expected.png",
+    "conversion/gamma_expected.png",
+    "conversion/gamma_exp2_expected.png",
+    "conversion/falsecolour_expected.png",
+    "conversion/addalpha_expected.png",
+    "conversion/arrayjoin_expected.png",
+    "conversion/grey_float_expected.v",
+    "conversion/grey_uchar_expected.png",
+    "conversion/identity_expected.v",
+    "conversion/identity_ushort_expected.v",
+    "conversion/switch_expected.png",
+    // ---- core family (cli_core_diff.rs) ----
+    // Common inputs: two distinct sRGB RGB sources + two Gray8 sources (sums
+    // > 255, exercising the 8→16-bit widening) + a constant float `.v`.
+    "core/add_a.png",
+    "core/add_b.png",
+    "core/gray_a.png",
+    "core/gray_b.png",
+    "core/getpoint_float.v",
+    // Non-dyadic float input (getpoint numeric-eps de-rig case).
+    "core/getpoint_float_nd.v",
+    // 16-bit ushort inputs (add 16-bit-reject error case; INPUTS only).
+    "core/u16_a.v",
+    "core/u16_b.v",
+    // add (EXACT-AFTER-CAST, tol 0): rgb + gray, carried as ushort `.v`.
+    "core/add_rgb_expected.v",
+    "core/add_gray_expected.v",
+    // getpoint (S3): rgb vector, gray scalar, float vector, non-dyadic float.
+    "core/getpoint_rgb_expected.txt",
+    "core/getpoint_gray_expected.txt",
+    "core/getpoint_float_expected.txt",
+    "core/getpoint_float_nd_expected.txt",
 ];
 
 #[test]
