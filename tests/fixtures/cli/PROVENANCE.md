@@ -314,3 +314,68 @@ substring; CLI_CONTRACT.md §8) and need no vips reference. Note: vips `add`
 BAND-BROADCASTS a 1-band operand across a multi-band one; core requires EQUAL
 band counts, so the channel-mismatch case is a documented SUBSET limitation (core
 cannot broadcast without a core change), not a parity claim.
+
+---
+
+# mosaicing family CLI-differential reference provenance
+
+These fixtures are the committed references the mosaicing CLI-differential suite
+(`tests/cli_mosaicing_diff.rs`) decode-compares `viprs` output against.
+Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
+
+- **Oracle**: `vips-8.18.4`
+- **`merge` / `mosaic` are EXACT** (decode-compare tol 0): the integer feather
+  ramp and the DISCRETE tie-point search agree with vips bit-for-bit on these
+  inputs (verified max-abs-diff 0). vips's CLI needs a `--` separator to pass a
+  negative `merge` displacement (`vips merge … horizontal -- -28 0`); `viprs`
+  takes the negative positional directly, so both see the same DX/DY.
+- **`globalbalance` is GOLDEN-ONLY**: NO vips cross-oracle exists — the core
+  reads the `mosaic-join-tree` blob only viprs merge/mosaic writes, while vips's
+  globalbalance reads its own filename-based history (mutually unreadable). The
+  input `balance_input.v` is minted by `viprs merge` and the reference
+  `balance_expected.v` by `viprs globalbalance` — a deterministic regression
+  pin, not a parity check.
+- **Common inputs** (under `mosaicing/`): `merge_ref.png`/`merge_sec.png`
+  (40x32 Gray8, distinct-seed textures for the non-vacuous seam blend),
+  `merge_rgb.png` (40x32 sRGB, for the format-mismatch error case),
+  `mosaic_h_ref.png`/`mosaic_h_sec.png` (100x150 crops of a 110x150 noise
+  scene, x-offset 10 → 90x150 overlap), `mosaic_v_ref.png`/`mosaic_v_sec.png`
+  (150x100 crops of a 150x110 scene, y-offset 10). `mosaic` inputs are large
+  because its search needs 3 strips × 20 high-contrast windows — an inherent
+  property of the op, not a fixture choice. `balance_input.v` is a viprs mosaic
+  (INPUT only, carries the blob).
+
+## Exact commands
+
+Inputs:
+
+```
+vips gaussnoise mg1.v 40 32 --seed 1 --mean 140 --sigma 45 ; vips cast mg1.v mosaicing/merge_ref.png uchar
+vips gaussnoise mg2.v 40 32 --seed 2 --mean 130 --sigma 45 ; vips cast mg2.v mosaicing/merge_sec.png uchar
+# merge_rgb: bandjoin of three distinct-seed 40x32 grays, re-tagged sRGB
+vips gaussnoise mbh.v 110 150 --seed 7  --mean 128 --sigma 60 ; vips cast mbh.v mbh.png uchar
+vips extract_area mbh.png mosaicing/mosaic_h_ref.png 0  0 100 150
+vips extract_area mbh.png mosaicing/mosaic_h_sec.png 10 0 100 150
+vips gaussnoise mbv.v 150 110 --seed 11 --mean 128 --sigma 60 ; vips cast mbv.v mbv.png uchar
+vips extract_area mbv.png mosaicing/mosaic_v_ref.png 0 0  150 100
+vips extract_area mbv.png mosaicing/mosaic_v_sec.png 0 10 150 100
+# globalbalance input (minted by viprs, carries the join-tree blob):
+viprs merge gb1.png gb2.png mosaicing/balance_input.v horizontal -40 0
+```
+
+References (paths relative to `tests/fixtures/cli/`):
+
+| reference | oracle class | command |
+|---|---|---|
+| `mosaicing/merge_h_expected.png` | EXACT | `vips merge merge_ref.png merge_sec.png merge_h_expected.png horizontal -- -28 0` |
+| `mosaicing/merge_v_expected.png` | EXACT | `vips merge merge_ref.png merge_sec.png merge_v_expected.png vertical -- 0 -22` |
+| `mosaicing/mosaic_h_expected.png` | EXACT | `vips mosaic mosaic_h_ref.png mosaic_h_sec.png mosaic_h_expected.png horizontal 50 75 40 75` |
+| `mosaicing/mosaic_v_expected.png` | EXACT | `vips mosaic mosaic_v_ref.png mosaic_v_sec.png mosaic_v_expected.png vertical 75 50 75 40` |
+| `mosaicing/balance_expected.v` | GOLDEN-ONLY | `viprs globalbalance balance_input.v balance_expected.v` (NO vips oracle) |
+
+`merge` rejects a format mismatch (a Gray8 REF + an sRGB SEC) with a typed
+exit-1 error, and `globalbalance` rejects an input without the join-tree blob
+(a plain PNG) the same way; both are asserted in `cli_mosaicing_diff.rs`
+(nonzero exit + a viprs-side message substring; CLI_CONTRACT.md §8) and need no
+reference output. `--mblend N` (N != 10) is rejected because the core fixes the
+blend width at the vips default 10 (a documented subset).
