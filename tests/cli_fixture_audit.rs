@@ -73,6 +73,49 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // extract_band: single band + --n consecutive bands.
     "bands/extract_band1_expected.png",
     "bands/extract_bandn_expected.png",
+    // ---- conversion family (cli_conversion_diff.rs) ----
+    // Common inputs.
+    "conversion/gray.png",
+    "conversion/gray2.png",
+    "conversion/gray3.png",
+    "conversion/rgb.png",
+    "conversion/rgba.png",
+    "conversion/gray16.png",
+    "conversion/odd.png",
+    "conversion/stack.png",
+    "conversion/cond.png",
+    "conversion/cond2.png",
+    // autorot: `viprs`-minted oriented input (libviprs ignores vips'
+    // orientation metadata) + the base for the rot-d90 reference.
+    "conversion/autorot_base.png",
+    "conversion/autorot_oriented.v",
+    // References.
+    "conversion/copy_expected.png",
+    "conversion/cast_ushort_expected.v",
+    "conversion/cast_float_expected.v",
+    "conversion/flip_horizontal_expected.png",
+    "conversion/flip_vertical_expected.png",
+    "conversion/rot_d90_expected.png",
+    "conversion/rot_d180_expected.png",
+    "conversion/rot45_d45_expected.png",
+    "conversion/byteswap_expected.v",
+    "conversion/msb_expected.png",
+    "conversion/msb_band0_expected.png",
+    "conversion/grid_expected.png",
+    "conversion/flatten_expected.png",
+    "conversion/ifthenelse_expected.png",
+    "conversion/autorot_expected.png",
+    "conversion/wrap_expected.png",
+    "conversion/gamma_expected.png",
+    "conversion/gamma_exp2_expected.png",
+    "conversion/falsecolour_expected.png",
+    "conversion/addalpha_expected.png",
+    "conversion/arrayjoin_expected.png",
+    "conversion/grey_float_expected.v",
+    "conversion/grey_uchar_expected.png",
+    "conversion/identity_expected.v",
+    "conversion/identity_ushort_expected.v",
+    "conversion/switch_expected.png",
 ];
 
 #[test]
