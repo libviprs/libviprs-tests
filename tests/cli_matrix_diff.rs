@@ -22,10 +22,14 @@
 //! f32-cast results match to within f32 rounding: the measured max-abs-diff is
 //! exactly `0` for `matrixinvert` (both paths) and `5.96e-8` — one f32 ULP at
 //! 1.0 — for `invertlut` (its tail extrapolates to 1.0, where the f32 round of
-//! vips's double differs from the core's f32 by a single LSB). [`MATRIX_TOL`]
-//! (1e-6) sits ~16x above that measured f32 ULP. The 1e-9 f64 tol the OP_MAP
-//! note assumed is unreachable with an f32 carrier (see the wave report open
-//! question); the honest, measured f32 tol is used here.
+//! vips's double differs from the core's f32 by a single LSB). The two carry
+//! DIFFERENT tolerances, honest to each measurement: [`MATRIXINVERT_TOL`] (`0.0`,
+//! EXACT-AFTER-CAST) for the two `matrixinvert` cases — they are bit-identical to
+//! vips, so a `0.0` tol catches any deviation down to a single ULP a shared 1e-6
+//! would absorb — and [`MATRIX_TOL`] (1e-6, ~16x above the ULP) for the two
+//! `invertlut` cases, which alone genuinely need a nonzero bound. The 1e-9 f64
+//! tol the OP_MAP note assumed is unreachable with an f32 carrier (see the wave
+//! report open question); the honest, measured f32 tols are used here.
 //!
 //! Coverage is DISCRIMINATING (a no-op / identity op FAILS): `matrixinvert` on a
 //! non-identity matrix yields a visibly different inverse (an identity op would
@@ -49,16 +53,29 @@ use common::cli::{cli_available, cli_fixture, decode_compare, run_viprs, run_vip
 
 use tempfile::TempDir;
 
-/// BOUNDED-TOL for both matrix ops (CLI_CONTRACT.md §5): an f32-carrier epsilon.
+/// BOUNDED-TOL for `invertlut` only (CLI_CONTRACT.md §5): an f32-carrier epsilon.
 /// The core stores f64 results as f32; the reference is the vips double result
-/// cast to float, so the compare is f32-vs-f32. The faithful port makes the two
-/// agree to within f32 rounding — the measured max-abs-diff is 0 for
-/// `matrixinvert` and 5.96e-8 (one f32 ULP at 1.0) for `invertlut`. `1e-6` sits
-/// ~16x above that measured f32 ULP: tight enough to catch a real regression,
-/// loose enough for f32 rounding (a value libvips could never reach with a
-/// double carrier, but the honest bound for an f32 one — the OP_MAP 1e-9 was
-/// written assuming double storage).
+/// cast to float, so the compare is f32-vs-f32. `invertlut`'s tail extrapolates
+/// to 1.0, where the f32 round of vips's double differs from the core's f32 by a
+/// single LSB — a measured max-abs-diff of 5.96e-8 (one f32 ULP at 1.0). `1e-6`
+/// sits ~16x above that measured f32 ULP: tight enough to catch a real
+/// regression, loose enough for that genuine f32 rounding (a value libvips could
+/// never reach with a double carrier, but the honest bound for an f32 one — the
+/// OP_MAP 1e-9 was written assuming double storage). NOTE: `matrixinvert` does
+/// NOT use this — its two paths are bit-identical to vips after the f32 cast, so
+/// it uses [`MATRIXINVERT_TOL`] (0.0) instead, keeping this looser bound honest
+/// to invertlut's actual ULP rather than sharing it as a lowest-common-denominator.
 const MATRIX_TOL: f64 = 1e-6;
+
+/// EXACT-AFTER-CAST for `matrixinvert` (both paths): the core is a bit-identical
+/// f64 port of libvips' `matrixinvert.c`, so the f32-cast core result and the
+/// vips-double-cast-to-float reference COINCIDE exactly — the measured
+/// max-abs-diff is `0` on BOTH the 3×3 direct-cofactor (n<4) and 4×4 PLU (n≥4)
+/// paths. A `0.0` tol therefore holds today and STRENGTHENS the differential: it
+/// catches any deviation, down to a single f32 ULP (~6e-8) — e.g. a future
+/// pivot-order change — that the shared 1e-6 (~1e6x looser than the true error)
+/// would silently absorb. Only `invertlut` genuinely needs a nonzero tol.
+const MATRIXINVERT_TOL: f64 = 0.0;
 
 /// Skip-guard: `true` (with a printed reason) when the CLI sibling is absent.
 ///
@@ -117,7 +134,7 @@ fn matrixinvert_3x3_direct_matches_vips_bounded_tol() {
     decode_compare(
         &out,
         &cli_fixture("matrix/matrixinvert3_expected.v"),
-        MATRIX_TOL,
+        MATRIXINVERT_TOL,
     );
 }
 
@@ -137,7 +154,7 @@ fn matrixinvert_4x4_plu_matches_vips_bounded_tol() {
     decode_compare(
         &out,
         &cli_fixture("matrix/matrixinvert4_expected.v"),
-        MATRIX_TOL,
+        MATRIXINVERT_TOL,
     );
 }
 
@@ -277,5 +294,52 @@ fn invertlut_size_below_one_is_usage_error() {
     assert!(
         !output.status.success(),
         "a --size below 1 must be a usage error"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// invertlut — the clap-accepts / core-rejects size band (65537..=1000000). clap
+// mirrors vips's DECLARED metadata range (1..=1000000, matrix.rs:123) while the
+// core (`try_invertlut_size`) caps at 1..=65536 and returns `BadSize` (exit 1)
+// above that. A value like 100000 PASSES clap's parse-time bound and hits the
+// core's narrowing/BadSize path (matrix.rs:186) — the only place a future
+// off-by-one or unchecked cast in that narrowing would regress, and untested by
+// the sub-1 (clap exit 2) case above or the 1000001 (clap exit 2) unit test. It
+// is a viprs-side 'size' message and a clean typed exit 1 (NOT a 101 panic, NOT
+// a clap exit 2). This also locks in a genuine PARITY quirk: vips independently
+// caps invertlut at 65536 despite its own declared 1000000 max, so both reject.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn invertlut_size_above_core_cap_is_error_not_panic() {
+    if skip_if_no_cli("invertlut_size_above_core_cap") {
+        return;
+    }
+    // 100000 is inside clap's 1..=1000000 (so it parses) but above the core's
+    // 1..=65536 cap → a typed exit-1 BadSize error, never a panic (101) or a
+    // clap usage error (2).
+    let out = out_path("bigsize_out.v");
+    let output = run_viprs(&[
+        "invertlut",
+        &fx(LUT),
+        out.to_str().unwrap(),
+        "--size",
+        "100000",
+    ]);
+    assert!(
+        !output.status.success(),
+        "a --size above the core's 65536 cap must exit nonzero"
+    );
+    let code = output.status.code();
+    assert_eq!(
+        code,
+        Some(1),
+        "clap-accepted / core-rejected --size must be a typed exit 1 (not a 101 \
+         panic or a clap usage exit 2), got: {code:?}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("size"),
+        "expected a viprs-side 'size' message, got: {stderr}"
     );
 }

@@ -359,6 +359,15 @@ References (paths relative to `tests/fixtures/cli/`):
 | `matrix/invertlut_size64_expected.v` | BOUNDED-TOL (f32, 1 ULP = 5.96e-8) | `vips invertlut lut.mat il64.v --size 64` then `vips cast il64.v invertlut_size64_expected.v float` |
 
 Bounds rejection (singular / non-square matrixinvert, out-of-range /
-too-few-columns invertlut, sub-range `--size`) is a typed exit-1 (or usage
+too-few-columns invertlut, sub-range `--size`, and a `--size` in the
+clap-accepts / core-rejects band 65537..=1000000) is a typed exit-1 (or usage
 exit-2) error with a `viprs`-side message, never a panic (CLI_CONTRACT.md §8);
-those cases build their tiny matrices in-test and need no committed reference.
+those cases build their tiny matrices in-test (or reuse `lut.mat`) and need no
+committed reference. The size band is a PARITY quirk: clap mirrors vips's
+declared `1..=1000000` metadata while the core caps at `1..=65536`, and vips
+itself independently rejects a size above 65536 despite its declared max — so a
+`--size 100000` is a clean exit-1 `BadSize` on both sides, not a panic.
+
+The `matrixinvert` cases compare at tol `0.0` (EXACT-AFTER-CAST — the f32-cast
+core result is bit-identical to the vips-double-cast-to-float reference); only the
+`invertlut` cases use the nonzero `1e-6` f32 tol.
