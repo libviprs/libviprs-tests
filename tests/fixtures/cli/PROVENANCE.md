@@ -321,6 +321,10 @@ cannot broadcast without a core change), not a parity claim.
 
 These fixtures are the committed vips oracle references the convolution
 CLI-differential suite (`tests/cli_convolution_diff.rs`) decode-compares
+# aritha family (arith part-A) CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references (and two viprs GOLDEN-ONLY
+pins) the aritha CLI-differential suite (`tests/cli_aritha_diff.rs`) compares
 `viprs` output against. Generated offline by `tools/gen_cli_expected.sh`,
 NEVER by CI.
 
@@ -550,6 +554,50 @@ Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
   output sized by `rarea.union(&sarea)`) unpinned. `merge_rgb_expected.png`
   (RGB horizontal) pins the former and `merge_fallback_expected.png` (positive
   dx 12) the latter — both verified bit-exact vs vips (max-abs-diff 0).
+- **Common inputs** (under `aritha/`): `agray.png` (16×16 Gray8 ramp),
+  `afloat.v` (4×4 float, hand-picked discriminating samples — crosses zero,
+  includes exactly 0.0 for `sign`'s zero branch, exact half-integers for `rint`'s
+  half-rule, and non-half fractionals so `rint`≠`floor`≠`ceil`; all dyadic, no
+  float wobble — for abs/sign/round),
+  `content.png` (black 6×7 block on white 20×20, for `find_trim`),
+  `content2.png` (white 5×4 block on black 20×20, for `find_trim --background 0`),
+  `pzero.png` (8×8 zero + 3×3 block at 2,3, for `profile`), `point.png` (32×32
+  black, one white pixel at 10,6, for the hough golden pins).
+- **Carriers**: S3 scalars → `.txt` (numeric compare, never text). `stats`/
+  `measure` double matrices → `vips … ; vips cast … float` `.v` (libviprs has no
+  f64 pixel format); `stats` is cropped to the 6 core columns (min/max/sum/sum2/
+  mean/sd — vips's 4 position columns 6..10 are a documented core subset gap).
+  `profile`/`project` are 16-bit — vips emits INT/UINT, cast to ushort (lossless
+  for the small values) to match the core's ushort carrier — `.v`. `linear`
+  (float), `math2_const`, `abs`, `sign`, `round` → float `.v`; `linear --uchar`,
+  `remainder_const`, `clamp` → PNG.
+
+## `round rint` divergence (GOLDEN-ONLY, a real core limitation)
+
+`round rint` GENUINELY diverges from vips 8.18.4 at exact half-integers — not a
+bounded tolerance. The core maps `f64::round` (rounds half AWAY from zero:
+0.5→1, 2.5→3, −2.5→−3) while vips's C `rint` rounds half TO EVEN (0.5→0, 2.5→2,
+−2.5→−2). The old `510*grey−255` afloat never produced an x.5 sample, so this was
+invisible (and `round_rint_expected.v` was byte-identical to `round_floor`); the
+honest afloat above reaches x.5 and the two diverge deterministically (measured
+max-abs-diff 1). So `round_rint_golden.v` is minted by `viprs` itself
+(deterministic) and the test is a regression pin. `ceil`/`floor` have no tie and
+stay EXACT against vips. **A core issue is filed to reconcile `rint` with
+round-half-to-even (and to correct the `arithmetic.rs` doc comment that wrongly
+states vips `rint` "rounds halves away from zero").**
+
+## Hough divergence (GOLDEN-ONLY, a real core limitation)
+
+`hough_line` and `hough_circle` GENUINELY diverge from vips 8.18.4 — not a
+bounded tolerance. `hough_line`'s distance binning is offset by one accumulator
+cell: ≤1 per independent vote, but a horizontal line (many collinear votes)
+concentrates into an adjacent peak cell for a measured max-abs-diff of **32**.
+`hough_circle` uses a different per-cell vote model: a single voting point yields
+a core per-cell max of **1** but a vips per-cell max of **4**. There is thus no
+meaningful vips tolerance oracle, so the references `hough_line_golden.v` /
+`hough_circle_golden.v` are minted by `viprs` itself (deterministic) and the
+tests are regression pins. **A core issue is filed to reconcile the Hough
+binning / vote model with vips.**
 
 ## Exact commands
 
@@ -673,6 +721,20 @@ vips extract_area mbv.png mosaicing/mosaic_v_ref.png 0 0  150 100
 vips extract_area mbv.png mosaicing/mosaic_v_sec.png 0 10 150 100
 # globalbalance input (minted by viprs, carries the join-tree blob):
 viprs merge gb1.png gb2.png mosaicing/balance_input.v horizontal -40 0
+vips grey ag.v 16 16
+vips linear ag.v aritha/agray.png 255 0 --uchar
+vips linear ag.v aritha/afloat.v 510 " -255"
+vips black blk.v 6 7 --bands 1 ; vips linear blk.v blk.png 0 0 --uchar
+vips embed blk.png aritha/content.png 4 5 20 20 --extend white
+vips black blkbg.v 20 20 --bands 1 ; vips linear blkbg.v blkbg.png 0 0 --uchar
+vips black wblk.v 5 4 --bands 1 ; vips linear wblk.v wblk.png 0 255 --uchar
+vips insert blkbg.png wblk.png aritha/content2.png 3 2
+vips black pz.v 8 8 --bands 1 ; vips linear pz.v pz.png 0 0 --uchar
+vips black pblk.v 3 3 --bands 1 ; vips linear pblk.v pblk.png 0 255 --uchar
+vips insert pz.png pblk.png aritha/pzero.png 2 3
+vips black hb.v 32 32 --bands 1 ; vips linear hb.v hblack.png 0 0 --uchar
+vips black pt.v 1 1 --bands 1 ; vips linear pt.v pt.png 0 255 --uchar
+vips insert hblack.png pt.png aritha/point.png 10 6
 ```
 
 References (paths relative to `tests/fixtures/cli/`):
@@ -1021,3 +1083,32 @@ coefficient table, so some interior samples land 2 apart. This is a genuine,
 measured core-vs-vips rounding difference (not a CLI bug); the differential
 compares that one case at tol 2. A follow-up could tighten the core bicubic
 coefficient path toward vips's table if exact bicubic parity is ever required.
+| `aritha/avg_expected.txt` | EXACT (S3, rational mean → rel-eps) | `vips avg agray.png` |
+| `aritha/deviate_expected.txt` | BOUNDED-TOL (S3, rel-eps) | `vips deviate agray.png` |
+| `aritha/min_expected.txt` | EXACT (S3, integer) | `vips min agray.png` |
+| `aritha/max_expected.txt` | EXACT (S3, integer) | `vips max agray.png` |
+| `aritha/min_xy_expected.txt` | EXACT (S3, x/y/value) | `vips min agray.png --x --y` |
+| `aritha/max_xy_expected.txt` | EXACT (S3, x/y/value) | `vips max agray.png --x --y` |
+| `aritha/find_trim_expected.txt` | EXACT (S3, 4 ints) | `vips find_trim content.png` |
+| `aritha/find_trim_bg_expected.txt` | EXACT (S3, 4 ints) | `vips find_trim content2.png --background 0` |
+| `aritha/stats_expected.v` | BOUNDED-TOL (matrix, meas. 0) | `vips stats agray.png st.v` → `extract_area … 0 0 6 2` → `cast … float` |
+| `aritha/measure_expected.v` | BOUNDED-TOL (matrix, meas. 0) | `vips measure agray.png ms.v 2 2` → `cast … float` |
+| `aritha/profile_cols_expected.v` / `_rows_` | EXACT | `vips profile pzero.png pcol.v prow.v` → `cast … ushort` |
+| `aritha/project_cols_expected.v` / `_rows_` | EXACT | `vips project agray.png qcol.v qrow.v` → `cast … ushort` |
+| `aritha/linear_expected.v` | EXACT-AFTER-CAST (float, meas. 0) | `vips linear agray.png linear_expected.v 2 10` |
+| `aritha/linear_uchar_expected.png` | EXACT | `vips linear agray.png linear_uchar_expected.png 2 10 --uchar` |
+| `aritha/remainder_const_expected.png` | EXACT | `vips remainder_const agray.png remainder_const_expected.png 100` |
+| `aritha/math2_const_pow_expected.v` | EXACT-AFTER-CAST (ushort, meas. 0) | `vips math2_const agray.png pow.v pow 2` → `cast … ushort` (core rounds pow into ushort) |
+| `aritha/abs_expected.v` | EXACT (float) | `vips abs afloat.v abs_expected.v` |
+| `aritha/sign_expected.v` | EXACT-AFTER-CAST (float) | `vips sign afloat.v sign.v` → `cast … float` (vips emits signed char; float preserves −1/0/1; afloat now includes exactly 0.0 so the zero→0 branch is exercised) |
+| `aritha/round_ceil_expected.v` / `_floor_` | EXACT (float) | `vips round afloat.v … ceil\|floor` (no tie-break; matches vips exactly) |
+| `aritha/round_rint_golden.v` | GOLDEN-ONLY (no vips oracle) | `viprs round afloat.v round_rint_golden.v rint` — core `f64::round` (half away from zero) diverges from vips's C `rint` (half to even) at exact half-integers (measured max-abs-diff 1); viprs regression pin, core issue filed |
+| `aritha/clamp_expected.png` | EXACT | `vips clamp agray.png clamp_expected.png --min 50 --max 200` |
+| `aritha/hough_line_golden.v` | GOLDEN-ONLY (no vips oracle) | `viprs hough_line point.png hough_line_golden.v` (core binning diverges from vips) |
+| `aritha/hough_circle_golden.v` | GOLDEN-ONLY (no vips oracle) | `viprs hough_circle point.png hough_circle_golden.v 2 4` (core vote model diverges from vips) |
+
+The two hough references are viprs-generated regression pins, not vips oracles:
+the core's Hough distance-binning (line) and circle vote model differ
+structurally from vips 8.18.4 (measured max-abs-diff 32 on a line; a core per-cell
+max of 1 vs a vips max of 4 for a single point). A core issue is filed to
+reconcile them.
