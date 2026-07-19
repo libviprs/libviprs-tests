@@ -167,5 +167,149 @@ that does not round-trip through PNG or the libviprs \`.v\` decoder; the ushort
 cast is lossless for the label range (region ids ≤ segment count).
 EOF
 
+# ===========================================================================
+# BANDS FAMILY (the first per-family Wave-2 lane; OP_MAP.md bands section).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_bands_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. Every bands op is oracle class EXACT
+# (integer-in / integer-out, decode-compare tol 0). All outputs are chosen to
+# land on a 1/3/4-band uchar PNG so the committed reference round-trips through
+# the libviprs decoder losslessly (2-band and ≥5-band carriers would need `.v`,
+# which vips writes in its own container the libviprs decoder is not pinned to).
+# ===========================================================================
+BANDS="$FIX_ROOT/bands"
+mkdir -p "$BANDS"
+
+# --- Common inputs -----------------------------------------------------------
+# Three DISTINCT single-band 16x16 Gray8 images (a horizontal ramp, a scaled +
+# offset horizontal ramp, and a vertical ramp), then an RGB built by joining
+# them (re-tagged sRGB so a 3-band PNG saves as clean RGB, NOT a b-w image that
+# vips pngsave would alpha-pad to 4 bands) and an RGBA (rgb + the first gray).
+# `vips grey` is a pure coordinate function (0..1 float ramp), so every fixture
+# is bit-reproducible.
+echo "==> [bands input] three 16x16 Gray8 sources + rgb (srgb) + rgba (srgb)"
+"$VIPS" grey "$TMP/bgrey.v" 16 16
+"$VIPS" linear "$TMP/bgrey.v" "$BANDS/gray.png"  255 0  --uchar
+"$VIPS" linear "$TMP/bgrey.v" "$BANDS/gray2.png" 200 10 --uchar
+"$VIPS" rot "$TMP/bgrey.v" "$TMP/bgrey_v.v" d90
+"$VIPS" linear "$TMP/bgrey_v.v" "$BANDS/gray3.png" 255 0 --uchar
+"$VIPS" bandjoin "$BANDS/gray.png $BANDS/gray2.png $BANDS/gray3.png" "$TMP/rgb.v"
+"$VIPS" copy "$TMP/rgb.v" "$BANDS/rgb.png" --interpretation srgb
+"$VIPS" bandjoin "$BANDS/rgb.png $BANDS/gray.png" "$TMP/rgba.v"
+"$VIPS" copy "$TMP/rgba.v" "$BANDS/rgba.png" --interpretation srgb
+
+# --- References — one vips run per differential case -------------------------
+# Carrier choice: 1-band and sRGB-tagged 3/4-band outputs go to PNG (which the
+# libviprs decoder round-trips). bandfold and bandjoin_const produce a b-w
+# multiband result — vips's PNG encoder colour-PROMOTES that (gray→RGB, dropping
+# bands) and the libviprs TIFF decoder rejects a 4-band multiband TIFF — so they
+# are carried as the native `.v` container, which preserves the raw bands and
+# which the libviprs decoder reads back losslessly (CLI_CONTRACT.md §2 N-band).
+echo "==> [bandjoin] rgb + gray -> 4-band rgba PNG (S2 variadic, 2 inputs)"
+"$VIPS" bandjoin "$BANDS/rgb.png $BANDS/gray.png" "$BANDS/bandjoin_expected.png"
+
+# A THREE-input bandjoin so the run_bandjoin accumulation loop runs MORE THAN
+# ONE iteration — the true >=3 variadic fold (the S2 template) the 2-input case
+# above cannot exercise (B3). Joining three DISTINCT single-band grays yields a
+# 3-band b-w multiband result; carried as native `.v` (vips's PNG encoder would
+# colour-promote a b-w multiband image), which the libviprs decoder round-trips.
+echo "==> [bandjoin] 3 distinct grays -> 3-band b-w .v (>=3 variadic fold)"
+"$VIPS" bandjoin "$BANDS/gray.png $BANDS/gray2.png $BANDS/gray3.png" \
+    "$BANDS/bandjoin3_expected.v"
+
+echo "==> [bandjoin_const] gray + \"10 20 30\" -> 4-band b-w .v (multi-element vector)"
+"$VIPS" bandjoin_const "$BANDS/gray.png" "$BANDS/bandjoin_const_expected.v" "10 20 30"
+
+echo "==> [bandfold] gray --factor 4 -> 4x16 4-band b-w .v"
+"$VIPS" bandfold "$BANDS/gray.png" "$BANDS/bandfold_expected.v" --factor 4
+
+echo "==> [bandunfold] rgb (default factor = unfold all) -> 48x16 1-band PNG"
+"$VIPS" bandunfold "$BANDS/rgb.png" "$BANDS/bandunfold_expected.png"
+
+# BOUNDED-TOL (≤1 LSB), NOT EXACT: rgb.png is a bandjoin of three DISTINCT grays,
+# so a per-pixel band sum is generally NOT divisible by 3. The core FLOORS the
+# integer mean (truncating division) while vips ROUNDS to nearest, so the two
+# diverge by at most one LSB — an honest, non-vacuous BOUNDED-TOL case (the old
+# rgb_eq.png had three identical bands, making mean == input: divisible AND
+# arithmetically vacuous). The bands cell decode-compares this at tol 1.
+echo "==> [bandmean] rgb (3 distinct bands) -> 1-band mean PNG (BOUNDED-TOL ≤1 LSB)"
+"$VIPS" bandmean "$BANDS/rgb.png" "$BANDS/bandmean_expected.png"
+
+echo "==> [bandrank] 3 grays: median (default) + min (--index 0)"
+"$VIPS" bandrank "$BANDS/gray.png $BANDS/gray2.png $BANDS/gray3.png" \
+    "$BANDS/bandrank_median_expected.png"
+"$VIPS" bandrank "$BANDS/gray.png $BANDS/gray2.png $BANDS/gray3.png" \
+    "$BANDS/bandrank_min_expected.png" --index 0
+
+echo "==> [bandbool] rgb -> 1-band and | or | eor"
+"$VIPS" bandbool "$BANDS/rgb.png" "$BANDS/bandbool_and_expected.png" and
+"$VIPS" bandbool "$BANDS/rgb.png" "$BANDS/bandbool_or_expected.png"  or
+"$VIPS" bandbool "$BANDS/rgb.png" "$BANDS/bandbool_eor_expected.png" eor
+
+echo "==> [extract_band] rgb band 1 -> 1-band; rgba band 1 --n 3 -> 3-band"
+"$VIPS" extract_band "$BANDS/rgb.png"  "$BANDS/extract_band1_expected.png" 1
+"$VIPS" extract_band "$BANDS/rgba.png" "$BANDS/extract_bandn_expected.png" 1 --n 3
+
+# --- Provenance (append the bands section) -----------------------------------
+echo "==> [provenance] appending bands section to $FIX_ROOT/PROVENANCE.md"
+cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
+
+---
+
+# bands family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the bands
+CLI-differential suite (\`tests/cli_bands_diff.rs\`) decode-compares \`viprs\`
+output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`bands/\`): \`gray.png\`, \`gray2.png\`, \`gray3.png\`
+  (three distinct 16×16 Gray8 sources), \`rgb.png\` (their bandjoin re-tagged
+  sRGB, 3-band — also the DISTINCT-band, non-divisible input for the honest
+  \`bandmean\` BOUNDED-TOL case), \`rgba.png\` (\`rgb\` + \`gray\`, sRGB, 4-band).
+- **Carriers**: 1-band and sRGB 3/4-band outputs → PNG. \`bandfold\`,
+  \`bandjoin_const\`, and the ≥3-input \`bandjoin3\` produce a b-w multiband
+  result vips's PNG encoder would colour-promote (and the libviprs TIFF decoder
+  rejects at 4 bands), so they are carried as the native \`.v\` container (raw
+  bands, libviprs-decodable).
+
+## Exact commands
+
+Inputs:
+
+\`\`\`
+vips grey bgrey.v 16 16
+vips linear bgrey.v bands/gray.png  255 0  --uchar
+vips linear bgrey.v bands/gray2.png 200 10 --uchar
+vips rot bgrey.v bgrey_v.v d90
+vips linear bgrey_v.v bands/gray3.png 255 0 --uchar
+vips bandjoin "bands/gray.png bands/gray2.png bands/gray3.png" rgb.v
+vips copy rgb.v bands/rgb.png --interpretation srgb
+vips bandjoin "bands/rgb.png bands/gray.png" rgba.v
+vips copy rgba.v bands/rgba.png --interpretation srgb
+\`\`\`
+
+References (paths relative to \`tests/fixtures/cli/\`):
+
+| reference | oracle class | vips command |
+|---|---|---|
+| \`bands/bandjoin_expected.png\` | EXACT | \`vips bandjoin "rgb.png gray.png" bandjoin_expected.png\` (2 inputs) |
+| \`bands/bandjoin3_expected.v\` | EXACT | \`vips bandjoin "gray.png gray2.png gray3.png" bandjoin3_expected.v\` (≥3 inputs → multi-iteration fold) |
+| \`bands/bandjoin_const_expected.v\` | EXACT | \`vips bandjoin_const gray.png bandjoin_const_expected.v "10 20 30"\` |
+| \`bands/bandfold_expected.v\` | EXACT | \`vips bandfold gray.png bandfold_expected.v --factor 4\` |
+| \`bands/bandunfold_expected.png\` | EXACT | \`vips bandunfold rgb.png bandunfold_expected.png\` (default factor = unfold all) |
+| \`bands/bandmean_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips bandmean rgb.png bandmean_expected.png\` (3 distinct bands → core floors vs vips rounds, tol 1) |
+| \`bands/bandrank_median_expected.png\` | EXACT | \`vips bandrank "gray.png gray2.png gray3.png" bandrank_median_expected.png\` |
+| \`bands/bandrank_min_expected.png\` | EXACT | \`vips bandrank "gray.png gray2.png gray3.png" bandrank_min_expected.png --index 0\` |
+| \`bands/bandbool_and_expected.png\` | EXACT | \`vips bandbool rgb.png bandbool_and_expected.png and\` |
+| \`bands/bandbool_or_expected.png\` | EXACT | \`vips bandbool rgb.png bandbool_or_expected.png or\` |
+| \`bands/bandbool_eor_expected.png\` | EXACT | \`vips bandbool rgb.png bandbool_eor_expected.png eor\` |
+| \`bands/extract_band1_expected.png\` | EXACT | \`vips extract_band rgb.png extract_band1_expected.png 1\` |
+| \`bands/extract_bandn_expected.png\` | EXACT | \`vips extract_band rgba.png extract_bandn_expected.png 1 --n 3\` |
+EOF
+
 echo "==> Done. Generated fixtures under $FIX_ROOT"
 ls -1 "$FIX"
+echo "--- bands ---"
+ls -1 "$BANDS"

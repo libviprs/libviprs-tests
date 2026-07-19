@@ -48,3 +48,56 @@ References (paths relative to `tests/fixtures/cli/`):
 The label mask is carried as a 16-bit TIFF because vips emits an INT-band mask
 that does not round-trip through PNG or the libviprs `.v` decoder; the ushort
 cast is lossless for the label range (region ids ≤ segment count).
+
+---
+
+# bands family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references the bands
+CLI-differential suite (`tests/cli_bands_diff.rs`) decode-compares `viprs`
+output against. Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
+
+- **Oracle**: `vips-8.18.4`
+- **Common inputs** (under `bands/`): `gray.png`, `gray2.png`, `gray3.png`
+  (three distinct 16×16 Gray8 sources), `rgb.png` (their bandjoin re-tagged
+  sRGB, 3-band — also the DISTINCT-band, non-divisible input for the honest
+  `bandmean` BOUNDED-TOL case), `rgba.png` (`rgb` + `gray`, sRGB, 4-band).
+- **Carriers**: 1-band and sRGB 3/4-band outputs → PNG. `bandfold`,
+  `bandjoin_const`, and the ≥3-input `bandjoin3` produce a b-w multiband
+  result vips's PNG encoder would colour-promote (and the libviprs TIFF decoder
+  rejects at 4 bands), so they are carried as the native `.v` container (raw
+  bands, libviprs-decodable).
+
+## Exact commands
+
+Inputs:
+
+```
+vips grey bgrey.v 16 16
+vips linear bgrey.v bands/gray.png  255 0  --uchar
+vips linear bgrey.v bands/gray2.png 200 10 --uchar
+vips rot bgrey.v bgrey_v.v d90
+vips linear bgrey_v.v bands/gray3.png 255 0 --uchar
+vips bandjoin "bands/gray.png bands/gray2.png bands/gray3.png" rgb.v
+vips copy rgb.v bands/rgb.png --interpretation srgb
+vips bandjoin "bands/rgb.png bands/gray.png" rgba.v
+vips copy rgba.v bands/rgba.png --interpretation srgb
+```
+
+References (paths relative to `tests/fixtures/cli/`):
+
+| reference | oracle class | vips command |
+|---|---|---|
+| `bands/bandjoin_expected.png` | EXACT | `vips bandjoin "rgb.png gray.png" bandjoin_expected.png` (2 inputs) |
+| `bands/bandjoin3_expected.v` | EXACT | `vips bandjoin "gray.png gray2.png gray3.png" bandjoin3_expected.v` (≥3 inputs → multi-iteration fold) |
+| `bands/bandjoin_const_expected.v` | EXACT | `vips bandjoin_const gray.png bandjoin_const_expected.v "10 20 30"` |
+| `bands/bandfold_expected.v` | EXACT | `vips bandfold gray.png bandfold_expected.v --factor 4` |
+| `bands/bandunfold_expected.png` | EXACT | `vips bandunfold rgb.png bandunfold_expected.png` (default factor = unfold all) |
+| `bands/bandmean_expected.png` | BOUNDED-TOL ≤1 LSB | `vips bandmean rgb.png bandmean_expected.png` (3 distinct bands → core floors vs vips rounds, tol 1) |
+| `bands/bandrank_median_expected.png` | EXACT | `vips bandrank "gray.png gray2.png gray3.png" bandrank_median_expected.png` |
+| `bands/bandrank_min_expected.png` | EXACT | `vips bandrank "gray.png gray2.png gray3.png" bandrank_min_expected.png --index 0` |
+| `bands/bandbool_and_expected.png` | EXACT | `vips bandbool rgb.png bandbool_and_expected.png and` |
+| `bands/bandbool_or_expected.png` | EXACT | `vips bandbool rgb.png bandbool_or_expected.png or` |
+| `bands/bandbool_eor_expected.png` | EXACT | `vips bandbool rgb.png bandbool_eor_expected.png eor` |
+| `bands/extract_band1_expected.png` | EXACT | `vips extract_band rgb.png extract_band1_expected.png 1` |
+| `bands/extract_bandn_expected.png` | EXACT | `vips extract_band rgba.png extract_bandn_expected.png 1 --n 3` |
