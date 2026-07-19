@@ -876,7 +876,8 @@ fn multithreaded_stress_100_small_pyramids() {
 /// * `DedupeStrategy::Blanks` (canonicalise blank tiles)
 /// * `FailurePolicy::RetryThenFail` with 2 retries and 1 ms backoff
 /// * `BlankTileStrategy::PlaceholderWithTolerance { max_channel_delta: 3 }`
-/// * `ResumeMode::Resume` (no prior state, so behaves like a fresh run)
+/// * `ResumeMode::Overwrite` (fresh run; the #272 stopgap refuses
+///   resume combined with dedupe/checksum, and this test never had prior state)
 /// * `ManifestBuilder::new().with_checksums(Blake3)` for versioned manifest
 ///
 /// The run must complete without error.
@@ -904,7 +905,7 @@ fn full_phase3_pipeline_integration() {
                 .with_jitter(false),
         ));
 
-    run_resumable(&src, &plan, &sink, &cfg, ResumeMode::Resume).unwrap();
+    run_resumable(&src, &plan, &sink, &cfg, ResumeMode::Overwrite).unwrap();
 
     // Belt-and-braces: the manifest must exist and parse.
     let m_bytes = std::fs::read(root.path().join("pyramid.manifest.json")).unwrap();
@@ -952,7 +953,7 @@ fn verify_mode_on_output_of_full_pipeline() {
                 .with_jitter(false),
         ));
 
-    run_resumable(&src, &plan, &sink, &cfg, ResumeMode::Resume).unwrap();
+    run_resumable(&src, &plan, &sink, &cfg, ResumeMode::Overwrite).unwrap();
 
     let report = verify_output(&base).expect("verify_output must pass on full-pipeline output");
     assert!(
@@ -1012,7 +1013,7 @@ fn verify_mode_on_dedupe_blanks_with_default_emit_strategy() {
         cfg.blank_tile_strategy
     );
 
-    run_resumable(&src, &plan, &sink, &cfg, ResumeMode::Resume).unwrap();
+    run_resumable(&src, &plan, &sink, &cfg, ResumeMode::Overwrite).unwrap();
 
     // Non-vacuity guard: the whole point of this case is the dedupe-reference
     // path, so at least one 1-byte reference file must exist on disk. Without

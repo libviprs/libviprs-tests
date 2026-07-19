@@ -35,4 +35,14 @@
 # max-coord errors, #361 with_config compose-not-clobber). The draw-op /
 # engine-config / arithmetic-message review-repro cells build and pass
 # against this counterpart.
-bd2e3f4fc6c4c287607aa041d6da82a83b006486
+#
+# Bumped for the resume/dedupe determinism fixes: #450 (#272 stopgap:
+# hard-error resume combined with dedupe/checksum until sink-side manifest
+# seeding lands) and #451 (#275: content-addressed deterministic dedupe
+# placement — finish() canonicalises the full-payload holder to the
+# coordinate-minimal occurrence). The three fresh-dir resume+dedupe/checksum
+# pipeline tests in phase3_validation_stress.rs are migrated Resume->Overwrite
+# (they never had prior state; the stopgap now refuses resume+dedupe/checksum),
+# and the new resume_dedupe_unsupported / dedupe_deterministic_layout cells
+# build and pass against this counterpart.
+6583ad58b77a15b916bbdd2f14c1a9a48af74b58
