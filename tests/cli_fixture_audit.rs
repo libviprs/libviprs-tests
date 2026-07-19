@@ -280,6 +280,47 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "histogram/hist_local_golden.png",
     "histogram/hist_local_clahe_golden.png",
     "histogram/percent_golden.txt",
+    // ---- composite family (cli_composite_diff.rs) ----
+    // Common inputs: translucent RGBA base/overlay (varying alpha) + opaque RGB
+    // counterparts + a 1-band grey (band-mismatch error case, no reference).
+    "composite/base.png",
+    "composite/overlay.png",
+    "composite/base_op.png",
+    "composite/overlay_op.png",
+    "composite/gray.png",
+    // Porter-Duff simple modes on TRANSLUCENT inputs (real vips oracle, tol 1).
+    "composite/composite2_over_expected.png",
+    "composite/composite2_source_expected.png",
+    "composite/composite2_in_expected.png",
+    "composite/composite2_xor_expected.png",
+    "composite/composite2_add_expected.png",
+    "composite/composite2_dest_over_expected.png",
+    // composite (vips array form) over on translucent inputs.
+    "composite/composite_over_expected.png",
+    // PDF separable blends on OPAQUE inputs (real vips oracle, tol 1).
+    "composite/composite2_multiply_expected.png",
+    "composite/composite2_screen_expected.png",
+    "composite/composite2_overlay_expected.png",
+    "composite/composite2_darken_expected.png",
+    "composite/composite2_hardlight_expected.png",
+    "composite/composite2_difference_expected.png",
+    "composite/composite2_exclusion_expected.png",
+    "composite/composite2_colourdodge_expected.png",
+    // Remaining 9 modes on OPAQUE inputs (real vips oracle, tol 1) — every one of
+    // the 25 VipsBlendMode spellings is discriminated, closing the wiring hole.
+    "composite/composite2_clear_expected.png",
+    "composite/composite2_out_expected.png",
+    "composite/composite2_dest_expected.png",
+    "composite/composite2_dest_in_expected.png",
+    "composite/composite2_dest_out_expected.png",
+    "composite/composite2_dest_atop_expected.png",
+    "composite/composite2_lighten_expected.png",
+    "composite/composite2_colourburn_expected.png",
+    "composite/composite2_softlight_expected.png",
+    // GOLDEN-ONLY translucent divergence pins (viprs-generated, no vips oracle).
+    "composite/composite2_multiply_translucent_golden.png",
+    "composite/composite2_atop_translucent_golden.png",
+    "composite/composite2_saturate_translucent_golden.png",
 ];
 
 #[test]

@@ -429,6 +429,51 @@ round trips (`icc_export`, `icc_transform`) reproduce vips's output EXACTLY
 (measured 0), and the intermediate D50 Lab PCS (`icc_import`) agrees to ~0.31
 Lab units. CMYK / LUT profiles interpolate different grids between the two CMSs
 and diverge by design — they are out of scope for this cross-oracle.
+# composite family CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references (and `viprs` golden
+pins) the composite CLI-differential suite (`tests/cli_composite_diff.rs`)
+decode-compares `viprs` output against. Generated offline by
+`tools/gen_cli_expected.sh`, NEVER by CI.
+
+- **Oracle**: `vips-8.18.4`
+- **Common inputs** (under `composite/`): `base.png`, `overlay.png` (8×8 sRGB
+  RGBA with 2-D structure and a VARYING alpha, so translucent compositing is
+  exercised at every alpha), `base_op.png`, `overlay_op.png` (their opaque
+  3-band RGB counterparts).
+- **Op**: the core blends exactly two images with one blend mode
+  (`try_composite2`); both `composite` (vips array form) and `composite2`
+  (vips pair form) map onto it. `MODE` is one of the 25 vips `VipsBlendMode`
+  spellings; the four core-only non-separable modes
+  (hue/saturation/colour/luminosity) are NOT exposed (no vips oracle). vips's
+  `--x`/`--y`/`--compositing-space`/`--premultiplied` are not in core and
+  keep their defaults (0/0/srgb/false).
+
+## Honest oracle split — a measured core-vs-vips divergence (flagged)
+
+Compositing **opaque** inputs, all 25 modes agree with vips to **≤1 LSB**. With
+**translucent** alpha, only the Porter-Duff *simple* operators
+(clear/source/over/in/out/dest/dest-over/dest-in/dest-out/xor/add) still agree
+≤1 LSB; the 11 PDF separable blends AND the alpha-weighted Porter-Duff operators
+**atop/dest-atop/saturate** diverge **wholesale** (measured max-abs-diff up to
+215), because the core's translucent blend-composite formula differs from
+libvips'. Accordingly:
+
+- Porter-Duff simple modes are pinned on the **translucent** inputs (real vips
+  oracle, arbitrary alpha, tol 1).
+- PDF separable blends are pinned on the **opaque** inputs (real vips oracle,
+  non-vacuous blend-function coverage, tol 1).
+- The translucent divergence is pinned separately as **GOLDEN-ONLY** `viprs`
+  regression pins (multiply/atop/saturate on the translucent inputs) — there is
+  no cross-oracle for translucent blend compositing. This is tracked as a filed
+  GitHub issue (aligning the core's translucent blend-composite formula with
+  libvips), NOT a comment-only open question. If a core translucent-blend fix
+  lands, these pins are EXPECTED to fail: REGENERATE and re-bless them, do not
+  revert the core change.
+- The remaining nine modes (clear/out/dest/dest-in/dest-out/dest-atop/lighten/
+  colour-burn/soft-light) are pinned on the **opaque** inputs (real vips oracle,
+  tol 1) so that every one of the 25 `VipsBlendMode` spellings is discriminated
+  against vips — a mode->variant mis-wiring cannot pass CI unnoticed.
 
 ## Exact commands
 
@@ -511,6 +556,17 @@ vips hist_find histogram/gray.png hf_u.v ; vips cast hf_u.v histogram/hist.v ush
 vips hist_cum histogram/hist.v hc_u.v ; vips cast hc_u.v histogram/histcum.v ushort
 vips hist_find hg2.png hf2_u.v ; vips cast hf2_u.v histogram/hist2.v ushort
 vips hist_norm histogram/histcum.v histogram/lut.v
+vips grey pg.v 8 8 ; vips rot pg.v pgv.v d90
+vips linear pg.v  pb0.v 255 0  --uchar   # base band0 (horizontal ramp)
+vips linear pgv.v pb1.v 255 0  --uchar   # base band1 (vertical ramp)
+vips linear pg.v  pb2.v 128 40 --uchar   # base band2
+vips linear pgv.v pba.v 200 55 --uchar   # base alpha (varying)
+vips bandjoin "pb0.v pb1.v pb2.v"        pbase_op.v ; vips copy pbase_op.v composite/base_op.png --interpretation srgb
+vips bandjoin "pb0.v pb1.v pb2.v pba.v"  pbase.v    ; vips copy pbase.v    composite/base.png    --interpretation srgb
+vips linear pgv.v po0.v 200 20 --uchar ; vips linear pg.v po1.v 150 30 --uchar
+vips linear pgv.v po2.v 255 0  --uchar ; vips linear pg.v poa.v 180 40 --uchar
+vips bandjoin "po0.v po1.v po2.v"        pover_op.v ; vips copy pover_op.v composite/overlay_op.png --interpretation srgb
+vips bandjoin "po0.v po1.v po2.v poa.v"  pover.v    ; vips copy pover.v    composite/overlay.png    --interpretation srgb
 ```
 
 References (paths relative to `tests/fixtures/cli/`):
@@ -591,3 +647,35 @@ core result is bit-identical to the vips-double-cast-to-float reference); only t
 typed exit-1 error (the core's `read_flat` would otherwise abort on a float
 raster; the CLI guards it before touching the core — CLI_CONTRACT.md §8), pinned
 by `hist_find_rejects_float_input_without_panicking`.
+| `composite/composite2_over_expected.png`      | BOUNDED-TOL ≤1 LSB | `vips composite2 base.png overlay.png composite2_over_expected.png over` |
+| `composite/composite2_source_expected.png`    | BOUNDED-TOL ≤1 LSB | `vips composite2 base.png overlay.png composite2_source_expected.png source` |
+| `composite/composite2_in_expected.png`        | BOUNDED-TOL ≤1 LSB | `vips composite2 base.png overlay.png composite2_in_expected.png in` |
+| `composite/composite2_xor_expected.png`       | BOUNDED-TOL ≤1 LSB | `vips composite2 base.png overlay.png composite2_xor_expected.png xor` |
+| `composite/composite2_add_expected.png`       | BOUNDED-TOL ≤1 LSB | `vips composite2 base.png overlay.png composite2_add_expected.png add` |
+| `composite/composite2_dest_over_expected.png` | BOUNDED-TOL ≤1 LSB | `vips composite2 base.png overlay.png composite2_dest_over_expected.png dest-over` |
+| `composite/composite_over_expected.png`       | BOUNDED-TOL ≤1 LSB | `vips composite "base.png overlay.png" composite_over_expected.png 2` (array form; over = int 2) |
+| `composite/composite2_multiply_expected.png`    | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_multiply_expected.png multiply` |
+| `composite/composite2_screen_expected.png`      | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_screen_expected.png screen` |
+| `composite/composite2_overlay_expected.png`     | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_overlay_expected.png overlay` |
+| `composite/composite2_darken_expected.png`      | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_darken_expected.png darken` |
+| `composite/composite2_hardlight_expected.png`   | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_hardlight_expected.png hard-light` |
+| `composite/composite2_difference_expected.png`  | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_difference_expected.png difference` |
+| `composite/composite2_exclusion_expected.png`   | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_exclusion_expected.png exclusion` |
+| `composite/composite2_colourdodge_expected.png` | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_colourdodge_expected.png colour-dodge` |
+| `composite/composite2_clear_expected.png`     | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_clear_expected.png clear` |
+| `composite/composite2_out_expected.png`       | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_out_expected.png out` |
+| `composite/composite2_dest_expected.png`      | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_dest_expected.png dest` |
+| `composite/composite2_dest_in_expected.png`   | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_dest_in_expected.png dest-in` |
+| `composite/composite2_dest_out_expected.png`  | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_dest_out_expected.png dest-out` |
+| `composite/composite2_dest_atop_expected.png` | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_dest_atop_expected.png dest-atop` |
+| `composite/composite2_lighten_expected.png`   | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_lighten_expected.png lighten` |
+| `composite/composite2_colourburn_expected.png`| BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_colourburn_expected.png colour-burn` |
+| `composite/composite2_softlight_expected.png` | BOUNDED-TOL ≤1 LSB (OPAQUE) | `vips composite2 base_op.png overlay_op.png composite2_softlight_expected.png soft-light` |
+| `composite/composite2_multiply_translucent_golden.png` | GOLDEN-ONLY | `viprs composite2 base.png overlay.png composite2_multiply_translucent_golden.png multiply` (NO vips oracle — translucent divergence ~38; a core translucent-blend fix requires REGENERATING this pin, not reverting) |
+| `composite/composite2_atop_translucent_golden.png`     | GOLDEN-ONLY | `viprs composite2 base.png overlay.png composite2_atop_translucent_golden.png atop` (NO vips oracle — translucent divergence ~191; a core translucent-blend fix requires REGENERATING this pin, not reverting) |
+| `composite/composite2_saturate_translucent_golden.png` | GOLDEN-ONLY | `viprs composite2 base.png overlay.png composite2_saturate_translucent_golden.png saturate` (NO vips oracle — translucent divergence ~37; a core translucent-blend fix requires REGENERATING this pin, not reverting) |
+
+Error cases (asserted in `cli_composite_diff.rs`, no vips reference): a size /
+band-count mismatch is a typed exit-1 error; an unknown or core-only
+non-separable (`hue`/`saturation`/`colour`/`luminosity`) mode and a third input
+are clap usage exit-2 errors (CLI_CONTRACT.md §8).
