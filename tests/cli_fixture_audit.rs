@@ -190,6 +190,9 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // EXACT count / LUT references (vips uint cast to ushort).
     "histogram/hist_find_expected.v",
     "histogram/hist_find_band_expected.v",
+    // --band 2 (diagonal band, triangular histogram distinct from band 0):
+    // pins band-index honouring, not just the 1-vs-3-band output shape.
+    "histogram/hist_find_band2_expected.v",
     "histogram/hist_find_indexed_expected.v",
     "histogram/hist_find_ndim_expected.v",
     "histogram/hist_cum_expected.v",

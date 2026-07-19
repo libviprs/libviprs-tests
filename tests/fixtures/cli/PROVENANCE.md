@@ -326,7 +326,10 @@ output against. Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
 
 - **Oracle**: `vips-8.18.4`
 - **Common image inputs** (under `histogram/`): `gray.png` (16×16 Gray8 ramp),
-  `rgb.png` (16×16 sRGB 3-band), `index.png` (16×16 Gray8, four levels 0..3).
+  `rgb.png` (16×16 sRGB 3-band: band 0 = horizontal ramp, band 1 = a scaled
+  ramp (max 210), band 2 = a DIAGONAL gradient reaching 255 with a triangular
+  histogram distinct from band 0's — so `--band 2` pins band-index honouring),
+  `index.png` (16×16 Gray8, four levels 0..3).
 - **Committed histogram inputs**: `hist.v`/`hist2.v` (256×1 ushort histograms
   of gray/gray2), `histcum.v` (256×1 ushort cumulative), `lut.v` (256×1 uchar
   equalisation LUT = norm ∘ cum ∘ find). Fed to BOTH vips and `viprs`.
@@ -365,7 +368,8 @@ Inputs (paths relative to `tests/fixtures/cli/`):
 vips grey hg.v 16 16
 vips linear hg.v histogram/gray.png 255 0 --uchar
 vips linear hg.v hg2.png 200 10 --uchar
-vips rot hg.v hg_v.v d90 ; vips linear hg_v.v hg3.png 255 0 --uchar
+vips rot hg.v hg_v.v d90
+vips add hg.v hg_v.v hg_diag.v ; vips linear hg_diag.v hg3.png 127.5 0 --uchar  # band 2 diagonal, reaches 255
 vips bandjoin "histogram/gray.png hg2.png hg3.png" hrgb.v
 vips copy hrgb.v histogram/rgb.png --interpretation srgb
 vips linear hg.v hidxf.v 3 0 ; vips cast hidxf.v histogram/index.png uchar
@@ -381,6 +385,7 @@ References (paths relative to `tests/fixtures/cli/`):
 |---|---|---|
 | `histogram/hist_find_expected.v` | EXACT | `vips hist_find gray.png rf.v` → `vips cast rf.v … ushort` |
 | `histogram/hist_find_band_expected.v` | EXACT | `vips hist_find rgb.png rfb.v --band 0` → cast ushort (band 0 = full 0..255 ramp; vips trims trailing-zero bins so a band with max < 255 would mismatch on width) |
+| `histogram/hist_find_band2_expected.v` | EXACT | `vips hist_find rgb.png rfb2.v --band 2` → cast ushort (band 2 = diagonal gradient, triangular histogram distinct from band 0 — pins band-index honouring; reaches 255 so no trailing-zero trim) |
 | `histogram/hist_find_indexed_expected.v` | EXACT | `vips hist_find_indexed gray.png index.png ri.v` → cast ushort |
 | `histogram/hist_find_ndim_expected.v` | EXACT | `vips hist_find_ndim rgb.png rn.v --bins 4` → cast ushort |
 | `histogram/hist_cum_expected.v` | EXACT | `vips hist_cum hist.v rc.v` → cast ushort |

@@ -156,6 +156,27 @@ fn hist_find_band_matches_vips_exact() {
     );
 }
 
+// hist_find --band 2 on the 3-band rgb input. Band 2 is a DIAGONAL gradient
+// whose value histogram is triangular (31 nonzero bins, counts 1..16..1) —
+// provably DISTINCT from band 0's uniform ramp histogram (16 bins, each count
+// 16), so this case actually verifies that `--band N` reads band N: a bug that
+// ignored N and always read band 0 would produce band 0's histogram and fail
+// here. Band 2 reaches 255 (like band 0), so vips does not trailing-zero-trim
+// and the count comparison over the full 256-bin range is a genuine EXACT.
+#[test]
+fn hist_find_band2_matches_vips_exact() {
+    if skip_if_no_cli("hist_find_band2") {
+        return;
+    }
+    let out = out_path("hist_find_band2.v");
+    run_viprs_ok(&["hist_find", &fx(RGB), out.to_str().unwrap(), "--band", "2"]);
+    decode_compare(
+        &out,
+        &cli_fixture("histogram/hist_find_band2_expected.v"),
+        EXACT,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // hist_find_indexed — S2 (2 fixed inputs), per-index sample sums (EXACT).
 // ---------------------------------------------------------------------------

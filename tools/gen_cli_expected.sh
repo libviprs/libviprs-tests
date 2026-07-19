@@ -944,7 +944,17 @@ echo "==> [histogram input] gray (16x16 Gray8) + rgb (srgb 3-band) + index (0..3
 "$VIPS" linear "$TMP/hg.v" "$HIST/gray.png" 255 0 --uchar
 "$VIPS" linear "$TMP/hg.v" "$TMP/hg2.png" 200 10 --uchar
 "$VIPS" rot "$TMP/hg.v" "$TMP/hg_v.v" d90
-"$VIPS" linear "$TMP/hg_v.v" "$TMP/hg3.png" 255 0 --uchar
+# band 2: a 2-D DIAGONAL gradient (x+y), scaled so the far corner reaches 255.
+# A plain VERTICAL ramp (rot d90 of the horizontal ramp) reaches 255 too, but its
+# value histogram is IDENTICAL to band 0's uniform ramp histogram — so a
+# "always reads band 0" bug would still pass a `--band 2` case (the band index is
+# never actually exercised). The diagonal has a TRIANGULAR value histogram (31
+# nonzero bins, counts 1..16..1) that is provably DISTINCT from band 0's (16 bins,
+# each count 16), so `hist_find --band 2` genuinely verifies band-index honouring.
+# It still reaches 255 (round((x+y)*127.5)=255 at the corner), so vips does not
+# trailing-zero-trim and the case stays a genuine EXACT (width 256 both sides).
+"$VIPS" add "$TMP/hg.v" "$TMP/hg_v.v" "$TMP/hg_diag.v"
+"$VIPS" linear "$TMP/hg_diag.v" "$TMP/hg3.png" 127.5 0 --uchar
 "$VIPS" bandjoin "$HIST/gray.png $TMP/hg2.png $TMP/hg3.png" "$TMP/hrgb.v"
 "$VIPS" copy "$TMP/hrgb.v" "$HIST/rgb.png" --interpretation srgb
 # index: a 4-level (0..3) image so hist_find_indexed sums into distinct bins.
@@ -970,11 +980,16 @@ echo "==> [histogram input] hist.v / histcum.v / hist2.v (ushort) + lut.v (uchar
 # comparison is a genuine EXACT — the trailing-zero-trim width difference is a
 # representational nicety, not a count divergence. A band whose max < 255 (e.g.
 # band 1, gray2 max 210 → width 211) would mismatch on width alone; see the wave
-# report's open question.
-echo "==> [hist_find] gray (all bands) + rgb --band 0 (full 0..255 range) -> ushort .v (EXACT)"
+# report's open question. The `--band 2` case pins band-index honouring: band 2
+# is the DIAGONAL gradient (distinct triangular histogram from band 0), so a bug
+# that ignored N and always read band 0 would fail here (band 0 and band 2 both
+# reach 255, so neither is trailing-zero-trimmed — both are genuine EXACT).
+echo "==> [hist_find] gray (all bands) + rgb --band 0 + rgb --band 2 (full 0..255 range) -> ushort .v (EXACT)"
 "$VIPS" hist_find "$HIST/gray.png" "$TMP/rf.v";  "$VIPS" cast "$TMP/rf.v"  "$HIST/hist_find_expected.v" ushort
 "$VIPS" hist_find "$HIST/rgb.png" "$TMP/rfb.v" --band 0
 "$VIPS" cast "$TMP/rfb.v" "$HIST/hist_find_band_expected.v" ushort
+"$VIPS" hist_find "$HIST/rgb.png" "$TMP/rfb2.v" --band 2
+"$VIPS" cast "$TMP/rfb2.v" "$HIST/hist_find_band2_expected.v" ushort
 
 echo "==> [hist_find_indexed] gray + index -> ushort .v (EXACT)"
 "$VIPS" hist_find_indexed "$HIST/gray.png" "$HIST/index.png" "$TMP/ri.v"
@@ -1032,7 +1047,10 @@ output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
 
 - **Oracle**: \`$VIPS_VERSION\`
 - **Common image inputs** (under \`histogram/\`): \`gray.png\` (16×16 Gray8 ramp),
-  \`rgb.png\` (16×16 sRGB 3-band), \`index.png\` (16×16 Gray8, four levels 0..3).
+  \`rgb.png\` (16×16 sRGB 3-band: band 0 = horizontal ramp, band 1 = a scaled
+  ramp (max 210), band 2 = a DIAGONAL gradient reaching 255 with a triangular
+  histogram distinct from band 0's — so \`--band 2\` pins band-index honouring),
+  \`index.png\` (16×16 Gray8, four levels 0..3).
 - **Committed histogram inputs**: \`hist.v\`/\`hist2.v\` (256×1 ushort histograms
   of gray/gray2), \`histcum.v\` (256×1 ushort cumulative), \`lut.v\` (256×1 uchar
   equalisation LUT = norm ∘ cum ∘ find). Fed to BOTH vips and \`viprs\`.
@@ -1071,7 +1089,8 @@ Inputs (paths relative to \`tests/fixtures/cli/\`):
 vips grey hg.v 16 16
 vips linear hg.v histogram/gray.png 255 0 --uchar
 vips linear hg.v hg2.png 200 10 --uchar
-vips rot hg.v hg_v.v d90 ; vips linear hg_v.v hg3.png 255 0 --uchar
+vips rot hg.v hg_v.v d90
+vips add hg.v hg_v.v hg_diag.v ; vips linear hg_diag.v hg3.png 127.5 0 --uchar  # band 2 diagonal, reaches 255
 vips bandjoin "histogram/gray.png hg2.png hg3.png" hrgb.v
 vips copy hrgb.v histogram/rgb.png --interpretation srgb
 vips linear hg.v hidxf.v 3 0 ; vips cast hidxf.v histogram/index.png uchar
@@ -1087,6 +1106,7 @@ References (paths relative to \`tests/fixtures/cli/\`):
 |---|---|---|
 | \`histogram/hist_find_expected.v\` | EXACT | \`vips hist_find gray.png rf.v\` → \`vips cast rf.v … ushort\` |
 | \`histogram/hist_find_band_expected.v\` | EXACT | \`vips hist_find rgb.png rfb.v --band 0\` → cast ushort (band 0 = full 0..255 ramp; vips trims trailing-zero bins so a band with max < 255 would mismatch on width) |
+| \`histogram/hist_find_band2_expected.v\` | EXACT | \`vips hist_find rgb.png rfb2.v --band 2\` → cast ushort (band 2 = diagonal gradient, triangular histogram distinct from band 0 — pins band-index honouring; reaches 255 so no trailing-zero trim) |
 | \`histogram/hist_find_indexed_expected.v\` | EXACT | \`vips hist_find_indexed gray.png index.png ri.v\` → cast ushort |
 | \`histogram/hist_find_ndim_expected.v\` | EXACT | \`vips hist_find_ndim rgb.png rn.v --bins 4\` → cast ushort |
 | \`histogram/hist_cum_expected.v\` | EXACT | \`vips hist_cum hist.v rc.v\` → cast ushort |
