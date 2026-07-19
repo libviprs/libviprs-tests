@@ -10,14 +10,18 @@
 //! `VIPRS_REQUIRE_CLI` discipline — and is itself the template later per-family
 //! differential waves copy.
 //!
-//! All eight bands commands are oracle class **EXACT** (integer-in /
-//! integer-out): decode comparison at tolerance 0. References land on a
+//! All bands commands are oracle class **EXACT** (integer-in / integer-out,
+//! decode comparison at tolerance 0) **except `bandmean`**, which is
+//! **BOUNDED-TOL** (≤1 LSB, tolerance 1): the core floors the per-pixel integer
+//! mean (truncating division) while vips rounds to nearest, so a non-divisible
+//! band sum diverges by at most one LSB (a documented core-vs-vips rounding
+//! difference, not a CLI bug — see the `bandmean` test). References land on a
 //! 1 / 3 / 4-band uchar PNG where the interpretation is clean (1-band, or
-//! sRGB-tagged 3/4-band); the two ops whose output is a **b-w multiband** image
-//! (`bandfold`, `bandjoin_const`) are carried as the native `.v` container
-//! instead, because vips's PNG encoder colour-promotes a b-w multiband image
-//! (mangling the raw bands) and the libviprs TIFF decoder rejects a 4-band
-//! multiband TIFF. `bandmean` uses a divisible-sum input (see its test).
+//! sRGB-tagged 3/4-band); the ops whose output is a **b-w multiband** image
+//! (`bandfold`, `bandjoin_const`, and the ≥3-input `bandjoin3` fold) are carried
+//! as the native `.v` container instead, because vips's PNG encoder
+//! colour-promotes a b-w multiband image (mangling the raw bands) and the
+//! libviprs TIFF decoder rejects a 4-band multiband TIFF.
 //!
 //! If the `libviprs-cli` sibling is not checked out (the default CI `test` job
 //! and the Docker gate clone only the core counterpart), every test SKIPS with
@@ -34,8 +38,13 @@ use common::cli::{cli_available, cli_fixture, decode_compare, run_viprs_ok};
 use tempfile::TempDir;
 
 /// EXACT oracle class: bit-exact decode comparison (CLI_CONTRACT.md §5). Every
-/// bands op is integer-in / integer-out.
+/// bands op is integer-in / integer-out — except `bandmean`.
 const EXACT: f64 = 0.0;
+
+/// BOUNDED-TOL for `bandmean` (CLI_CONTRACT.md §5): ≤1 LSB. Core floors the
+/// per-pixel integer mean; vips rounds to nearest; the two agree to within one
+/// least-significant bit on a distinct-band (non-divisible) input.
+const BANDMEAN_TOL: f64 = 1.0;
 
 /// Skip-guard: `true` (with a printed reason) when the CLI sibling is absent.
 ///
@@ -64,7 +73,6 @@ fn out_path(name: &str) -> PathBuf {
 // Common committed inputs (tests/fixtures/cli/bands/).
 const RGB: &str = "bands/rgb.png";
 const RGBA: &str = "bands/rgba.png";
-const RGB_EQ: &str = "bands/rgb_eq.png";
 const GRAY: &str = "bands/gray.png";
 const GRAY2: &str = "bands/gray2.png";
 const GRAY3: &str = "bands/gray3.png";
@@ -86,6 +94,29 @@ fn bandjoin_matches_vips_exact() {
     let out = out_path("bandjoin.png");
     run_viprs_ok(&["bandjoin", &fx(RGB), &fx(GRAY), out.to_str().unwrap()]);
     decode_compare(&out, &cli_fixture("bands/bandjoin_expected.png"), EXACT);
+}
+
+// ---------------------------------------------------------------------------
+// bandjoin — S2 variadic with THREE inputs (gray + gray2 + gray3 -> 3-band b-w).
+// The two-input case above runs run_bandjoin's accumulation loop exactly ONCE;
+// this ≥3-input case runs it MORE THAN once, exercising the true variadic fold
+// (the S2 template 14 later families copy). Carried as `.v` (b-w multiband).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn bandjoin_three_inputs_matches_vips_exact() {
+    if skip_if_no_cli("bandjoin3") {
+        return;
+    }
+    let out = out_path("bandjoin3.v");
+    run_viprs_ok(&[
+        "bandjoin",
+        &fx(GRAY),
+        &fx(GRAY2),
+        &fx(GRAY3),
+        out.to_str().unwrap(),
+    ]);
+    decode_compare(&out, &cli_fixture("bands/bandjoin3_expected.v"), EXACT);
 }
 
 // ---------------------------------------------------------------------------
@@ -147,21 +178,26 @@ fn bandunfold_matches_vips_exact() {
 }
 
 // ---------------------------------------------------------------------------
-// bandmean — S1 (rgb_eq -> 1-band per-pixel mean). The input has three
-// IDENTICAL bands so every per-pixel sum is divisible by the band count: core's
-// truncating integer division and vips's round-to-nearest then agree bit-for-
-// bit (a non-uniform input would diverge by ≤1 LSB — a core-vs-vips rounding
-// difference, not a CLI bug).
+// bandmean — S1 (rgb -> 1-band per-pixel mean). BOUNDED-TOL, NOT EXACT: rgb.png
+// is a bandjoin of three DISTINCT grays, so a per-pixel band sum is generally
+// NOT divisible by 3. Core uses truncating integer division (FLOOR); vips ROUNDS
+// to nearest; the two therefore diverge by at most one LSB. This is an honest,
+// non-vacuous case — the earlier rgb_eq.png had three identical bands, making
+// mean == input (divisible AND arithmetically vacuous). Compared at tol 1.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn bandmean_matches_vips_exact() {
+fn bandmean_matches_vips_bounded_tol() {
     if skip_if_no_cli("bandmean") {
         return;
     }
     let out = out_path("bandmean.png");
-    run_viprs_ok(&["bandmean", &fx(RGB_EQ), out.to_str().unwrap()]);
-    decode_compare(&out, &cli_fixture("bands/bandmean_expected.png"), EXACT);
+    run_viprs_ok(&["bandmean", &fx(RGB), out.to_str().unwrap()]);
+    decode_compare(
+        &out,
+        &cli_fixture("bands/bandmean_expected.png"),
+        BANDMEAN_TOL,
+    );
 }
 
 // ---------------------------------------------------------------------------

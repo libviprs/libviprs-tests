@@ -52,10 +52,11 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "bands/gray3.png",
     "bands/rgb.png",
     "bands/rgba.png",
-    "bands/rgb_eq.png",
-    // bandjoin (S2 variadic) -> 4-band rgba PNG; bandjoin_const (S1 vector) ->
-    // 4-band b-w .v (raw-band carrier; see cli_bands_diff.rs).
+    // bandjoin: 2-input (S2 variadic) -> 4-band rgba PNG, and 3-input (≥3
+    // variadic fold) -> 3-band b-w .v; bandjoin_const (S1 vector) -> 4-band b-w
+    // .v (raw-band carriers; see cli_bands_diff.rs).
     "bands/bandjoin_expected.png",
+    "bands/bandjoin3_expected.v",
     "bands/bandjoin_const_expected.v",
     // bandfold (.v, b-w multiband) / bandunfold (1-band PNG).
     "bands/bandfold_expected.v",
