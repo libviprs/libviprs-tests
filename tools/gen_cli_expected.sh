@@ -1626,6 +1626,42 @@ echo "==> [composite2] remaining 9 modes on OPAQUE RGB — mode-wiring coverage 
 # revert the core change. Promote them to real vips-oracle differentials once the
 # core matches libvips.
 echo "==> [composite2] translucent multiply/atop/saturate GOLDEN-ONLY viprs pins (no vips oracle)"
+# ARITHA FAMILY — arith part-A lane (statistics / const-linear / unary-rounding
+# / hough; OP_MAP.md arithmetic section, part A rows).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_aritha_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. `vips grey`/`linear`/`black`/`embed`/
+# `insert` are pure functions, so every fixture is bit-reproducible.
+#
+# Honest oracle classes (measured against vips 8.18.4):
+#  - S3 scalars (avg/deviate/min/max/find_trim) — numeric compare; min/max are
+#    integer-exact on an integer input, avg/deviate a rational mean at S3 rel-eps.
+#  - stats/measure — a double matrix; vips has no f64 PNG route and libviprs no
+#    f64 pixel format, so the reference is `vips … ; vips cast … float` → `.v`
+#    (f32). `stats` also drops vips's 4 position columns (6..10): the core
+#    computes only the first 6 (min/max/sum/sum2/mean/sd), a documented subset,
+#    so the reference is cropped to 6 columns. Both measured max-abs-diff 0.
+#  - profile/project — 16-bit; vips emits INT/UINT, cast to ushort (lossless for
+#    the small position/sum values) to match the core's ushort carrier. `.v`.
+#  - linear (float `.v` + `--uchar` PNG), remainder_const/clamp (PNG),
+#    math2_const pow / abs / sign / round ceil|floor (float `.v`) — all measured 0.
+#  - round rint — GOLDEN-ONLY: the core `f64::round` (half away from zero) diverges
+#    from vips's C `rint` (half to even) at exact half-integers (max-abs-diff 1 on
+#    the honest afloat, which now reaches x.5). A viprs regression pin, core issue
+#    filed. ceil/floor stay EXACT (no tie-break).
+#  - HOUGH — hough_line and hough_circle GENUINELY diverge from vips (a one-cell
+#    distance-binning offset that amplifies at a peak — a horizontal line
+#    measured max-abs-diff 32 — and a different circle vote model: a single
+#    point yields core max 1 vs vips max 4). Neither is a bounded tolerance, so
+#    both are carried GOLDEN-ONLY: a viprs-generated regression pin with NO vips
+#    oracle. A core issue is filed to reconcile the Hough numerics with vips.
+# ===========================================================================
+ARITHA="$FIX_ROOT/aritha"
+mkdir -p "$ARITHA"
+
+# `viprs` is needed to mint the two GOLDEN-ONLY hough references (no vips oracle).
+VIPRS="${VIPRS:-${CLI_DIR:-$REPO_ROOT/../libviprs-cli}/target/release/viprs}"
 if [ ! -x "$VIPRS" ]; then
     echo "    (building $VIPRS: cargo build --release --no-default-features --bin viprs)"
     ( cd "${CLI_DIR:-$REPO_ROOT/../libviprs-cli}" && cargo build --release --no-default-features --bin viprs )
@@ -2056,6 +2092,381 @@ echo "==> [thumbnail] rgb file 16 + non-square --crop centre + --linear; thumbna
 
 # --- Provenance (append the resample section) --------------------------------
 echo "==> [provenance] appending resample section to $FIX_ROOT/PROVENANCE.md"
+
+# --- Common inputs -----------------------------------------------------------
+echo "==> [aritha input] agray (16x16 Gray8 ramp) + afloat (4x4 float, discriminating)"
+"$VIPS" grey "$TMP/ag.v" 16 16
+"$VIPS" linear "$TMP/ag.v" "$ARITHA/agray.png" 255 0 --uchar
+# afloat: a HAND-PICKED 4x4 float image that reaches the domains the unary/rounding
+# ops actually branch on (adversarial-review aritha findings 2 & 4). The prior
+# `510*grey - 255` ramp landed only on near-integer values (34*i-255), so it (a)
+# NEVER hit an exact half-integer — hiding that the core `round rint` (f64::round,
+# half AWAY from zero) diverges from vips's C `rint` (half TO EVEN) at x.5 — and
+# (b) NEVER hit exactly 0.0, so `sign`'s zero→0 branch was untested. This input
+# fixes both: it crosses zero, includes exactly 0.0, several exact half-integers
+# (−2.5/−0.5/0.5/2.5 where core≠vips, plus −3.5/1.5/3.5/17.5 where they agree), and
+# non-half fractionals (0.25/−0.75) so `rint`≠`floor`≠`ceil` is discriminating.
+# Every value is exactly representable in f32 (dyadic), so there is no float wobble.
+# Built via csvload → cast float (vips linear cannot emit arbitrary per-pixel data).
+cat > "$TMP/afloat.csv" <<'CSV'
+-255.0,-3.5,-2.5,-0.75
+-0.5,0.0,0.25,0.5
+1.5,2.5,3.5,17.5
+85.25,128.0,223.125,255.0
+CSV
+"$VIPS" csvload "$TMP/afloat.csv" "$TMP/afloat_d.v"
+"$VIPS" cast "$TMP/afloat_d.v" "$ARITHA/afloat.v" float
+
+# find_trim content: a black 6x7 block embedded at (4,5) into a 20x20 WHITE
+# background (default background 255 → the block is content). find_trim must
+# return left=4 top=5 width=6 height=7 (a non-vacuous interior box).
+echo "==> [aritha input] content (black block on white, for find_trim default)"
+"$VIPS" black "$TMP/blk.v" 6 7 --bands 1
+"$VIPS" linear "$TMP/blk.v" "$TMP/blk.png" 0 0 --uchar
+"$VIPS" embed "$TMP/blk.png" "$ARITHA/content.png" 4 5 20 20 --extend white
+
+# find_trim --background 0 content: a white 5x4 block inserted at (3,2) into a
+# 20x20 BLACK background (background 0 → the white block is content).
+echo "==> [aritha input] content2 (white block on black, for find_trim --background 0)"
+"$VIPS" black "$TMP/blkbg.v" 20 20 --bands 1
+"$VIPS" linear "$TMP/blkbg.v" "$TMP/blkbg.png" 0 0 --uchar
+"$VIPS" black "$TMP/wblk.v" 5 4 --bands 1
+"$VIPS" linear "$TMP/wblk.v" "$TMP/wblk.png" 0 255 --uchar
+"$VIPS" insert "$TMP/blkbg.png" "$TMP/wblk.png" "$ARITHA/content2.png" 3 2
+
+# profile input: an 8x8 all-zero image with a 3x3 white block at (2,3), so the
+# first-non-zero column/row positions are discriminating (columns 2..4 → row 3;
+# rows 3..5 → column 2; every other line has no non-zero and reports 8).
+echo "==> [aritha input] pzero (8x8 zero + 3x3 block at 2,3, for profile)"
+"$VIPS" black "$TMP/pz.v" 8 8 --bands 1
+"$VIPS" linear "$TMP/pz.v" "$TMP/pz.png" 0 0 --uchar
+"$VIPS" black "$TMP/pblk.v" 3 3 --bands 1
+"$VIPS" linear "$TMP/pblk.v" "$TMP/pblk.png" 0 255 --uchar
+"$VIPS" insert "$TMP/pz.png" "$TMP/pblk.png" "$ARITHA/pzero.png" 2 3
+
+# hough input: a 32x32 black image with a single white pixel at (10,6). A single
+# voting point is a discriminating, non-vacuous Hough input (it votes for every
+# line through it / every circle centred one radius away).
+echo "==> [aritha input] point (32x32 black, one white pixel at 10,6, for hough)"
+"$VIPS" black "$TMP/hb.v" 32 32 --bands 1
+"$VIPS" linear "$TMP/hb.v" "$TMP/hblack.png" 0 0 --uchar
+"$VIPS" black "$TMP/pt.v" 1 1 --bands 1
+"$VIPS" linear "$TMP/pt.v" "$TMP/pt.png" 0 255 --uchar
+"$VIPS" insert "$TMP/hblack.png" "$TMP/pt.png" "$ARITHA/point.png" 10 6
+
+# --- References — one vips run per differential case -------------------------
+echo "==> [avg/deviate/min/max] S3 scalars"
+"$VIPS" avg     "$ARITHA/agray.png"          > "$ARITHA/avg_expected.txt"
+"$VIPS" deviate "$ARITHA/agray.png"          > "$ARITHA/deviate_expected.txt"
+"$VIPS" min     "$ARITHA/agray.png"          > "$ARITHA/min_expected.txt"
+"$VIPS" max     "$ARITHA/agray.png"          > "$ARITHA/max_expected.txt"
+# min/max with --x --y print x, then y, then the value (three lines).
+"$VIPS" min     "$ARITHA/agray.png" --x --y  > "$ARITHA/min_xy_expected.txt"
+"$VIPS" max     "$ARITHA/agray.png" --x --y  > "$ARITHA/max_xy_expected.txt"
+
+echo "==> [find_trim] default (white bg) + --background 0 (black bg), 4 ints each"
+"$VIPS" find_trim "$ARITHA/content.png"                 > "$ARITHA/find_trim_expected.txt"
+"$VIPS" find_trim "$ARITHA/content2.png" --background 0 > "$ARITHA/find_trim_bg_expected.txt"
+
+# stats: vips emits a 10-column double matrix (cols 6..10 are min/max positions
+# the core does not compute); crop to the first 6 columns (min/max/sum/sum2/mean/
+# sd) and cast to float so the reference matches the core's f32 6-col matrix.
+echo "==> [stats] 6-column per-band matrix -> float .v"
+"$VIPS" stats "$ARITHA/agray.png" "$TMP/st.v"
+"$VIPS" extract_area "$TMP/st.v" "$TMP/st6.v" 0 0 6 2
+"$VIPS" cast "$TMP/st6.v" "$ARITHA/stats_expected.v" float
+
+echo "==> [measure] 2x2 patch means -> float .v"
+"$VIPS" measure "$ARITHA/agray.png" "$TMP/ms.v" 2 2
+"$VIPS" cast "$TMP/ms.v" "$ARITHA/measure_expected.v" float
+
+echo "==> [profile] first non-zero position per col/row -> ushort .v"
+"$VIPS" profile "$ARITHA/pzero.png" "$TMP/pcol.v" "$TMP/prow.v"
+"$VIPS" cast "$TMP/pcol.v" "$ARITHA/profile_cols_expected.v" ushort
+"$VIPS" cast "$TMP/prow.v" "$ARITHA/profile_rows_expected.v" ushort
+
+echo "==> [project] col/row sums -> ushort .v (sums < 65535)"
+"$VIPS" project "$ARITHA/agray.png" "$TMP/qcol.v" "$TMP/qrow.v"
+"$VIPS" cast "$TMP/qcol.v" "$ARITHA/project_cols_expected.v" ushort
+"$VIPS" cast "$TMP/qrow.v" "$ARITHA/project_rows_expected.v" ushort
+
+echo "==> [linear] scalar a·in+b: float .v + --uchar PNG"
+"$VIPS" linear "$ARITHA/agray.png" "$ARITHA/linear_expected.v"      2 10
+"$VIPS" linear "$ARITHA/agray.png" "$ARITHA/linear_uchar_expected.png" 2 10 --uchar
+
+echo "==> [remainder_const] c=100 -> PNG (format-preserving int)"
+"$VIPS" remainder_const "$ARITHA/agray.png" "$ARITHA/remainder_const_expected.png" 100
+
+# The core `pow_const` rounds-and-saturates into a ushort (16-bit) output, while
+# vips `math2_const pow` emits float; cast the vips reference to ushort to match
+# the core carrier. On the integer input pow(v,2) is an exact integer (<=65025),
+# so no rounding occurs and the comparison is bit-exact (EXACT-AFTER-CAST, tol 0).
+echo "==> [math2_const] pow 2 -> ushort .v (core rounds pow into ushort)"
+"$VIPS" math2_const "$ARITHA/agray.png" "$TMP/pow.v" pow 2
+"$VIPS" cast "$TMP/pow.v" "$ARITHA/math2_const_pow_expected.v" ushort
+
+# `abs` on a float input stays float. `sign` on a float input: vips emits a
+# SIGNED CHAR (-1/0/1) the libviprs decoder cannot read; cast it to float (which
+# preserves -1/0/1) to match the core's float sign output — and to exercise the
+# NEGATIVE-sign parity that a uchar `.v` would clip to 0 (the #283 gap).
+echo "==> [abs] on afloat (crosses zero) -> float .v"
+"$VIPS" abs  "$ARITHA/afloat.v" "$ARITHA/abs_expected.v"
+echo "==> [sign] on afloat -> float .v (vips emits signed char; cast to float)"
+"$VIPS" sign "$ARITHA/afloat.v" "$TMP/sign.v"
+"$VIPS" cast "$TMP/sign.v" "$ARITHA/sign_expected.v" float
+
+# ceil/floor have no tie-break ambiguity, so they match vips EXACTLY (tol 0).
+echo "==> [round] ceil/floor on afloat -> float .v (EXACT vips oracle)"
+"$VIPS" round "$ARITHA/afloat.v" "$ARITHA/round_ceil_expected.v"  ceil
+"$VIPS" round "$ARITHA/afloat.v" "$ARITHA/round_floor_expected.v" floor
+
+# rint is GOLDEN-ONLY (no vips oracle): the core maps `f64::round` (rounds half
+# AWAY from zero) while vips's C `rint` rounds half TO EVEN, so on the honest
+# afloat (which now reaches x.5) the two DETERMINISTICALLY diverge at every exact
+# half-integer (measured max-abs-diff 1: 0.5→core1/vips0, 2.5→core3/vips2,
+# −2.5→core−3/vips−2, −0.5→core−1/vips0). This is a structural rule difference,
+# not a bounded tolerance, so the reference is minted by `viprs` itself
+# (deterministic) as a regression pin and the test compares viprs against its own
+# golden at tol 0. A core issue is filed to reconcile `rint` with round-half-even.
+echo "==> [round] rint on afloat -> GOLDEN-ONLY viprs pin (.v; core half-rule diverges from vips)"
+"$VIPRS" round "$ARITHA/afloat.v" "$ARITHA/round_rint_golden.v" rint >/dev/null
+
+echo "==> [clamp] --min 50 --max 200 on agray -> PNG"
+"$VIPS" clamp "$ARITHA/agray.png" "$ARITHA/clamp_expected.png" --min 50 --max 200
+
+# GOLDEN-ONLY (no vips oracle): the core Hough numerics diverge structurally from
+# vips 8.18.4 (see the header), so these references are generated by `viprs`
+# itself (deterministic) as regression pins, NOT cross-checked against vips.
+echo "==> [hough_line] GOLDEN-ONLY viprs pin (256x256 accumulator .v)"
+"$VIPRS" hough_line "$ARITHA/point.png" "$ARITHA/hough_line_golden.v" >/dev/null
+echo "==> [hough_circle] GOLDEN-ONLY viprs pin (radii 2..4, scale 1, .v)"
+"$VIPRS" hough_circle "$ARITHA/point.png" "$ARITHA/hough_circle_golden.v" 2 4 >/dev/null
+
+# --- Provenance (append the aritha section) ----------------------------------
+echo "==> [provenance] appending aritha section to $FIX_ROOT/PROVENANCE.md"
+# ARITHMETIC — part B (the Wave-2 arith-b lane; OP_MAP.md arithmetic section,
+# binary/relational/boolean/windowed/math/complex ops).
+#
+# The same committed inputs feed BOTH this generator (to make the vips
+# references) and tests/cli_arithb_diff.rs (which feeds them to `viprs`), so the
+# two sides compare like against like. Carrier + oracle-class choices, all
+# MEASURED against vips 8.18.4 on the committed inputs (max-abs-diff in raw
+# sample units):
+#
+#   * subtract  → PNG, EXACT-AFTER-CAST tol 0 (core `try_sub` saturates the diff
+#     at 0 for the unsigned output; integer inputs so no rounding — measured 0).
+#     The a-b case has a clip dead-zone where a<b (both sides pinned at 0), so a
+#     SECOND case subtracts `small` from `a` (a>=small everywhere) to exercise the
+#     full range with no dead-zone (review finding 4).
+#   * multiply  → `.v` ushort, EXACT-AFTER-CAST tol 0 (uchar*uchar widens to
+#     ushort in both — measured 0).
+#   * divide    → `.v` float, EXACT-AFTER-CAST tol 0 (both compute the quotient
+#     in float — measured 0; the uchar save-cast path instead diverges by 1 LSB,
+#     so the float `.v` carrier is used).
+#   * minpair / maxpair → PNG, EXACT tol 0.
+#   * sum       → `.v` ushort. vips `sum` promotes to UINT (band format the
+#     libviprs decoder rejects) while core clamps into ushort; the reference is
+#     therefore `vips cast … ushort` — lossless here (the 3-image sum ≤ 543 never
+#     overflows) and matching core's ushort output exactly (measured 0).
+#   * relational / relational_const → PNG, EXACT tol 0 (0/255 masks).
+#   * boolean / boolean_const       → PNG, EXACT tol 0.
+#   * scale (linear + --log)        → PNG, BOUNDED-TOL ≤1 LSB (log path is
+#     transcendental; measured 0 on these inputs, tol 1 is the honest bound).
+#   * stdif    → PNG, BOUNDED-TOL. Core CLIPS the window at the image border
+#     while vips MIRRORS, so a genuinely 2-D input (the `eye` zone-plate) diverges
+#     by up to 6 raw units in the 1px border ring. The interior is EXACT: the
+#     differential compares the interior (1px margin cropped) at tol 0 and keeps
+#     the tol-6 band ONLY for the whole-image border-inclusive case, so an
+#     interior regression a flat tol 6 would absorb still fails (review finding 2).
+#     Measured 6 whole-image / 0 interior on eye 3x3 — a documented core-vs-vips
+#     edge-handling divergence (core issue #490), NOT hidden by a y-degenerate ramp.
+#   * recomb   → PNG, BOUNDED-TOL 1. OP_MAP predicted EAC, but core rounds &
+#     saturates per output band into the input depth while vips computes in float
+#     and casts once, so they diverge by 1 LSB (measured 1). Honest class is
+#     BOUNDED-TOL — a documented deviation from OP_MAP's EAC prediction.
+#   * premultiply / unpremultiply   → PNG, BOUNDED-TOL 1 (vips emits float, core
+#     rounds into the uchar depth; ≤1 LSB post-cast, measured 1).
+#   * math (ALL 16 arms)            → `.v` float, FOURIER tol 1e-6 (measured 0).
+#     sin/cos/atan on a.png; the other 13 on in-domain float inputs (msmall for
+#     tan/asin/acos/log/log10/exp/exp10/sinh/cosh/tanh/asinh/atanh, macosh for
+#     acosh) so EVERY dispatch arm has its own reference (review finding 1). The
+#     float `.v` carrier is the honest class, not OP_MAP's EAC prediction (an
+#     EAC-uchar save of sin's [-1,1] output would be near-vacuous).
+#   * math2 atan2                   → `.v` float, FOURIER tol 1e-6 (measured 0).
+#   * math2 pow / wop               → `.v` float, BOUNDED-TOL 1. The ONLY
+#     divergent sample is `pow(0,0)`: Rust's `f64::powf(0,0)=1` vs libvips `0`.
+#     Kept in the input (base and exponent both span 0) so the 0^0 edge is
+#     EXERCISED, not hidden; tol 1, documented + filed as core issue #489. wop
+#     (`right^left`) is the third math2 arm (review finding 1), sharing the edge.
+#   * complexform / complex / complexget → `.v` float band-pairs, FOURIER eps
+#     1e-6 (measured 0). vips complex-format outputs are REINTERPRETED to a
+#     2-band float `.v` (`vips copy … --format float --bands 2`) because the
+#     libviprs decoder rejects the native complex band format; the reinterpret is
+#     a pure header relabel of the same interleaved (re,im) f32 bytes, matching
+#     core's float-pair layout exactly.
+# ===========================================================================
+ARITHB="$FIX_ROOT/arithb"
+mkdir -p "$ARITHB"
+
+# --- Common inputs -----------------------------------------------------------
+# `vips grey` is a pure coordinate function (0..1 float ramp), so every fixture
+# is bit-reproducible. a: 16x16 Gray8 horizontal ramp 0..255; b: vertical ramp
+# 40..168 (all > 0 — a safe, non-zero divisor for `divide`, and a and b straddle
+# so subtract/relational/boolean vary in 2-D); c: a third distinct horizontal
+# ramp 20..120 for the >=3-input `sum` fold.
+echo "==> [arithb input] a/b/c 16x16 Gray8 ramps + rgb/rgba + small/small2 + eye"
+"$VIPS" grey "$TMP/ag.v" 16 16
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/a.png" 255 0 --uchar
+"$VIPS" rot "$TMP/ag.v" "$TMP/agv.v" d90
+"$VIPS" linear "$TMP/agv.v" "$ARITHB/b.png" 128 40 --uchar
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/c.png" 100 20 --uchar
+# rgb (srgb, 3-band) for recomb; rgba (srgb, 4-band, varying alpha = a) for
+# (un)premultiply.
+"$VIPS" bandjoin "$ARITHB/a.png $ARITHB/b.png $ARITHB/c.png" "$TMP/rgb.v"
+"$VIPS" copy "$TMP/rgb.v" "$ARITHB/rgb.png" --interpretation srgb
+"$VIPS" bandjoin "$ARITHB/rgb.png $ARITHB/a.png" "$TMP/rgba.v"
+"$VIPS" copy "$TMP/rgba.v" "$ARITHB/rgba.png" --interpretation srgb
+# small base (0..15) + small exponent (0..3) for math2 pow — both span 0 so the
+# pow(0,0) edge is exercised; results stay small (<=3375) for f32 headroom.
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/small.png" 15 0 --uchar
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/small2.png" 3 0 --uchar
+# eye: a 2-D zone-plate (varies in BOTH axes) so stdif's window statistics — and
+# its border clip-vs-mirror divergence from vips — are genuinely exercised.
+"$VIPS" eye "$TMP/eye.v" 16 16
+"$VIPS" linear "$TMP/eye.v" "$ARITHB/eye.png" 127 128 --uchar
+# avert: a.png rotated 90° (a vertical ramp over the SAME 0..255 value set), so
+# `relational a.png avert.png equal` is TRUE on the x==y diagonal (16 pixels) and
+# FALSE elsewhere. This makes the enum-discriminating relational cases non-vacuous:
+# with a non-empty equality set, `lesseq`/`moreeq` provably differ from
+# `less`/`more`, so a `lesseq`<->`less` (or `moreeq`<->`more`) dispatch swap fails
+# (review finding 1 — enum coverage).
+"$VIPS" rot "$ARITHB/a.png" "$ARITHB/avert.png" d90
+# msmall / macosh: float `.v` inputs in the math ops' domains so EVERY math enum
+# arm is compared against its own vips reference (review finding 1). msmall spans
+# (0.1, 0.95): in-domain for asin/acos/atanh (|x|<1), log/log10 (>0), and bounded
+# for exp/exp10/sinh/cosh (O(1) outputs, no f32 overflow), plus small trig angles
+# (tan has no pole here). macosh spans [1, 6] for acosh (domain >=1), which msmall
+# (<1 -> NaN) cannot cover. Both are pure `grey`-ramp linears, bit-reproducible.
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/msmall.v" 0.85 0.1
+"$VIPS" linear "$TMP/ag.v" "$ARITHB/macosh.v" 5 1
+# recomb coefficient matrix (3 output bands x 3 input bands), a vips text matrix.
+printf '3 3\n0.5 0.25 0.25\n0.2 0.6 0.2\n0.1 0.3 0.6\n' > "$ARITHB/recomb.mat"
+# complex input in TWO carriers from complexform(a,b): the complex-format `.v`
+# (used ONLY here to drive the vips complex/complexget references) and the
+# 2-band float reinterpret committed as the viprs-side input (identical bytes).
+"$VIPS" complexform "$ARITHB/a.png" "$ARITHB/b.png" "$TMP/cpx_c.v"
+"$VIPS" copy "$TMP/cpx_c.v" "$ARITHB/complex_in.v" --format float --bands 2
+
+# --- References — one vips run per differential case -------------------------
+echo "==> [subtract] a - b (EAC, PNG; negatives clip to 0)"
+"$VIPS" subtract "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/subtract_expected.png"
+# a>=b everywhere (a horizontal ramp 0..255, small horizontal ramp 0..15, so a(x)
+# >= small(x) at every pixel): the difference is non-negative across the WHOLE
+# image, so there is no clip dead-zone and the full subtraction range is exercised
+# (review finding 4 — the a<b half of the a-b case is vacuous because BOTH core
+# and vips pin negatives to 0; core's `try_sub` itself saturates at 0, so a `.v`
+# carrier could not recover the negatives — the a>=b case is the honest fix).
+echo "==> [subtract] a - small (EAC, PNG; a>=small everywhere, full range)"
+"$VIPS" subtract "$ARITHB/a.png" "$ARITHB/small.png" "$ARITHB/subtract_pos_expected.png"
+echo "==> [multiply] a * b (EAC, ushort .v)"
+"$VIPS" multiply "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/multiply_expected.v"
+echo "==> [divide] a / b (EAC, float .v)"
+"$VIPS" divide "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/divide_expected.v"
+echo "==> [minpair/maxpair] (EXACT, PNG)"
+"$VIPS" minpair "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/minpair_expected.png"
+"$VIPS" maxpair "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/maxpair_expected.png"
+echo "==> [sum] a + b + c (>=3 variadic, EAC; vips UINT cast to ushort .v)"
+"$VIPS" sum "$ARITHB/a.png $ARITHB/b.png $ARITHB/c.png" "$TMP/sum_u32.v"
+"$VIPS" cast "$TMP/sum_u32.v" "$ARITHB/sum_expected.v" ushort
+# ALL SIX relational enum arms (review finding 1): more/less on (a, b); and
+# equal/noteq/lesseq/moreeq on (a, avert), whose x==y diagonal makes equality
+# non-empty so each arm is discriminated (lesseq != less, moreeq != more, equal !=
+# noteq). One vips reference per arm → a dispatch swap in any arm fails.
+echo "==> [relational] more + less on (a,b); equal/noteq/lesseq/moreeq on (a,avert) (EXACT, PNG)"
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/relational_more_expected.png" more
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/relational_less_expected.png" less
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/avert.png" "$ARITHB/relational_equal_expected.png" equal
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/avert.png" "$ARITHB/relational_noteq_expected.png" noteq
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/avert.png" "$ARITHB/relational_lesseq_expected.png" lesseq
+"$VIPS" relational "$ARITHB/a.png" "$ARITHB/avert.png" "$ARITHB/relational_moreeq_expected.png" moreeq
+# ALL SIX relational_const enum arms (review finding 1): more 128 on a; and
+# equal/noteq/lesseq/moreeq against C=7 on small.png, whose samples are EXACTLY
+# 0..15 so `== 7` is a non-empty column → lesseq != less, equal != noteq.
+echo "==> [relational_const] more 128 on a; equal/noteq/lesseq/moreeq 7 on small (EXACT, PNG)"
+"$VIPS" relational_const "$ARITHB/a.png" "$ARITHB/relational_const_more_expected.png" more 128
+"$VIPS" relational_const "$ARITHB/small.png" "$ARITHB/relational_const_equal_expected.png" equal 7
+"$VIPS" relational_const "$ARITHB/small.png" "$ARITHB/relational_const_noteq_expected.png" noteq 7
+"$VIPS" relational_const "$ARITHB/small.png" "$ARITHB/relational_const_lesseq_expected.png" lesseq 7
+"$VIPS" relational_const "$ARITHB/small.png" "$ARITHB/relational_const_moreeq_expected.png" moreeq 7
+# ALL THREE boolean enum arms (review finding 1): and/eor already; add or.
+echo "==> [boolean] eor + and + or (EXACT, PNG)"
+"$VIPS" boolean "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/boolean_eor_expected.png" eor
+"$VIPS" boolean "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/boolean_and_expected.png" and
+"$VIPS" boolean "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/boolean_or_expected.png" or
+# ALL FIVE boolean_const enum arms (review finding 1): and/lshift already; add
+# or, eor (mask 200) and rshift 2 (the second shift arm, so an rshift-maps-to-
+# lshift bug fails since lshift is also tested).
+echo "==> [boolean_const] and 200 + or 200 + eor 200 + lshift 2 + rshift 2 (EXACT, PNG)"
+"$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_and_expected.png" and 200
+"$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_or_expected.png" or 200
+"$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_eor_expected.png" eor 200
+"$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_lshift_expected.png" lshift 2
+"$VIPS" boolean_const "$ARITHB/a.png" "$ARITHB/boolean_const_rshift_expected.png" rshift 2
+echo "==> [scale] linear + --log (BOUNDED-TOL <=1 LSB, PNG)"
+"$VIPS" scale "$ARITHB/rgb.png" "$ARITHB/scale_expected.png"
+"$VIPS" scale "$ARITHB/rgb.png" "$ARITHB/scale_log_expected.png" --log
+echo "==> [stdif] 3x3 on 2-D eye (BOUNDED-TOL border clip-vs-mirror, PNG)"
+"$VIPS" stdif "$ARITHB/eye.png" "$ARITHB/stdif_expected.png" 3 3
+echo "==> [recomb] 3x3 matrix (BOUNDED-TOL 1, PNG)"
+"$VIPS" recomb "$ARITHB/rgb.png" "$ARITHB/recomb_expected.png" "$ARITHB/recomb.mat"
+echo "==> [premultiply/unpremultiply] rgba (BOUNDED-TOL 1, PNG)"
+"$VIPS" premultiply "$ARITHB/rgba.png" "$ARITHB/premultiply_expected.png"
+"$VIPS" unpremultiply "$ARITHB/rgba.png" "$ARITHB/unpremultiply_expected.png"
+# ALL SIXTEEN math enum arms (review finding 1): sin/cos/atan on a.png (degrees,
+# defined over 0..255); the other thirteen on the in-domain float inputs so each
+# dispatch arm is compared against its OWN vips reference (a log<->log10,
+# exp<->exp10 or sinh<->cosh swap fails). tan/asin/acos/log/log10/exp/exp10/
+# sinh/cosh/tanh/asinh/atanh on msmall (0.1..0.95); acosh on macosh (>=1).
+echo "==> [math] all 16 arms (float .v, eps 1e-6; measured 0)"
+"$VIPS" math "$ARITHB/a.png" "$ARITHB/math_sin_expected.v" sin
+"$VIPS" math "$ARITHB/a.png" "$ARITHB/math_cos_expected.v" cos
+"$VIPS" math "$ARITHB/a.png" "$ARITHB/math_atan_expected.v" atan
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_tan_expected.v" tan
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_asin_expected.v" asin
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_acos_expected.v" acos
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_log_expected.v" log
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_log10_expected.v" log10
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_exp_expected.v" exp
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_exp10_expected.v" exp10
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_sinh_expected.v" sinh
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_cosh_expected.v" cosh
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_tanh_expected.v" tanh
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_asinh_expected.v" asinh
+"$VIPS" math "$ARITHB/msmall.v" "$ARITHB/math_atanh_expected.v" atanh
+"$VIPS" math "$ARITHB/macosh.v" "$ARITHB/math_acosh_expected.v" acosh
+# ALL THREE math2 arms (review finding 1): atan2 + pow already; add wop. wop is
+# `right^left`, so `math2 small2 small wop` = small^small2 (same magnitude as the
+# pow case) and shares the pow(0,0) edge (Rust 1 vs vips 0) at x=0 → tol 1.
+echo "==> [math2] atan2 (eps 1e-6) + pow + wop (BOUNDED-TOL 1, 0^0 edge; float .v)"
+"$VIPS" math2 "$ARITHB/a.png" "$ARITHB/b.png" "$ARITHB/math2_atan2_expected.v" atan2
+"$VIPS" math2 "$ARITHB/small.png" "$ARITHB/small2.png" "$ARITHB/math2_pow_expected.v" pow
+"$VIPS" math2 "$ARITHB/small2.png" "$ARITHB/small.png" "$ARITHB/math2_wop_expected.v" wop
+echo "==> [complexform] a + i*b (FOURIER, float band-pair .v via reinterpret)"
+"$VIPS" complexform "$ARITHB/a.png" "$ARITHB/b.png" "$TMP/cf_c.v"
+"$VIPS" copy "$TMP/cf_c.v" "$ARITHB/complexform_expected.v" --format float --bands 2
+echo "==> [complex] polar + rect + conj (FOURIER, reinterpret)"
+"$VIPS" complex "$TMP/cpx_c.v" "$TMP/cpol.v" polar
+"$VIPS" copy "$TMP/cpol.v" "$ARITHB/complex_polar_expected.v" --format float --bands 2
+"$VIPS" complex "$TMP/cpx_c.v" "$TMP/crect.v" rect
+"$VIPS" copy "$TMP/crect.v" "$ARITHB/complex_rect_expected.v" --format float --bands 2
+"$VIPS" complex "$TMP/cpx_c.v" "$TMP/cconj.v" conj
+"$VIPS" copy "$TMP/cconj.v" "$ARITHB/complex_conj_expected.v" --format float --bands 2
+echo "==> [complexget] real + imag (FOURIER, plain float .v)"
+"$VIPS" complexget "$TMP/cpx_c.v" "$ARITHB/complexget_real_expected.v" real
+"$VIPS" complexget "$TMP/cpx_c.v" "$ARITHB/complexget_imag_expected.v" imag
+
+# --- Provenance (append the arithb section) ----------------------------------
+echo "==> [provenance] appending arithb section to $FIX_ROOT/PROVENANCE.md"
 cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
 
 ---
@@ -2064,6 +2475,10 @@ cat >> "$FIX_ROOT/PROVENANCE.md" <<EOF
 
 These fixtures are the committed vips oracle references the convolution
 CLI-differential suite (\`tests/cli_convolution_diff.rs\`) decode-compares
+# aritha family (arith part-A) CLI-differential reference provenance
+
+These fixtures are the committed vips oracle references (and two viprs GOLDEN-ONLY
+pins) the aritha CLI-differential suite (\`tests/cli_aritha_diff.rs\`) compares
 \`viprs\` output against. Generated offline by \`tools/gen_cli_expected.sh\`,
 NEVER by CI.
 
@@ -2293,6 +2708,84 @@ Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
   output sized by \`rarea.union(&sarea)\`) unpinned. \`merge_rgb_expected.png\`
   (RGB horizontal) pins the former and \`merge_fallback_expected.png\` (positive
   dx 12) the latter — both verified bit-exact vs vips (max-abs-diff 0).
+- **Common inputs** (under \`aritha/\`): \`agray.png\` (16×16 Gray8 ramp),
+  \`afloat.v\` (4×4 float, hand-picked discriminating samples — crosses zero,
+  includes exactly 0.0 for \`sign\`'s zero branch, exact half-integers for \`rint\`'s
+  half-rule, and non-half fractionals so \`rint\`≠\`floor\`≠\`ceil\`; all dyadic, no
+  float wobble — for abs/sign/round),
+  \`content.png\` (black 6×7 block on white 20×20, for \`find_trim\`),
+  \`content2.png\` (white 5×4 block on black 20×20, for \`find_trim --background 0\`),
+  \`pzero.png\` (8×8 zero + 3×3 block at 2,3, for \`profile\`), \`point.png\` (32×32
+  black, one white pixel at 10,6, for the hough golden pins).
+- **Carriers**: S3 scalars → \`.txt\` (numeric compare, never text). \`stats\`/
+  \`measure\` double matrices → \`vips … ; vips cast … float\` \`.v\` (libviprs has no
+  f64 pixel format); \`stats\` is cropped to the 6 core columns (min/max/sum/sum2/
+  mean/sd — vips's 4 position columns 6..10 are a documented core subset gap).
+  \`profile\`/\`project\` are 16-bit — vips emits INT/UINT, cast to ushort (lossless
+  for the small values) to match the core's ushort carrier — \`.v\`. \`linear\`
+  (float), \`math2_const\`, \`abs\`, \`sign\`, \`round\` → float \`.v\`; \`linear --uchar\`,
+  \`remainder_const\`, \`clamp\` → PNG.
+
+## \`round rint\` divergence (GOLDEN-ONLY, a real core limitation)
+
+\`round rint\` GENUINELY diverges from vips 8.18.4 at exact half-integers — not a
+bounded tolerance. The core maps \`f64::round\` (rounds half AWAY from zero:
+0.5→1, 2.5→3, −2.5→−3) while vips's C \`rint\` rounds half TO EVEN (0.5→0, 2.5→2,
+−2.5→−2). The old \`510*grey−255\` afloat never produced an x.5 sample, so this was
+invisible (and \`round_rint_expected.v\` was byte-identical to \`round_floor\`); the
+honest afloat above reaches x.5 and the two diverge deterministically (measured
+max-abs-diff 1). So \`round_rint_golden.v\` is minted by \`viprs\` itself
+(deterministic) and the test is a regression pin. \`ceil\`/\`floor\` have no tie and
+stay EXACT against vips. **A core issue is filed to reconcile \`rint\` with
+round-half-to-even (and to correct the \`arithmetic.rs\` doc comment that wrongly
+states vips \`rint\` "rounds halves away from zero").**
+
+## Hough divergence (GOLDEN-ONLY, a real core limitation)
+
+\`hough_line\` and \`hough_circle\` GENUINELY diverge from vips 8.18.4 — not a
+bounded tolerance. \`hough_line\`'s distance binning is offset by one accumulator
+cell: ≤1 per independent vote, but a horizontal line (many collinear votes)
+concentrates into an adjacent peak cell for a measured max-abs-diff of **32**.
+\`hough_circle\` uses a different per-cell vote model: a single voting point yields
+a core per-cell max of **1** but a vips per-cell max of **4**. There is thus no
+meaningful vips tolerance oracle, so the references \`hough_line_golden.v\` /
+\`hough_circle_golden.v\` are minted by \`viprs\` itself (deterministic) and the
+tests are regression pins. **A core issue is filed to reconcile the Hough
+binning / vote model with vips.**
+# arithmetic part-B (arith-b lane) CLI-differential reference provenance
+
+Committed vips oracle references the arith-b CLI-differential suite
+(\`tests/cli_arithb_diff.rs\`) decode-compares \`viprs\` output against. Generated
+offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
+
+- **Oracle**: \`$VIPS_VERSION\`
+- **Common inputs** (under \`arithb/\`): \`a.png\` (16×16 Gray8 horizontal ramp
+  0..255), \`b.png\` (vertical ramp 40..168; > 0 divisor, straddles \`a\` in 2-D),
+  \`c.png\` (horizontal ramp 20..120; third \`sum\` input), \`rgb.png\` (their
+  bandjoin, sRGB) and \`rgba.png\` (\`rgb\` + \`a\` alpha, sRGB) for
+  recomb/(un)premultiply, \`small.png\` (0..15) + \`small2.png\` (0..3) for the
+  \`math2 pow\`/\`wop\` 0^0 edge (and \`small\` for \`subtract a - small\` a>=b and
+  the \`relational_const\` == 7 arm), \`avert.png\` (\`a\` rotated d90 → x==y-diagonal
+  equality for the relational enum arms), \`msmall.v\` (16×16 float 0.1..0.95, the
+  math ops' domain) + \`macosh.v\` (16×16 float 1..6, for \`acosh\`), \`eye.png\`
+  (2-D zone-plate) for \`stdif\`, \`recomb.mat\` (3×3 coefficient matrix), and
+  \`complex_in.v\` (a 2-band float reinterpret of \`complexform a b\`, the
+  viprs-side complex input).
+- **Carriers / oracle classes**: PNG + tol 0 for the integer-exact ops
+  (subtract EAC, minpair/maxpair EXACT, relational(_const)/boolean(_const)
+  EXACT); native \`.v\` for the ushort (\`multiply\`, \`sum\` cast from vips UINT)
+  and float (\`divide\`, \`math\`, \`math2\`, complex) outputs the PNG path would
+  lose. **BOUNDED-TOL** (measured, honest): \`scale\` ≤1 LSB (log transcendental),
+  \`recomb\` 1 (per-band round+saturate vs vips float-then-cast — a documented
+  deviation from OP_MAP's EAC prediction), \`premultiply\`/\`unpremultiply\` 1,
+  \`stdif\` 6 (core clips the border window while vips mirrors — an edge-handling
+  divergence, core issue #490, exercised on a 2-D input not hidden), \`math2
+  pow\` 1 (the single \`pow(0,0)\` sample: Rust \`f64::powf(0,0)=1\` vs libvips 0,
+  filed as an issue). **FOURIER** eps 1e-6 for the complex band-pair ops; the
+  vips complex-format outputs are reinterpreted to 2-band float \`.v\`
+  (\`vips copy … --format float --bands 2\`, a header relabel of the same
+  interleaved (re,im) f32 bytes) because the libviprs decoder rejects the native
+  complex band format.
 
 ## Exact commands
 
@@ -2416,6 +2909,39 @@ vips extract_area mbv.png mosaicing/mosaic_v_ref.png 0 0  150 100
 vips extract_area mbv.png mosaicing/mosaic_v_sec.png 0 10 150 100
 # globalbalance input (minted by viprs, carries the join-tree blob):
 viprs merge gb1.png gb2.png mosaicing/balance_input.v horizontal -40 0
+vips grey ag.v 16 16
+vips linear ag.v aritha/agray.png 255 0 --uchar
+vips linear ag.v aritha/afloat.v 510 " -255"
+vips black blk.v 6 7 --bands 1 ; vips linear blk.v blk.png 0 0 --uchar
+vips embed blk.png aritha/content.png 4 5 20 20 --extend white
+vips black blkbg.v 20 20 --bands 1 ; vips linear blkbg.v blkbg.png 0 0 --uchar
+vips black wblk.v 5 4 --bands 1 ; vips linear wblk.v wblk.png 0 255 --uchar
+vips insert blkbg.png wblk.png aritha/content2.png 3 2
+vips black pz.v 8 8 --bands 1 ; vips linear pz.v pz.png 0 0 --uchar
+vips black pblk.v 3 3 --bands 1 ; vips linear pblk.v pblk.png 0 255 --uchar
+vips insert pz.png pblk.png aritha/pzero.png 2 3
+vips black hb.v 32 32 --bands 1 ; vips linear hb.v hblack.png 0 0 --uchar
+vips black pt.v 1 1 --bands 1 ; vips linear pt.v pt.png 0 255 --uchar
+vips insert hblack.png pt.png aritha/point.png 10 6
+vips grey ag.v 16 16
+vips linear ag.v arithb/a.png 255 0 --uchar
+vips rot ag.v agv.v d90
+vips linear agv.v arithb/b.png 128 40 --uchar
+vips linear ag.v arithb/c.png 100 20 --uchar
+vips bandjoin "arithb/a.png arithb/b.png arithb/c.png" rgb.v
+vips copy rgb.v arithb/rgb.png --interpretation srgb
+vips bandjoin "arithb/rgb.png arithb/a.png" rgba.v
+vips copy rgba.v arithb/rgba.png --interpretation srgb
+vips linear ag.v arithb/small.png 15 0 --uchar
+vips linear ag.v arithb/small2.png 3 0 --uchar
+vips eye eye.v 16 16
+vips linear eye.v arithb/eye.png 127 128 --uchar
+vips rot arithb/a.png arithb/avert.png d90
+vips linear ag.v arithb/msmall.v 0.85 0.1
+vips linear ag.v arithb/macosh.v 5 1
+printf '3 3\\n0.5 0.25 0.25\\n0.2 0.6 0.2\\n0.1 0.3 0.6\\n' > arithb/recomb.mat
+vips complexform arithb/a.png arithb/b.png cpx_c.v
+vips copy cpx_c.v arithb/complex_in.v --format float --bands 2
 \`\`\`
 
 References (paths relative to \`tests/fixtures/cli/\`):
@@ -2764,6 +3290,92 @@ coefficient table, so some interior samples land 2 apart. This is a genuine,
 measured core-vs-vips rounding difference (not a CLI bug); the differential
 compares that one case at tol 2. A follow-up could tighten the core bicubic
 coefficient path toward vips's table if exact bicubic parity is ever required.
+| \`aritha/avg_expected.txt\` | EXACT (S3, rational mean → rel-eps) | \`vips avg agray.png\` |
+| \`aritha/deviate_expected.txt\` | BOUNDED-TOL (S3, rel-eps) | \`vips deviate agray.png\` |
+| \`aritha/min_expected.txt\` | EXACT (S3, integer) | \`vips min agray.png\` |
+| \`aritha/max_expected.txt\` | EXACT (S3, integer) | \`vips max agray.png\` |
+| \`aritha/min_xy_expected.txt\` | EXACT (S3, x/y/value) | \`vips min agray.png --x --y\` |
+| \`aritha/max_xy_expected.txt\` | EXACT (S3, x/y/value) | \`vips max agray.png --x --y\` |
+| \`aritha/find_trim_expected.txt\` | EXACT (S3, 4 ints) | \`vips find_trim content.png\` |
+| \`aritha/find_trim_bg_expected.txt\` | EXACT (S3, 4 ints) | \`vips find_trim content2.png --background 0\` |
+| \`aritha/stats_expected.v\` | BOUNDED-TOL (matrix, meas. 0) | \`vips stats agray.png st.v\` → \`extract_area … 0 0 6 2\` → \`cast … float\` |
+| \`aritha/measure_expected.v\` | BOUNDED-TOL (matrix, meas. 0) | \`vips measure agray.png ms.v 2 2\` → \`cast … float\` |
+| \`aritha/profile_cols_expected.v\` / \`_rows_\` | EXACT | \`vips profile pzero.png pcol.v prow.v\` → \`cast … ushort\` |
+| \`aritha/project_cols_expected.v\` / \`_rows_\` | EXACT | \`vips project agray.png qcol.v qrow.v\` → \`cast … ushort\` |
+| \`aritha/linear_expected.v\` | EXACT-AFTER-CAST (float, meas. 0) | \`vips linear agray.png linear_expected.v 2 10\` |
+| \`aritha/linear_uchar_expected.png\` | EXACT | \`vips linear agray.png linear_uchar_expected.png 2 10 --uchar\` |
+| \`aritha/remainder_const_expected.png\` | EXACT | \`vips remainder_const agray.png remainder_const_expected.png 100\` |
+| \`aritha/math2_const_pow_expected.v\` | EXACT-AFTER-CAST (ushort, meas. 0) | \`vips math2_const agray.png pow.v pow 2\` → \`cast … ushort\` (core rounds pow into ushort) |
+| \`aritha/abs_expected.v\` | EXACT (float) | \`vips abs afloat.v abs_expected.v\` |
+| \`aritha/sign_expected.v\` | EXACT-AFTER-CAST (float) | \`vips sign afloat.v sign.v\` → \`cast … float\` (vips emits signed char; float preserves −1/0/1; afloat now includes exactly 0.0 so the zero→0 branch is exercised) |
+| \`aritha/round_ceil_expected.v\` / \`_floor_\` | EXACT (float) | \`vips round afloat.v … ceil\|floor\` (no tie-break; matches vips exactly) |
+| \`aritha/round_rint_golden.v\` | GOLDEN-ONLY (no vips oracle) | \`viprs round afloat.v round_rint_golden.v rint\` — core \`f64::round\` (half away from zero) diverges from vips's C \`rint\` (half to even) at exact half-integers (measured max-abs-diff 1); viprs regression pin, core issue filed |
+| \`aritha/clamp_expected.png\` | EXACT | \`vips clamp agray.png clamp_expected.png --min 50 --max 200\` |
+| \`aritha/hough_line_golden.v\` | GOLDEN-ONLY (no vips oracle) | \`viprs hough_line point.png hough_line_golden.v\` (core binning diverges from vips) |
+| \`aritha/hough_circle_golden.v\` | GOLDEN-ONLY (no vips oracle) | \`viprs hough_circle point.png hough_circle_golden.v 2 4\` (core vote model diverges from vips) |
+
+The two hough references are viprs-generated regression pins, not vips oracles:
+the core's Hough distance-binning (line) and circle vote model differ
+structurally from vips 8.18.4 (measured max-abs-diff 32 on a line; a core per-cell
+max of 1 vs a vips max of 4 for a single point). A core issue is filed to
+reconcile them.
+| \`arithb/subtract_expected.png\` | EXACT-AFTER-CAST (tol 0) | \`vips subtract a.png b.png subtract_expected.png\` |
+| \`arithb/subtract_pos_expected.png\` | EXACT-AFTER-CAST (tol 0) | \`vips subtract a.png small.png subtract_pos_expected.png\` (a>=small everywhere → no clip dead-zone, full range) |
+| \`arithb/multiply_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips multiply a.png b.png multiply_expected.v\` (ushort) |
+| \`arithb/divide_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips divide a.png b.png divide_expected.v\` (float) |
+| \`arithb/minpair_expected.png\` | EXACT | \`vips minpair a.png b.png minpair_expected.png\` |
+| \`arithb/maxpair_expected.png\` | EXACT | \`vips maxpair a.png b.png maxpair_expected.png\` |
+| \`arithb/sum_expected.v\` | EXACT-AFTER-CAST (tol 0) | \`vips sum "a.png b.png c.png" sum_u32.v\` then \`vips cast sum_u32.v sum_expected.v ushort\` (>=3 inputs; vips UINT→ushort) |
+| \`arithb/relational_more_expected.png\` | EXACT | \`vips relational a.png b.png relational_more_expected.png more\` |
+| \`arithb/relational_less_expected.png\` | EXACT | \`vips relational a.png b.png relational_less_expected.png less\` |
+| \`arithb/relational_equal_expected.png\` | EXACT | \`vips relational a.png avert.png relational_equal_expected.png equal\` (x==y diagonal) |
+| \`arithb/relational_noteq_expected.png\` | EXACT | \`vips relational a.png avert.png relational_noteq_expected.png noteq\` |
+| \`arithb/relational_lesseq_expected.png\` | EXACT | \`vips relational a.png avert.png relational_lesseq_expected.png lesseq\` (differs from less on the diagonal) |
+| \`arithb/relational_moreeq_expected.png\` | EXACT | \`vips relational a.png avert.png relational_moreeq_expected.png moreeq\` (differs from more on the diagonal) |
+| \`arithb/relational_const_more_expected.png\` | EXACT | \`vips relational_const a.png relational_const_more_expected.png more 128\` |
+| \`arithb/relational_const_equal_expected.png\` | EXACT | \`vips relational_const small.png relational_const_equal_expected.png equal 7\` |
+| \`arithb/relational_const_noteq_expected.png\` | EXACT | \`vips relational_const small.png relational_const_noteq_expected.png noteq 7\` |
+| \`arithb/relational_const_lesseq_expected.png\` | EXACT | \`vips relational_const small.png relational_const_lesseq_expected.png lesseq 7\` |
+| \`arithb/relational_const_moreeq_expected.png\` | EXACT | \`vips relational_const small.png relational_const_moreeq_expected.png moreeq 7\` |
+| \`arithb/boolean_eor_expected.png\` | EXACT | \`vips boolean a.png b.png boolean_eor_expected.png eor\` |
+| \`arithb/boolean_and_expected.png\` | EXACT | \`vips boolean a.png b.png boolean_and_expected.png and\` |
+| \`arithb/boolean_or_expected.png\` | EXACT | \`vips boolean a.png b.png boolean_or_expected.png or\` |
+| \`arithb/boolean_const_and_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_and_expected.png and 200\` |
+| \`arithb/boolean_const_or_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_or_expected.png or 200\` |
+| \`arithb/boolean_const_eor_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_eor_expected.png eor 200\` |
+| \`arithb/boolean_const_lshift_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_lshift_expected.png lshift 2\` |
+| \`arithb/boolean_const_rshift_expected.png\` | EXACT | \`vips boolean_const a.png boolean_const_rshift_expected.png rshift 2\` |
+| \`arithb/scale_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips scale rgb.png scale_expected.png\` (linear) |
+| \`arithb/scale_log_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips scale rgb.png scale_log_expected.png --log\` |
+| \`arithb/stdif_expected.png\` | BOUNDED-TOL 6 | \`vips stdif eye.png stdif_expected.png 3 3\` (border clip vs mirror — core issue #490) |
+| \`arithb/recomb_expected.png\` | BOUNDED-TOL 1 | \`vips recomb rgb.png recomb_expected.png recomb.mat\` (per-band round vs float — OP_MAP EAC deviation, core issue #491) |
+| \`arithb/premultiply_expected.png\` | BOUNDED-TOL 1 | \`vips premultiply rgba.png premultiply_expected.png\` |
+| \`arithb/unpremultiply_expected.png\` | BOUNDED-TOL 1 | \`vips unpremultiply rgba.png unpremultiply_expected.png\` |
+| \`arithb/math_sin_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math a.png math_sin_expected.v sin\` |
+| \`arithb/math_cos_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math a.png math_cos_expected.v cos\` |
+| \`arithb/math_atan_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math a.png math_atan_expected.v atan\` |
+| \`arithb/math_tan_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_tan_expected.v tan\` |
+| \`arithb/math_asin_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_asin_expected.v asin\` |
+| \`arithb/math_acos_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_acos_expected.v acos\` |
+| \`arithb/math_log_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_log_expected.v log\` |
+| \`arithb/math_log10_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_log10_expected.v log10\` |
+| \`arithb/math_exp_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_exp_expected.v exp\` |
+| \`arithb/math_exp10_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_exp10_expected.v exp10\` |
+| \`arithb/math_sinh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_sinh_expected.v sinh\` |
+| \`arithb/math_cosh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_cosh_expected.v cosh\` |
+| \`arithb/math_tanh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_tanh_expected.v tanh\` |
+| \`arithb/math_asinh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_asinh_expected.v asinh\` |
+| \`arithb/math_atanh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math msmall.v math_atanh_expected.v atanh\` |
+| \`arithb/math_acosh_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math macosh.v math_acosh_expected.v acosh\` |
+| \`arithb/math2_atan2_expected.v\` | FOURIER (float, eps 1e-6) | \`vips math2 a.png b.png math2_atan2_expected.v atan2\` |
+| \`arithb/math2_pow_expected.v\` | BOUNDED-TOL 1 | \`vips math2 small.png small2.png math2_pow_expected.v pow\` (pow(0,0): Rust 1 vs vips 0 — core issue #489) |
+| \`arithb/math2_wop_expected.v\` | BOUNDED-TOL 1 | \`vips math2 small2.png small.png math2_wop_expected.v wop\` (wop = right^left = small^small2; shares the 0^0 edge — core issue #489) |
+| \`arithb/complexform_expected.v\` | FOURIER (eps 1e-6) | \`vips complexform a.png b.png cf_c.v\` then \`vips copy cf_c.v complexform_expected.v --format float --bands 2\` |
+| \`arithb/complex_polar_expected.v\` | FOURIER (eps 1e-6) | \`vips complex cpx_c.v cpol.v polar\` then reinterpret \`--format float --bands 2\` |
+| \`arithb/complex_rect_expected.v\` | FOURIER (eps 1e-6) | \`vips complex cpx_c.v crect.v rect\` then reinterpret |
+| \`arithb/complex_conj_expected.v\` | FOURIER (eps 1e-6) | \`vips complex cpx_c.v cconj.v conj\` then reinterpret |
+| \`arithb/complexget_real_expected.v\` | FOURIER (eps 1e-6) | \`vips complexget cpx_c.v complexget_real_expected.v real\` |
+| \`arithb/complexget_imag_expected.v\` | FOURIER (eps 1e-6) | \`vips complexget cpx_c.v complexget_imag_expected.v imag\` |
 EOF
 
 echo "==> Done. Generated fixtures under $FIX_ROOT"
@@ -2796,3 +3408,7 @@ echo "--- draw ---"
 ls -1 "$DRAW"
 echo "--- resample ---"
 ls -1 "$RESAMPLE"
+echo "--- aritha ---"
+ls -1 "$ARITHA"
+echo "--- arithb ---"
+ls -1 "$ARITHB"
