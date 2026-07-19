@@ -8,15 +8,20 @@
 //! the op name, producing "sub: sub does not support float rasters yet ...".
 //!
 //! These tests pin the diagnostic down to a single occurrence of the op name.
-//! They drive only the crate's public panicking surface (`Raster::sub`,
+//! They drive only the crate's public panicking surface (`Raster::mul`,
 //! `Raster::add_vec`) on a float raster, which the integer arithmetic ops
 //! reject, and inspect the caught panic payload. They add no shared-file edits
 //! and require no feature flags.
+//!
+//! (Image-image `sub` used to be one of the rejecting ops; issue #282
+//! promoted it to a float raster so it now *accepts* float input, so the
+//! image-image case here drives `mul`, which keeps the integer contract and
+//! its float-input guard.)
 
 use libviprs::{PixelFormat, Raster};
 
 /// A zeroed single-band 32-bit float raster. The mutating integer arithmetic
-/// ops (`sub`, `add_vec`, ...) reject float input, so these rasters exercise
+/// ops (`mul`, `add_vec`, ...) reject float input, so these rasters exercise
 /// the `FloatUnsupported` diagnostic path.
 fn float_raster() -> Raster {
     let fmt = PixelFormat::with_channels(1, 4).expect("FloatF32(1) is a valid format");
@@ -39,18 +44,18 @@ fn caught_panic_message(body: impl FnOnce() + std::panic::UnwindSafe) -> String 
         .to_owned()
 }
 
-/// The image-image `sub` on a float raster must panic with the op name once,
-/// not "sub: sub ...". Guards the `binary_map` -> `FloatUnsupported` path.
+/// The image-image `mul` on a float raster must panic with the op name once,
+/// not "mul: mul ...". Guards the `binary_map` -> `FloatUnsupported` path.
 #[test]
-fn sub_float_panic_names_op_exactly_once() {
+fn mul_float_panic_names_op_exactly_once() {
     let (a, b) = (float_raster(), float_raster());
     let msg = caught_panic_message(move || {
-        let _ = a.sub(&b);
+        let _ = a.mul(&b);
     });
     assert_eq!(
-        msg.matches("sub").count(),
+        msg.matches("mul").count(),
         1,
-        "sub() float-unsupported panic must name the op exactly once, got: {msg:?}"
+        "mul() float-unsupported panic must name the op exactly once, got: {msg:?}"
     );
     assert!(
         msg.contains("does not support float rasters yet"),
