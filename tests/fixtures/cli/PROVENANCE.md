@@ -327,9 +327,9 @@ NEVER by CI.
 - **Oracle**: `vips-8.18.4`
 - **Common inputs** (under `convolution/`): `eye.png` (16×16 Gray8 zone-plate,
   high-frequency so a blur/edge op is non-vacuous — a box blur moves it by up to
-  59, compass by 254; `sharpen` runs on that same mono zone-plate), `patch.png`
-  (5×5 extract of `eye.png`, the correlation template with a sharp best-match
-  peak).
+  59, compass by 254; `sharpen` runs on that same mono zone-plate),
+  `patch.png` (5×5 extract of `eye.png`, the correlation template with a
+  sharp best-match peak).
 - **Masks**: `blur.mat` (3×3 box, scale 9), `sobel.mat` (3×3 edge, scale 1,
   odd-square for `compass`), `sep.mat` (1×5 separable smoother, scale 10).
 - **Carriers**: integer uchar outputs → PNG; float / matrix / correlation
@@ -340,7 +340,9 @@ NEVER by CI.
 ## Honest oracle classes (measured)
 
 - **EXACT (tol 0)**: `compass --combine max` integer (scale-1 sobel mask needs
-  no coefficient rounding) and `fastcor` (integer SSD). Also gaussmat/logmat at
+  no coefficient rounding), `compass --combine sum` integer (the deterministic
+  16-bit-promotion + saturation branch; summed sobel edges reach 812; vips
+  emits uint, core emits Gray16, cast to ushort `.v`), and `fastcor` (integer SSD). Also gaussmat/logmat at
   **integer** precision (integer-valued matrices).
 - **BOUNDED-TOL ≤1 LSB (tol 1)**: `conv` and `gaussblur` at **integer**
   precision with a **scaled** mask. This is a MEASURED core-vs-vips rounding-scheme
@@ -379,6 +381,7 @@ References (paths relative to `tests/fixtures/cli/`):
 | `convolution/convsep_float_expected.v` | BOUNDED-TOL (float eps) | `vips convsep eye.png convsep_float_expected.v sep.mat --precision float` |
 | `convolution/compass_max_int_expected.png` | EXACT (tol 0) | `vips compass eye.png … sobel.mat --times 4 --angle d45 --combine max --precision integer` |
 | `convolution/compass_sum_float_expected.v` | BOUNDED-TOL (float eps) | `vips compass eye.png … sobel.mat --times 4 --angle d45 --combine sum --precision float` |
+| `convolution/compass_sum_int_expected.v` | EXACT (tol 0) | `vips compass eye.png … sobel.mat --times 4 --angle d45 --combine sum --precision integer` then `vips cast … ushort` (vips emits uint; core emits Gray16; 16-bit-promotion path) |
 | `convolution/gaussblur_int_expected.png` | BOUNDED-TOL ≤1 LSB | `vips gaussblur eye.png gaussblur_int_expected.png 1.5 --precision integer` |
 | `convolution/gaussblur_float_expected.v` | BOUNDED-TOL (float eps) | `vips gaussblur eye.png gaussblur_float_expected.v 1.5 --precision float` |
 | `convolution/sharpen_expected.png` | BOUNDED-TOL ≤1 LSB | `vips sharpen eye.png sharpen_expected.png --sigma 1 --m1 1 --m2 2` |

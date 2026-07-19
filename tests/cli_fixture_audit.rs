@@ -199,6 +199,7 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // compass: max/integer (EXACT, scale-1 mask) PNG + sum/float `.v`.
     "convolution/compass_max_int_expected.png",
     "convolution/compass_sum_float_expected.v",
+    "convolution/compass_sum_int_expected.v",
     // gaussblur: integer (≤1 LSB) PNG + float `.v`.
     "convolution/gaussblur_int_expected.png",
     "convolution/gaussblur_float_expected.v",

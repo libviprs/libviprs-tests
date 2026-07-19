@@ -910,7 +910,9 @@ EOF
 #  * `compass --combine max` at INTEGER precision with a scale-1 (sobel) mask and
 #    `fastcor` are EXACT (tol 0): a scale-1 mask needs no coefficient rounding, and
 #    fastcor is an integer sum-of-squared-differences, so neither hits the
-#    integer-precision rounding-scheme gap below.
+#    integer-precision rounding-scheme gap below. `compass --combine sum` at
+#    INTEGER precision is likewise EXACT — its distinct 16-bit-promotion +
+#    saturation branch (out_fmt = ushort) is deterministic integer arithmetic.
 #  * conv / gaussblur at INTEGER precision with a scaled mask are **BOUNDED-TOL
 #    ≤1 LSB** (tol 1), NOT the EXACT that OP_MAP.md provisionally listed: vips's
 #    `vips_convi` bakes the mask into a power-of-two fixed-point form and shifts
@@ -976,11 +978,22 @@ echo "==> [conv] box blur integer (PNG, ≤1 LSB) + sobel float (.v)"
 echo "==> [convsep] separable smoother, float (.v)"
 "$VIPS" convsep "$CONVOL/eye.png" "$CONVOL/convsep_float_expected.v" "$CONVOL/sep.mat" --precision float
 
-echo "==> [compass] max integer (PNG, EXACT — scale-1 mask) + sum float (.v)"
+echo "==> [compass] max integer (PNG, EXACT — scale-1 mask) + sum float/integer (.v)"
 "$VIPS" compass "$CONVOL/eye.png" "$CONVOL/compass_max_int_expected.png" "$CONVOL/sobel.mat" \
     --times 4 --angle d45 --combine max --precision integer
 "$VIPS" compass "$CONVOL/eye.png" "$CONVOL/compass_sum_float_expected.v" "$CONVOL/sobel.mat" \
     --times 4 --angle d45 --combine sum --precision float
+# combine=sum at INTEGER precision: the distinct 16-bit-promotion + saturation
+# branch (out_fmt promotes uchar to 16-bit for Sum; the summed sobel edges reach
+# 812, above the uchar range). Integer arithmetic is deterministic → EXACT (tol
+# 0). vips emits this surface as **uint** (band format 4), which the libviprs
+# decoder does not read; the core (viprs) emits it as **ushort** (Gray16). The
+# decode-compare requires matching format classes, so the reference is
+# `vips cast … ushort` — lossless for these values (max 812 « 65535) and the same
+# Gray16 class viprs produces (unlike fastcor, whose viprs surface is float).
+"$VIPS" compass "$CONVOL/eye.png" "$TMP/compass_sum_int_uint.v" "$CONVOL/sobel.mat" \
+    --times 4 --angle d45 --combine sum --precision integer
+"$VIPS" cast "$TMP/compass_sum_int_uint.v" "$CONVOL/compass_sum_int_expected.v" ushort
 
 echo "==> [gaussblur] integer (PNG, ≤1 LSB) + float (.v)"
 "$VIPS" gaussblur "$CONVOL/eye.png" "$CONVOL/gaussblur_int_expected.png" 1.5 --precision integer
@@ -1025,7 +1038,9 @@ NEVER by CI.
 ## Honest oracle classes (measured)
 
 - **EXACT (tol 0)**: \`compass --combine max\` integer (scale-1 sobel mask needs
-  no coefficient rounding) and \`fastcor\` (integer SSD). Also gaussmat/logmat at
+  no coefficient rounding), \`compass --combine sum\` integer (the deterministic
+  16-bit-promotion + saturation branch; summed sobel edges reach 812; vips
+  emits uint, core emits Gray16, cast to ushort \`.v\`), and \`fastcor\` (integer SSD). Also gaussmat/logmat at
   **integer** precision (integer-valued matrices).
 - **BOUNDED-TOL ≤1 LSB (tol 1)**: \`conv\` and \`gaussblur\` at **integer**
   precision with a **scaled** mask. This is a MEASURED core-vs-vips rounding-scheme
@@ -1064,6 +1079,7 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`convolution/convsep_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips convsep eye.png convsep_float_expected.v sep.mat --precision float\` |
 | \`convolution/compass_max_int_expected.png\` | EXACT (tol 0) | \`vips compass eye.png … sobel.mat --times 4 --angle d45 --combine max --precision integer\` |
 | \`convolution/compass_sum_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips compass eye.png … sobel.mat --times 4 --angle d45 --combine sum --precision float\` |
+| \`convolution/compass_sum_int_expected.v\` | EXACT (tol 0) | \`vips compass eye.png … sobel.mat --times 4 --angle d45 --combine sum --precision integer\` then \`vips cast … ushort\` (vips emits uint; core emits Gray16; 16-bit-promotion path) |
 | \`convolution/gaussblur_int_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips gaussblur eye.png gaussblur_int_expected.png 1.5 --precision integer\` |
 | \`convolution/gaussblur_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips gaussblur eye.png gaussblur_float_expected.v 1.5 --precision float\` |
 | \`convolution/sharpen_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips sharpen eye.png sharpen_expected.png --sigma 1 --m1 1 --m2 2\` |

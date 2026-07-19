@@ -25,12 +25,19 @@
 //!   The EXACT compass case (scale-1 mask) proves the divergence is the scale
 //!   division, not a CLI bug. `sharpen` (a LabS unsharp round trip) is likewise
 //!   ≤1 LSB. See the wave report's open questions.
-//! * **BOUNDED-TOL float (small eps)** — the float-precision paths
-//!   (`conv`/`compass`/`gaussblur`), `convsep` (measured ≤1.5e-5 on the author
-//!   Mac — the core's two-pass accumulation order differs from vips's fused,
-//!   vectorised pass), gaussmat/logmat float precision (transcendental `exp`),
-//!   and `spcor` (eps 1e-5). The eps carries the cross-platform libm / FMA drift
-//!   the Mac-generated reference cannot see at test time on CI.
+//! * **BOUNDED-TOL float (small eps)** — the large-magnitude float image
+//!   surfaces (`conv`/`compass`/`gaussblur` float, `convsep`, measured ≤1.5e-5
+//!   on the author Mac — the core's two-pass accumulation order differs from
+//!   vips's fused, vectorised pass) at `FLOAT_EPS` = 1e-3, and `spcor` (eps
+//!   1e-5). The eps carries the cross-platform libm / FMA drift the
+//!   Mac-generated reference cannot see at test time on CI. The
+//!   gaussmat/logmat **float** mask creators use a much tighter
+//!   `MASK_FLOAT_EPS` = 1e-6 (their ≤1.0 coefficients make 1e-3 far too loose;
+//!   the only real drift is cross-libm `exp()` at ~1 ULP), honouring OP_MAP's
+//!   1e-9 intent for those two ops.
+//! * **EXACT (tol 0), integer 16-bit promotion** — `compass --combine sum` at
+//!   **integer** precision promotes uchar inputs to a 16-bit surface (values
+//!   here reach 812, above the uchar range) and is bit-exact against vips.
 //!
 //! Every input is DISCRIMINATING: `eye.png` is a high-frequency zone-plate, so a
 //! box blur moves it by up to 59 and compass edge-detection by 254 — a
@@ -59,10 +66,20 @@ const EXACT: f64 = 0.0;
 /// `sharpen` LabS round trip. Measured max-abs-diff == 1 on the author Mac.
 const LSB: f64 = 1.0;
 
-/// BOUNDED-TOL for the float-precision surfaces (`conv`/`compass`/`gaussblur`
-/// float, `convsep`, gaussmat/logmat float). Measured ≤1.5e-5 on the author Mac;
-/// the eps carries cross-platform libm / accumulation-order drift.
+/// BOUNDED-TOL for the large-magnitude float image surfaces
+/// (`conv`/`compass`/`gaussblur` float, `convsep`). Measured ≤1.5e-5 on the
+/// author Mac; the eps carries cross-platform libm / accumulation-order drift.
+/// These surfaces reach ~1000-2262, so 1e-3 absolute is a tight relative bound.
 const FLOAT_EPS: f64 = 1e-3;
+
+/// BOUNDED-TOL for the `gaussmat` / `logmat` **float** mask creators. Their
+/// coefficients are all ≤ 1.0, so the shared [`FLOAT_EPS`] = 1e-3 would be 0.1%
+/// of full scale — six orders looser than OP_MAP.md's mandated 1e-9 for these
+/// two ops, weak enough to hide a systematic ~0.05% transcendental/normalisation
+/// error. The only real drift here is cross-libm `exp()` at ~1 ULP (~1e-16), so
+/// this tight bound honours OP_MAP's 1e-9 intent with generous headroom.
+/// Measured 0 for `gaussmat_float`, ≤1.5e-5 shape headroom retained for logmat.
+const MASK_FLOAT_EPS: f64 = 1e-6;
 
 /// BOUNDED-TOL for `spcor` (OP_MAP.md eps 1e-5): the normalised cross-correlation
 /// accumulates in a slightly different order than vips. Measured 0 on the Mac.
@@ -153,7 +170,7 @@ fn gaussmat_float_matches_vips_bounded_tol() {
     decode_compare(
         &out,
         &cli_fixture("convolution/gaussmat_float_expected.v"),
-        FLOAT_EPS,
+        MASK_FLOAT_EPS,
     );
 }
 
@@ -193,7 +210,7 @@ fn logmat_float_separable_matches_vips_bounded_tol() {
     decode_compare(
         &out,
         &cli_fixture("convolution/logmat_float_expected.v"),
-        FLOAT_EPS,
+        MASK_FLOAT_EPS,
     );
 }
 
@@ -327,6 +344,39 @@ fn compass_sum_float_matches_vips_bounded_tol() {
         &out,
         &cli_fixture("convolution/compass_sum_float_expected.v"),
         FLOAT_EPS,
+    );
+}
+
+#[test]
+fn compass_sum_integer_matches_vips_exact() {
+    // EXACT (tol 0): the combine=sum + integer-precision path is the distinct
+    // core branch that promotes uchar inputs to a 16-bit surface and saturates
+    // (out_fmt = ushort for Sum). Integer arithmetic is deterministic, so it is
+    // bit-exact against vips. Non-vacuous — the summed sobel edges reach 812,
+    // above the uchar range, exercising the 16-bit promotion the sum/float and
+    // max/integer cases never touch. Carrier: native ushort `.v`.
+    if skip_if_no_cli("compass_sum_int") {
+        return;
+    }
+    let out = out_path("compass_sum_int.v");
+    run_viprs_ok(&[
+        "compass",
+        &fx(EYE),
+        out.to_str().unwrap(),
+        &fx(SOBEL),
+        "--times",
+        "4",
+        "--angle",
+        "d45",
+        "--combine",
+        "sum",
+        "--precision",
+        "integer",
+    ]);
+    decode_compare(
+        &out,
+        &cli_fixture("convolution/compass_sum_int_expected.v"),
+        EXACT,
     );
 }
 
