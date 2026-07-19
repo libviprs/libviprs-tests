@@ -10,7 +10,15 @@ publish = false
 default = []
 pdfium = ["libviprs/pdfium", "dep:pdfium-render"]
 ported_tests = []
-s3 = ["libviprs/s3"]
+# Enables the Phase 3 object-store sink integration tests
+# (`tests/sink_object_store_stub_contract.rs` and the S3 leg of
+# `tests/phase3_validation_stress.rs`). Activates the `object-store-sink`
+# feature on the core `libviprs` crate so that `libviprs::sink::ObjectStoreSink`
+# and `libviprs::sink::ObjectStoreConfig` are exposed.
+object-store-sink = ["libviprs/object-store-sink"]
+# Deprecated alias for `object-store-sink`, retained so consumers that pinned the
+# old `s3` feature name keep building. Prefer `object-store-sink`.
+s3 = ["object-store-sink"]
 # Enables Phase 3 packfile archive-sink integration tests in
 # `tests/phase3_packfile.rs`. Activates the `packfile` feature on the
 # core `libviprs` crate so that `libviprs::sink::PackfileSink` and
@@ -66,11 +74,22 @@ proptest = "1"
 # Mirror the core crate's `pdfium-render` thread-safety fork. `[patch]`
 # tables apply only from the build-root manifest, so the pin in
 # `../libviprs/Cargo.toml` does not reach this crate when it is the
-# build root — this crate resolves the unpatched `pdfium-render 0.9.x`
-# from crates.io, whose `ThreadSafePdfiumBindings` acquires the pdfium
-# global mutex only once on `FPDF_InitLibrary` and bypasses it for
-# every other call, segfaulting under concurrent access to a shared
-# `Pdfium`. Keep this pin in lockstep with `../libviprs/Cargo.toml`;
-# drop both once the fork is upstreamed and released.
+# build root — without this override this crate would resolve the
+# unpatched `pdfium-render 0.9.x` from crates.io, whose
+# `ThreadSafePdfiumBindings` acquires the pdfium global mutex only once
+# on `FPDF_InitLibrary` and bypasses it for every other call,
+# segfaulting under concurrent access to a shared `Pdfium`.
+#
+# HONESTY / pin strength: this override pins the MUTABLE
+# `libviprs/integration` branch, NOT the immutable commit `rev` the core
+# crate (`../libviprs/Cargo.toml`) pins. A force-push or rebase of that
+# branch silently changes what this patch resolves on the next fetch, so
+# this override is not reproducible the way the core `rev` pin is — it
+# only tracks the branch head. Do not read "mirror" / "lockstep" above as
+# a claim of matching immutability: today the two differ, and converting
+# this patch to the same immutable `rev` (genuine lockstep) is deferred as
+# a follow-up under the fork-pinning epic #344. Until then, keep this
+# branch pointed at the fork the core `rev` was cut from, and drop both
+# once the fork is upstreamed and released.
 [patch.crates-io]
 pdfium-render = { git = "https://github.com/libviprs/pdfium-render.git", branch = "libviprs/integration" }

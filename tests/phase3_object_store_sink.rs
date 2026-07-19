@@ -1,13 +1,15 @@
 //! Integration tests for the Phase 3 S3-compatible object-storage sink.
 //!
-//! These tests target the *planned* API introduced under the `s3` feature flag:
+//! These tests target the object-storage sink API introduced under the
+//! `object-store-sink` feature flag (with `s3` kept as a deprecated alias):
 //!
 //! ```ignore
 //! use libviprs::sink::{ObjectStoreSink, ObjectStoreConfig, RetryPolicy, ObjectStore};
 //! ```
 //!
-//! The whole file is gated behind `#[cfg(feature = "s3")]` so that builds that
-//! don't enable the feature simply don't compile this file. When the feature
+//! The whole file is gated behind `#[cfg(feature = "object-store-sink")]` so
+//! that builds that don't enable the feature simply don't compile it. When the
+//! feature
 //! *is* enabled and the planned API does not yet exist, compilation must fail
 //! — that is the TDD signal the implementation still needs to be written.
 //!
@@ -23,7 +25,7 @@
 //! `tempfile::tempdir()` for any filesystem needs, and a short docblock on
 //! every `#[test]` explaining what it proves.
 
-#![cfg(feature = "s3")]
+#![cfg(feature = "object-store-sink")]
 
 use libviprs::sink::{ObjectStore, ObjectStoreConfig, ObjectStoreSink};
 use libviprs::{

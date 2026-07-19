@@ -1103,55 +1103,104 @@ fn checkpoint_written_frequently_enough_to_bound_rework() {
 }
 
 // =============================================================================
-// 10. s3_restart_resumes (feature-gated; env-gated)
+// 10. s3_restart_resumes (feature-gated)
 // =============================================================================
 
-/// End-to-end Resume against a real S3 endpoint. Skipped unless both the
-/// `s3` feature is enabled *and* `LIBVIPRS_TEST_S3_ENDPOINT` is set in
-/// the environment. Mirrors test 1 but across a network sink.
-#[cfg(feature = "s3")]
+/// In-memory object-store double for the restart-resume test. Shared across
+/// both sink constructions via a cloned `Arc`, so it models an object store
+/// whose objects survive the first run's crash.
+#[cfg(feature = "object-store-sink")]
+#[derive(Default)]
+struct RestartRecordingStore {
+    puts: Mutex<Vec<(String, Vec<u8>)>>,
+}
+
+#[cfg(feature = "object-store-sink")]
+impl RestartRecordingStore {
+    fn keys(&self) -> Vec<String> {
+        self.puts
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+}
+
+#[cfg(feature = "object-store-sink")]
+impl libviprs::sink::ObjectStore for RestartRecordingStore {
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), SinkError> {
+        self.puts
+            .lock()
+            .unwrap()
+            .push((key.to_string(), bytes.to_vec()));
+        Ok(())
+    }
+}
+
+/// Crash-then-resume against the object-store sink, verified honestly.
+///
+/// This was previously a permanently-skipped, latently-broken test (#381): it
+/// built `ObjectStoreSink::new` from a config with **no** injected backend
+/// (which errors, so `.unwrap()` would have panicked) and asserted over
+/// `list_objects()`, an unimplemented stub. It only stayed green by
+/// early-returning whenever `LIBVIPRS_TEST_S3_ENDPOINT` was unset, giving false
+/// confidence in resume coverage across an object store.
+///
+/// This version runs unconditionally: it injects a shared in-memory backend
+/// (modelling a bucket that survives the crash), crashes the first run
+/// mid-upload, resumes to completion against the same backend + checkpoint, and
+/// verifies the backend captured an object for every filesystem-reference tile.
+/// Because the [`libviprs::sink::ObjectStore`] trait cannot enumerate, it
+/// inspects the injected backend directly instead of the unsupported
+/// `list_objects()` — and pins that `list_objects()` fails loud rather than
+/// masquerading the populated backend as an empty set.
+#[cfg(feature = "object-store-sink")]
 #[test]
 fn s3_restart_resumes() {
-    use libviprs::sink::{ObjectStoreConfig, ObjectStoreSink};
-    use std::time::SystemTime;
-
-    let Ok(endpoint) = std::env::var("LIBVIPRS_TEST_S3_ENDPOINT") else {
-        eprintln!("skipping s3_restart_resumes: LIBVIPRS_TEST_S3_ENDPOINT unset");
-        return;
-    };
-    let bucket =
-        std::env::var("LIBVIPRS_TEST_S3_BUCKET").unwrap_or_else(|_| "libviprs-test".to_string());
-    let access_key =
-        std::env::var("LIBVIPRS_TEST_S3_ACCESS_KEY").unwrap_or_else(|_| "minio".to_string());
-    let secret_key =
-        std::env::var("LIBVIPRS_TEST_S3_SECRET_KEY").unwrap_or_else(|_| "minio123".to_string());
+    use libviprs::sink::{ObjectStore, ObjectStoreConfig, ObjectStoreSink};
 
     let root = tempfile::tempdir().unwrap();
     let src = whitespace_heavy_raster(512, 384);
     let plan = standard_planner(512, 384, 128);
 
-    // Reference filesystem run for comparison.
+    // Reference filesystem run: same plan, so the same tile coordinate set.
+    // FsSink lays tiles out as `<base>/<level>/<x>_<y>.png`; we key the
+    // comparison on the `<level>/<x>_<y>.png` tail so it is independent of the
+    // differing prefix/layout roots between the two sinks.
     let ref_dir = tempfile::tempdir_in(root.path()).unwrap();
-    let ref_base = run_golden_pyramid(
+    let _ref_base = run_golden_pyramid(
         &src,
         &plan,
         ref_dir.path(),
         TileFormat::Png,
         &EngineConfig::default().with_concurrency(4),
     );
+    let expected: HashSet<String> = list_files_relative(ref_dir.path())
+        .into_iter()
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("png"))
+        .filter_map(|p| {
+            // Drop the leading `<base>/` component, keeping `<level>/<x>_<y>.png`.
+            let mut comps = p.components();
+            comps.next();
+            let tail = comps.as_path();
+            (!tail.as_os_str().is_empty()).then(|| tail.to_string_lossy().into_owned())
+        })
+        .collect();
+    assert!(!expected.is_empty(), "reference run produced no tiles");
 
-    // Unique prefix per test run to avoid cross-run interference.
-    let prefix = format!(
-        "libviprs-phase3-{}",
-        SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    );
-
-    let cfg = ObjectStoreConfig::s3(&endpoint, &bucket)
-        .with_access_key(&access_key, &secret_key)
-        .with_key_prefix(&prefix);
+    // Shared object-store backend + checkpoint dir: both survive the crash so
+    // the second run resumes instead of restarting from scratch.
+    let backend = Arc::new(RestartRecordingStore::default());
+    let checkpoint = tempfile::tempdir_in(root.path()).unwrap();
+    let cfg = ObjectStoreConfig::s3("http://object-store.invalid", "libviprs-test")
+        .with_key_prefix("libviprs-phase3")
+        .with_image_name("pyramid")
+        .with_object_store(backend.clone() as Arc<dyn ObjectStore>);
+    let engine = EngineConfig::default()
+        .with_concurrency(4)
+        .with_checkpoint_every(1)
+        .with_checkpoint_root(checkpoint.path().to_path_buf());
 
     // First run: crash mid-upload.
     let inner = ObjectStoreSink::new(cfg.clone(), plan.clone(), TileFormat::Png).unwrap();
@@ -1160,40 +1209,30 @@ fn s3_restart_resumes() {
         PanicTrigger::NthWrite(plan.total_tile_count() as usize / 3),
     );
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        run_resumable(
-            &src,
-            &plan,
-            &panicking,
-            &EngineConfig::default().with_concurrency(4),
-            ResumeMode::Resume,
-        )
+        run_resumable(&src, &plan, &panicking, &engine, ResumeMode::Resume)
     }));
 
-    // Second run: resume and finish.
+    // Second run: resume and finish against the same backend + checkpoint.
     let resume_sink = ObjectStoreSink::new(cfg.clone(), plan.clone(), TileFormat::Png).unwrap();
-    run_resumable(
-        &src,
-        &plan,
-        &resume_sink,
-        &EngineConfig::default().with_concurrency(4),
-        ResumeMode::Resume,
-    )
-    .unwrap();
+    run_resumable(&src, &plan, &resume_sink, &engine, ResumeMode::Resume).unwrap();
 
-    // Server-side listing must match the filesystem reference. We compare
-    // only the set of relative keys — byte equality for S3 objects is
-    // covered by the checksum-verifying tests in `phase3_object_store_sink`.
-    let listed: HashSet<String> = resume_sink.list_objects().unwrap().into_iter().collect();
-    let expected: HashSet<String> = list_files_relative(&ref_base)
-        .into_iter()
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
-
-    // Every reference file name should show up as an object key suffix.
+    // Inspect the injected backend directly (the sink cannot enumerate). Every
+    // filesystem-reference tile must have a matching uploaded object key.
+    let uploaded: HashSet<String> = backend.keys().into_iter().collect();
     for key in &expected {
         assert!(
-            listed.iter().any(|k| k.ends_with(key)),
-            "expected S3 object for reference file {key}"
+            uploaded.iter().any(|k| k.ends_with(key)),
+            "expected an uploaded object for reference tile {key}"
         );
     }
+
+    // The sink still cannot enumerate server state: list_objects must fail loud
+    // rather than masquerade the populated backend as an empty set.
+    let err = resume_sink
+        .list_objects()
+        .expect_err("list_objects must not report success while unimplemented");
+    assert!(
+        matches!(err, SinkError::Unsupported(_)),
+        "expected SinkError::Unsupported, got {err:?}"
+    );
 }

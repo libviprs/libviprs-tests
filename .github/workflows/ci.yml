@@ -29,6 +29,12 @@ jobs:
       # Docker mirror. phase3_tracing reads only the checked-in canonical PNG,
       # so it needs no reference-suite fixtures.
       - run: cargo test --features "ported_tests tracing" --test phase3_tracing
+      # The object-store sink integration tests (phase3_object_store_sink, the
+      # S3 leg of phase3_validation_stress, and sink_object_store_stub_contract)
+      # are gated behind `object-store-sink`, so the default `cargo test` above
+      # compiles them out. Exercise the feature so they actually run in CI
+      # (issue #382).
+      - run: cargo test --features object-store-sink --test phase3_object_store_sink --test phase3_validation_stress --test sink_object_store_stub_contract
 
   test-pdfium:
     name: Integration Tests (pdfium)
@@ -92,16 +98,16 @@ jobs:
       fail-fast: false
       matrix:
         # One cell per non-default feature so a build/lint regression under a
-        # feature-gated module (the `s3` object-store sink, the `packfile`
-        # archive sink, the `tracing` span instrumentation) can no longer ship
-        # green just because the default harness never compiled that code.
-        # `-Dwarnings` (via RUSTFLAGS) means every gated test target is fully
-        # type-checked and linted here, not merely conditionally excluded.
+        # feature-gated module (the `object-store-sink` object-store sink, the
+        # `packfile` archive sink, the `tracing` span instrumentation) can no
+        # longer ship green just because the default harness never compiled that
+        # code. `-Dwarnings` (via RUSTFLAGS) means every gated test target is
+        # fully type-checked and linted here, not merely conditionally excluded.
         # `pdfium` has its own job above; `ported_tests` has the ported-tests
         # job above (it cannot join this `--all-targets` matrix because the
         # two deferred codec cells do not compile yet, so its clippy pass is
         # scoped to the green cells via tools/run_ported_cells.sh; issue #77).
-        feature: [s3, packfile, tracing]
+        feature: [object-store-sink, packfile, tracing]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/clone-counterpart
