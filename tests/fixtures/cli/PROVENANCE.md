@@ -93,7 +93,7 @@ References (paths relative to `tests/fixtures/cli/`):
 | `bands/bandjoin_const_expected.v` | EXACT | `vips bandjoin_const gray.png bandjoin_const_expected.v "10 20 30"` |
 | `bands/bandfold_expected.v` | EXACT | `vips bandfold gray.png bandfold_expected.v --factor 4` |
 | `bands/bandunfold_expected.png` | EXACT | `vips bandunfold rgb.png bandunfold_expected.png` (default factor = unfold all) |
-| `bands/bandmean_expected.png` | BOUNDED-TOL ≤1 LSB | `vips bandmean rgb.png bandmean_expected.png` (3 distinct bands → core floors vs vips rounds, tol 1) |
+| `bands/bandmean_expected.png` | EXACT (tol 0) | `vips bandmean rgb.png bandmean_expected.png` (3 distinct bands; core #482 now rounds the integer mean to nearest, matching vips bit-for-bit) |
 | `bands/bandrank_median_expected.png` | EXACT | `vips bandrank "gray.png gray2.png gray3.png" bandrank_median_expected.png` |
 | `bands/bandrank_min_expected.png` | EXACT | `vips bandrank "gray.png gray2.png gray3.png" bandrank_min_expected.png --index 0` |
 | `bands/bandbool_and_expected.png` | EXACT | `vips bandbool rgb.png bandbool_and_expected.png and` |
@@ -288,8 +288,8 @@ References (paths relative to `tests/fixtures/cli/`):
 | `conversion/ifthenelse_expected.png` | EXACT | `vips ifthenelse cond.png gray.png gray2.png ifthenelse_expected.png` |
 | `conversion/autorot_expected.png` | EXACT (golden via rot-d90 identity; see above) | `vips rot autorot_base.png autorot_expected.png d90` |
 | `conversion/wrap_expected.png` | EXACT | `vips wrap grad.png wrap_expected.png` |
-| `conversion/gamma_expected.png` | BOUNDED-TOL ≤1 LSB | `vips gamma ramp256.png gamma_expected.png` (full domain; core vs vips LUT rounding ±1) |
-| `conversion/gamma_exp2_expected.png` | BOUNDED-TOL ≤1 LSB | `vips gamma ramp256.png gamma_exp2_expected.png --exponent 2.0` (full domain) |
+| `conversion/gamma_expected.png` | EXACT (tol 0) | `vips gamma ramp256.png gamma_expected.png` (full domain; core #486 rebuilt the power LUT vips-exact) |
+| `conversion/gamma_exp2_expected.png` | EXACT (tol 0) | `vips gamma ramp256.png gamma_exp2_expected.png --exponent 2.0` (full domain) |
 | `conversion/falsecolour_expected.png` | EXACT | `vips falsecolour ramp256.png falsecolour_expected.png` (full domain) |
 | `conversion/addalpha_expected.png` | EXACT | `vips addalpha rgb.png addalpha_expected.png` |
 | `conversion/arrayjoin_expected.png` | EXACT | `vips arrayjoin "gray.png gray2.png gray3.png" arrayjoin_expected.png --across 2` |
@@ -572,32 +572,30 @@ Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
   (float), `math2_const`, `abs`, `sign`, `round` → float `.v`; `linear --uchar`,
   `remainder_const`, `clamp` → PNG.
 
-## `round rint` divergence (GOLDEN-ONLY, a real core limitation)
+## `round rint` — now EXACT against a real vips oracle
 
-`round rint` GENUINELY diverges from vips 8.18.4 at exact half-integers — not a
-bounded tolerance. The core maps `f64::round` (rounds half AWAY from zero:
-0.5→1, 2.5→3, −2.5→−3) while vips's C `rint` rounds half TO EVEN (0.5→0, 2.5→2,
-−2.5→−2). The old `510*grey−255` afloat never produced an x.5 sample, so this was
-invisible (and `round_rint_expected.v` was byte-identical to `round_floor`); the
-honest afloat above reaches x.5 and the two diverge deterministically (measured
-max-abs-diff 1). So `round_rint_golden.v` is minted by `viprs` itself
-(deterministic) and the test is a regression pin. `ceil`/`floor` have no tie and
-stay EXACT against vips. **A core issue is filed to reconcile `rint` with
-round-half-to-even (and to correct the `arithmetic.rs` doc comment that wrongly
-states vips `rint` "rounds halves away from zero").**
+`round rint` once GENUINELY diverged from vips 8.18.4 at exact half-integers: the
+core mapped `f64::round` (rounds half AWAY from zero: 0.5→1, 2.5→3, −2.5→−3)
+while vips's C `rint` rounds half TO EVEN (0.5→0, 2.5→2, −2.5→−2). Core issue #494
+changed the core to round half-to-even, so on the honest afloat (which reaches
+x.5) `round rint` now matches vips bit-for-bit and is carried EXACT (tol 0)
+against a genuine vips oracle (`round_rint_expected.v`). The former GOLDEN-ONLY
+viprs pin (`round_rint_golden.v`) is retired. `ceil`/`floor` have no tie and were
+and remain EXACT against vips.
 
-## Hough divergence (GOLDEN-ONLY, a real core limitation)
+## Hough (still GOLDEN-ONLY, for narrower reasons)
 
-`hough_line` and `hough_circle` GENUINELY diverge from vips 8.18.4 — not a
-bounded tolerance. `hough_line`'s distance binning is offset by one accumulator
-cell: ≤1 per independent vote, but a horizontal line (many collinear votes)
-concentrates into an adjacent peak cell for a measured max-abs-diff of **32**.
-`hough_circle` uses a different per-cell vote model: a single voting point yields
-a core per-cell max of **1** but a vips per-cell max of **4**. There is thus no
-meaningful vips tolerance oracle, so the references `hough_line_golden.v` /
+Core issue #495 fixed `hough_line`'s distance binning, so its accumulator vote
+PATTERN now matches vips 8.18.4 bit-for-bit; what remains is an INHERENT
+format/saturation gap — the core accumulates into Gray16 (u16) while vips uses a
+uint accumulator, so at a peak of >65535 collinear votes the core saturates and
+vips does not (the core has no u32 carrier). `hough_circle` still diverges
+STRUCTURALLY: a single voting point yields a core per-cell max of **1** but a
+vips per-cell max of **4** (a different vote model, not a bounded tolerance).
+Neither has a full-width vips oracle, so the references `hough_line_golden.v` /
 `hough_circle_golden.v` are minted by `viprs` itself (deterministic) and the
-tests are regression pins. **A core issue is filed to reconcile the Hough
-binning / vote model with vips.**
+tests are regression pins. (`hough_line_golden.v` was re-minted from the fixed
+core after #495.)
 # arithmetic part-B (arith-b lane) CLI-differential reference provenance
 
 Committed vips oracle references the arith-b CLI-differential suite
@@ -1155,9 +1153,9 @@ coefficient path toward vips's table if exact bicubic parity is ever required.
 | `aritha/abs_expected.v` | EXACT (float) | `vips abs afloat.v abs_expected.v` |
 | `aritha/sign_expected.v` | EXACT-AFTER-CAST (float) | `vips sign afloat.v sign.v` → `cast … float` (vips emits signed char; float preserves −1/0/1; afloat now includes exactly 0.0 so the zero→0 branch is exercised) |
 | `aritha/round_ceil_expected.v` / `_floor_` | EXACT (float) | `vips round afloat.v … ceil\|floor` (no tie-break; matches vips exactly) |
-| `aritha/round_rint_golden.v` | GOLDEN-ONLY (no vips oracle) | `viprs round afloat.v round_rint_golden.v rint` — core `f64::round` (half away from zero) diverges from vips's C `rint` (half to even) at exact half-integers (measured max-abs-diff 1); viprs regression pin, core issue filed |
+| `aritha/round_rint_expected.v` | EXACT (float) | `vips round afloat.v round_rint_expected.v rint` — core #494 rounds half TO EVEN, matching vips's C `rint` at exact half-integers (tol 0); the former GOLDEN-ONLY `round_rint_golden.v` pin is retired |
 | `aritha/clamp_expected.png` | EXACT | `vips clamp agray.png clamp_expected.png --min 50 --max 200` |
-| `aritha/hough_line_golden.v` | GOLDEN-ONLY (no vips oracle) | `viprs hough_line point.png hough_line_golden.v` (core binning diverges from vips) |
+| `aritha/hough_line_golden.v` | GOLDEN-ONLY (no full-width vips oracle) | `viprs hough_line point.png hough_line_golden.v` (binning now vips-exact per core #495, but Gray16-vs-uint saturation remains; re-minted from the fixed core) |
 | `aritha/hough_circle_golden.v` | GOLDEN-ONLY (no vips oracle) | `viprs hough_circle point.png hough_circle_golden.v 2 4` (core vote model diverges from vips) |
 
 The two hough references are viprs-generated regression pins, not vips oracles:
@@ -1193,8 +1191,8 @@ reconcile them.
 | `arithb/boolean_const_rshift_expected.png` | EXACT | `vips boolean_const a.png boolean_const_rshift_expected.png rshift 2` |
 | `arithb/scale_expected.png` | BOUNDED-TOL ≤1 LSB | `vips scale rgb.png scale_expected.png` (linear) |
 | `arithb/scale_log_expected.png` | BOUNDED-TOL ≤1 LSB | `vips scale rgb.png scale_log_expected.png --log` |
-| `arithb/stdif_expected.png` | BOUNDED-TOL 6 | `vips stdif eye.png stdif_expected.png 3 3` (border clip vs mirror — core issue #490) |
-| `arithb/recomb_expected.png` | BOUNDED-TOL 1 | `vips recomb rgb.png recomb_expected.png recomb.mat` (per-band round vs float — OP_MAP EAC deviation, core issue #491) |
+| `arithb/stdif_expected.png` | EXACT (tol 0) | `vips stdif eye.png stdif_expected.png 3 3` (core #490 edge-replicate now matches vips whole-image, border ring included) |
+| `arithb/recomb_expected.png` | EXACT (tol 0) | `vips recomb rgb.png recomb_expected.png recomb.mat` (core #491 f32-then-truncate now bit-exact) |
 | `arithb/premultiply_expected.png` | BOUNDED-TOL 1 | `vips premultiply rgba.png premultiply_expected.png` |
 | `arithb/unpremultiply_expected.png` | BOUNDED-TOL 1 | `vips unpremultiply rgba.png unpremultiply_expected.png` |
 | `arithb/math_sin_expected.v` | FOURIER (float, eps 1e-6) | `vips math a.png math_sin_expected.v sin` |
@@ -1214,8 +1212,8 @@ reconcile them.
 | `arithb/math_atanh_expected.v` | FOURIER (float, eps 1e-6) | `vips math msmall.v math_atanh_expected.v atanh` |
 | `arithb/math_acosh_expected.v` | FOURIER (float, eps 1e-6) | `vips math macosh.v math_acosh_expected.v acosh` |
 | `arithb/math2_atan2_expected.v` | FOURIER (float, eps 1e-6) | `vips math2 a.png b.png math2_atan2_expected.v atan2` |
-| `arithb/math2_pow_expected.v` | BOUNDED-TOL 1 | `vips math2 small.png small2.png math2_pow_expected.v pow` (pow(0,0): Rust 1 vs vips 0 — core issue #489) |
-| `arithb/math2_wop_expected.v` | BOUNDED-TOL 1 | `vips math2 small2.png small.png math2_wop_expected.v wop` (wop = right^left = small^small2; shares the 0^0 edge — core issue #489) |
+| `arithb/math2_pow_expected.v` | EXACT (tol 0) | `vips math2 small.png small2.png math2_pow_expected.v pow` (core #489 made pow(0,≤0)=0, matching vips on the 0^0 sample) |
+| `arithb/math2_wop_expected.v` | EXACT (tol 0) | `vips math2 small2.png small.png math2_wop_expected.v wop` (wop = right^left = small^small2; shares the now-fixed 0^0 edge — core #489) |
 | `arithb/complexform_expected.v` | FOURIER (eps 1e-6) | `vips complexform a.png b.png cf_c.v` then `vips copy cf_c.v complexform_expected.v --format float --bands 2` |
 | `arithb/complex_polar_expected.v` | FOURIER (eps 1e-6) | `vips complex cpx_c.v cpol.v polar` then reinterpret `--format float --bands 2` |
 | `arithb/complex_rect_expected.v` | FOURIER (eps 1e-6) | `vips complex cpx_c.v crect.v rect` then reinterpret |

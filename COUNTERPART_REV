@@ -45,4 +45,13 @@
 # (they never had prior state; the stopgap now refuses resume+dedupe/checksum),
 # and the new resume_dedupe_unsupported / dedupe_deterministic_layout cells
 # build and pass against this counterpart.
-f5ad42e9a60706adf18a1fe2202a4e96ef4b4b13
+#
+# Bumped to the FIXED core (a055719) that brings several ops to vips 8.18.4
+# bit-exact parity: #482 bandmean round-to-nearest, #486 gamma vips-exact LUT,
+# #491 recomb f32-then-truncate, #490 stdif edge-replicate (whole-image match),
+# #489 pow(0,≤0)=0, #494 rint round-half-to-even, #495 hough_line binning, plus
+# #488 insert --background, #483 N-band TIFF decode, #487 orientation decode, and
+# #492/#493 security hardening. The CLI-differential suites upgrade bandmean /
+# gamma / recomb / stdif / math2 pow|wop / round rint from BOUNDED-TOL|GOLDEN-ONLY
+# to EXACT (tol 0) against this counterpart; the two hough ops stay GOLDEN-ONLY.
+a0557196b9457a8cac97b37f066034bb518709e4
