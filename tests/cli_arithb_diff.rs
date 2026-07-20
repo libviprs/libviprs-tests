@@ -21,23 +21,24 @@
 //!   a.png, the other 13 on the in-domain float inputs), `math2 atan2`,
 //!   `complexform`, `complex` (polar/rect/conj), `complexget` (real/imag).
 //!   Measured 0 on the committed inputs; the 1e-6 eps is f32-rounding headroom.
+//! * **EXACT, tol 0 (upgraded from BOUNDED-TOL by the core parity fixes)**:
+//!   - `recomb`: core issue #491 recomputes the band recombination in f32 and
+//!     truncates once (as vips does), so integer-in/integer-out is now bit-exact
+//!     (was ≤1 LSB per-band round-and-saturate).
+//!   - `stdif`: core issue #490 switched the sliding-window border to
+//!     edge-replicate, so the WHOLE image — border ring included — matches vips
+//!     on the 2-D `eye` zone-plate (was whole-image 6 / interior 0 from a
+//!     core-clip-vs-vips-mirror border divergence; the old separate interior-only
+//!     crop is retired).
+//!   - `math2 pow` / `math2 wop`: core issue #489 made `pow(0, ≤0) = 0` (was Rust
+//!     `f64::powf(0,0)=1` vs libvips `0` on the single 0^0 sample), so both match
+//!     vips bit-for-bit. The 0^0 edge is still EXERCISED (base and exponent both
+//!     span 0), not hidden.
 //! * **BOUNDED-TOL** (a genuine, documented core-vs-vips divergence, NOT hidden
 //!   by input choice):
 //!   - `scale` (linear + `--log`): ≤1 LSB, log path transcendental (measured 0).
-//!   - `recomb`: 1 LSB — core rounds & saturates per output band into the input
-//!     depth while vips computes in float and casts once (measured 1). A
-//!     documented deviation from OP_MAP's EAC prediction (core issue #491).
 //!   - `premultiply` / `unpremultiply`: ≤1 LSB post-cast (vips emits float, core
 //!     rounds into the uchar depth; measured 1).
-//!   - `stdif`: whole-image 6 — core CLIPS the sliding window at the image border
-//!     while vips MIRRORS, so a genuinely 2-D input (the `eye` zone-plate) diverges
-//!     in the 1px border ring. The INTERIOR is compared separately at tol 0 (1px
-//!     margin cropped) so a flat tol 6 cannot hide an interior regression. Measured
-//!     6 whole-image / 0 interior on eye 3x3. A documented edge-handling divergence
-//!     (core issue #490).
-//!   - `math2 pow` / `math2 wop`: 1 — the single `pow(0,0)` sample diverges (Rust
-//!     `f64::powf(0,0)=1` vs libvips `0`). The 0^0 edge is EXERCISED (base and
-//!     exponent both span 0), not hidden (core issue #489).
 //!
 //! If the `libviprs-cli` sibling is not checked out, every test SKIPS with a
 //! clear message rather than failing — the dedicated `cli-differential` CI job
@@ -49,9 +50,7 @@ mod common;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use common::cli::{
-    cli_available, cli_fixture, decode_compare, decode_compare_interior, run_viprs_ok,
-};
+use common::cli::{cli_available, cli_fixture, decode_compare, run_viprs_ok};
 
 use tempfile::TempDir;
 
@@ -65,25 +64,8 @@ const FLOAT_EPS: f64 = 1e-6;
 /// `scale` (linear + log): ≤1 LSB (log path transcendental; measured 0).
 const SCALE_TOL: f64 = 1.0;
 
-/// `recomb`: 1 LSB — per-band round-and-saturate vs vips float-then-cast.
-const RECOMB_TOL: f64 = 1.0;
-
 /// `premultiply` / `unpremultiply`: ≤1 LSB post-cast.
 const PREMULT_TOL: f64 = 1.0;
-
-/// `stdif`: whole-image border clip-vs-mirror divergence, measured 6 on eye 3x3.
-const STDIF_TOL: f64 = 6.0;
-
-/// `stdif` INTERIOR (1px border ring cropped): the "interior is exact" region —
-/// core's clip and vips's mirror agree away from the border. Measured 0.
-const STDIF_INTERIOR_TOL: f64 = 0.0;
-
-/// The 1px border ring is the divergent zone for a 3x3 window; crop it to
-/// isolate the interior-exact comparison (review finding 2).
-const STDIF_BORDER_MARGIN: usize = 1;
-
-/// `math2 pow`: the single `pow(0,0)` sample (Rust 1 vs vips 0).
-const POW_TOL: f64 = 1.0;
 
 /// Skip-guard: `true` (with a printed reason) when the CLI sibling is absent.
 ///
@@ -585,56 +567,41 @@ fn scale_log_matches_vips_bounded_tol() {
 }
 
 #[test]
-fn stdif_matches_vips_bounded_tol() {
+fn stdif_matches_vips_exact() {
     if skip_if_no_cli("stdif") {
         return;
     }
-    // On the 2-D `eye` input the sliding-window statistics diverge at the border
-    // (core clips, vips mirrors) by up to 6 raw units; the interior is exact.
-    // A documented core-vs-vips edge-handling divergence (core issue #490; see the module header).
+    // EXACT (tol 0) across the WHOLE image, including the border ring. Core issue
+    // #490 switched the sliding-window border handling to edge-replicate,
+    // matching vips 8.18.4 on the 2-D `eye` input (previously the core CLIPPED
+    // while vips MIRRORED, diverging up to 6 raw units in the 1px border ring —
+    // so the old suite carried a whole-image tol-6 case plus a separate
+    // interior-only tol-0 crop; both collapse to a single whole-image tol-0
+    // comparison now).
     let out = op("stdif.png");
     run_viprs_ok(&["stdif", &fx(EYE), &out, "3", "3"]);
     decode_compare(
         &out_path("stdif.png"),
         &cli_fixture("arithb/stdif_expected.png"),
-        STDIF_TOL,
+        EXACT,
     );
 }
 
 #[test]
-fn stdif_interior_matches_vips_exact() {
-    if skip_if_no_cli("stdif_interior") {
-        return;
-    }
-    // The whole-image tol-6 case above absorbs the border clip-vs-mirror
-    // divergence, but a flat tol 6 would also hide an INTERIOR regression up to 6
-    // raw units. This case crops the 1px border ring (the divergent zone for a
-    // 3x3 window) and holds the interior to tol 0 — restoring the "interior is
-    // exact" guarantee the module header claims (review finding 2). Measured 0.
-    let out = op("stdif_interior.png");
-    run_viprs_ok(&["stdif", &fx(EYE), &out, "3", "3"]);
-    decode_compare_interior(
-        &out_path("stdif_interior.png"),
-        &cli_fixture("arithb/stdif_expected.png"),
-        STDIF_BORDER_MARGIN,
-        STDIF_INTERIOR_TOL,
-    );
-}
-
-#[test]
-fn recomb_matches_vips_bounded_tol() {
+fn recomb_matches_vips_exact() {
     if skip_if_no_cli("recomb") {
         return;
     }
-    // Matrix FILE arg via the shared matfile loader. BOUNDED-TOL 1: core rounds
-    // & saturates per output band into the uchar depth while vips computes in
-    // float and casts once (a documented deviation from OP_MAP's EAC prediction; core issue #491).
+    // Matrix FILE arg via the shared matfile loader. EXACT (tol 0): core issue
+    // #491 recomputes the band recombination in f32 and truncates once (as vips
+    // does), so the integer-in/integer-out result is now bit-exact (previously
+    // per-band round-and-saturate diverged ≤1 LSB from vips's float-then-cast).
     let out = op("recomb.png");
     run_viprs_ok(&["recomb", &fx(RGB), &out, &fx(MAT)]);
     decode_compare(
         &out_path("recomb.png"),
         &cli_fixture("arithb/recomb_expected.png"),
-        RECOMB_TOL,
+        EXACT,
     );
 }
 
@@ -767,37 +734,40 @@ fn math2_atan2_matches_vips_float() {
 }
 
 #[test]
-fn math2_pow_matches_vips_bounded_tol() {
+fn math2_pow_matches_vips_exact() {
     if skip_if_no_cli("math2_pow") {
         return;
     }
     // small (0..15) ^ small2 (0..3): both span 0 so the pow(0,0) edge is present
-    // — Rust's f64::powf(0,0)=1 vs libvips 0, the single divergent sample (tol 1,
-    // core issue #489; NOT hidden by excluding 0 from the input).
+    // and EXERCISED (not hidden by excluding 0 from the input). Core issue #489
+    // made pow(0, ≤0) = 0, matching libvips (previously Rust's f64::powf(0,0)=1
+    // diverged on that single sample), so the whole `.v` now matches vips 8.18.4
+    // bit-for-bit — compared at tol 0.
     let out = op("math2_pow.v");
     run_viprs_ok(&["math2", &fx(SMALL), &fx(SMALL2), &out, "pow"]);
     decode_compare(
         &out_path("math2_pow.v"),
         &cli_fixture("arithb/math2_pow_expected.v"),
-        POW_TOL,
+        EXACT,
     );
 }
 
 #[test]
-fn math2_wop_matches_vips_bounded_tol() {
+fn math2_wop_matches_vips_exact() {
     if skip_if_no_cli("math2_wop") {
         return;
     }
     // The third math2 arm. wop = right^left, so `math2 small2 small wop` =
-    // small^small2 (same magnitude as pow) and shares the pow(0,0) edge at x=0
-    // (Rust f64::powf(0,0)=1 vs libvips 0 → tol 1, core issue #489). A pow<->wop
-    // swap is caught since both are tested (review finding 1).
+    // small^small2 (same magnitude as pow) and shares the pow(0,0) edge at x=0.
+    // Core issue #489 made pow(0, ≤0) = 0 (previously Rust f64::powf(0,0)=1),
+    // matching libvips, so this now matches vips 8.18.4 bit-for-bit (tol 0). A
+    // pow<->wop swap is caught since both are tested (review finding 1).
     let out = op("math2_wop.v");
     run_viprs_ok(&["math2", &fx(SMALL2), &fx(SMALL), &out, "wop"]);
     decode_compare(
         &out_path("math2_wop.v"),
         &cli_fixture("arithb/math2_wop_expected.v"),
-        POW_TOL,
+        EXACT,
     );
 }
 

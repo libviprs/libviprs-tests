@@ -11,11 +11,11 @@
 //! differential waves copy.
 //!
 //! All bands commands are oracle class **EXACT** (integer-in / integer-out,
-//! decode comparison at tolerance 0) **except `bandmean`**, which is
-//! **BOUNDED-TOL** (≤1 LSB, tolerance 1): the core floors the per-pixel integer
-//! mean (truncating division) while vips rounds to nearest, so a non-divisible
-//! band sum diverges by at most one LSB (a documented core-vs-vips rounding
-//! difference, not a CLI bug — see the `bandmean` test). References land on a
+//! decode comparison at tolerance 0) — including `bandmean`, which core issue
+//! #482 upgraded from BOUNDED-TOL: the core now rounds the per-pixel integer
+//! mean to nearest (previously it floored via truncating division, ≤1 LSB below
+//! vips's round-to-nearest), so a non-divisible band sum now matches vips
+//! bit-for-bit (see the `bandmean` test). References land on a
 //! 1 / 3 / 4-band uchar PNG where the interpretation is clean (1-band, or
 //! sRGB-tagged 3/4-band); the ops whose output is a **b-w multiband** image
 //! (`bandfold`, `bandjoin_const`, and the ≥3-input `bandjoin3` fold) are carried
@@ -40,11 +40,6 @@ use tempfile::TempDir;
 /// EXACT oracle class: bit-exact decode comparison (CLI_CONTRACT.md §5). Every
 /// bands op is integer-in / integer-out — except `bandmean`.
 const EXACT: f64 = 0.0;
-
-/// BOUNDED-TOL for `bandmean` (CLI_CONTRACT.md §5): ≤1 LSB. Core floors the
-/// per-pixel integer mean; vips rounds to nearest; the two agree to within one
-/// least-significant bit on a distinct-band (non-divisible) input.
-const BANDMEAN_TOL: f64 = 1.0;
 
 /// Skip-guard: `true` (with a printed reason) when the CLI sibling is absent.
 ///
@@ -178,26 +173,23 @@ fn bandunfold_matches_vips_exact() {
 }
 
 // ---------------------------------------------------------------------------
-// bandmean — S1 (rgb -> 1-band per-pixel mean). BOUNDED-TOL, NOT EXACT: rgb.png
-// is a bandjoin of three DISTINCT grays, so a per-pixel band sum is generally
-// NOT divisible by 3. Core uses truncating integer division (FLOOR); vips ROUNDS
-// to nearest; the two therefore diverge by at most one LSB. This is an honest,
-// non-vacuous case — the earlier rgb_eq.png had three identical bands, making
-// mean == input (divisible AND arithmetically vacuous). Compared at tol 1.
+// bandmean — S1 (rgb -> 1-band per-pixel mean). EXACT (tol 0): rgb.png is a
+// bandjoin of three DISTINCT grays, so a per-pixel band sum is generally NOT
+// divisible by 3 — a non-vacuous case (the earlier rgb_eq.png had three
+// identical bands, making mean == input, both divisible AND arithmetically
+// vacuous). Core issue #482 made the core round the integer mean to nearest
+// (previously it FLOORED via truncating division, ≤1 LSB below vips), so the two
+// now agree bit-for-bit. Compared at tol 0.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn bandmean_matches_vips_bounded_tol() {
+fn bandmean_matches_vips_exact() {
     if skip_if_no_cli("bandmean") {
         return;
     }
     let out = out_path("bandmean.png");
     run_viprs_ok(&["bandmean", &fx(RGB), out.to_str().unwrap()]);
-    decode_compare(
-        &out,
-        &cli_fixture("bands/bandmean_expected.png"),
-        BANDMEAN_TOL,
-    );
+    decode_compare(&out, &cli_fixture("bands/bandmean_expected.png"), EXACT);
 }
 
 // ---------------------------------------------------------------------------

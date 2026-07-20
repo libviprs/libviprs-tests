@@ -61,15 +61,6 @@ const GREY_UCHAR_TOL: f64 = 1.0;
 /// a small absolute epsilon (the 0..1 ramp is a division, not always dyadic).
 const GREY_FLOAT_EPS: f64 = 1e-6;
 
-/// BOUNDED-TOL for `gamma` (measured ≤1 LSB). OP_MAP.md provisionally listed
-/// gamma EXACT-AFTER-CAST, but the differential MEASURES a 1-LSB divergence: the
-/// per-sample power LUT is computed and rounded independently by the core and by
-/// vips, landing ±1 apart on some samples. This is an honest core-vs-vips
-/// rounding difference (flagged as an open question), NOT a rigged tolerance —
-/// the identity/no-op guard still holds because a broken gamma would move
-/// samples by far more than one LSB.
-const GAMMA_TOL: f64 = 1.0;
-
 /// Skip-guard: `true` (with a printed reason) when the CLI sibling is absent.
 ///
 /// When `$VIPRS_REQUIRE_CLI=1` (the dedicated `cli-differential` CI job) an
@@ -455,13 +446,15 @@ fn wrap_matches_vips_exact() {
 }
 
 // ---------------------------------------------------------------------------
-// gamma — S1 --exponent (BOUNDED-TOL ≤1 LSB; measured). Default (1/2.4) +
-// explicit 2.0, over the full-domain `ramp256` LUT input (256×1, every 0..255
-// value once) so EVERY LUT entry is compared, not just 16 of 256.
+// gamma — S1 --exponent (EXACT, tol 0). Default (1/2.4) + explicit 2.0, over the
+// full-domain `ramp256` LUT input (256×1, every 0..255 value once) so EVERY LUT
+// entry is compared, not just 16 of 256. Core issue #486 rebuilt the power LUT
+// vips-exact, so the whole domain now matches vips 8.18.4 bit-for-bit
+// (previously a measured ≤1-LSB independent-rounding divergence).
 // ---------------------------------------------------------------------------
 
 #[test]
-fn gamma_default_matches_vips_bounded_tol() {
+fn gamma_default_matches_vips_exact() {
     if skip_if_no_cli("gamma") {
         return;
     }
@@ -470,13 +463,13 @@ fn gamma_default_matches_vips_bounded_tol() {
         RAMP256,
         "gamma.png",
         "conversion/gamma_expected.png",
-        GAMMA_TOL,
+        EXACT,
         &[],
     );
 }
 
 #[test]
-fn gamma_exponent_matches_vips_bounded_tol() {
+fn gamma_exponent_matches_vips_exact() {
     if skip_if_no_cli("gamma_exp2") {
         return;
     }
@@ -485,7 +478,7 @@ fn gamma_exponent_matches_vips_bounded_tol() {
         RAMP256,
         "gamma_exp2.png",
         "conversion/gamma_exp2_expected.png",
-        GAMMA_TOL,
+        EXACT,
         &["--exponent", "2.0"],
     );
 }
