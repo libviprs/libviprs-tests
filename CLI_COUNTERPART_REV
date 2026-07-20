@@ -30,4 +30,11 @@
 # on top of the Wave-1 morphology reference + Wave-2 bands lane. This is the
 # command surface the morphology, bands, AND extract differential cells
 # exercise.
-98caeaea0fad5666dde0eb3be3fa4216c0effd2c
+#
+# Bumped to cli/core-repin @ 0988110 — carries the insert --background param fix
+# (#488) and reclassifies bandmean/gamma/recomb/stdif/math2 pow|wop/round rint
+# from BOUNDED-TOL|GOLDEN-ONLY to EXACT (tol 0) to match the fixed core
+# (COUNTERPART_REV a055719), with the stale hough/rint/gamma doc comments and
+# OP_MAP.md rows refreshed. The bands/conversion/arithb/aritha differential
+# cells build and pass against this CLI + the fixed core.
+0988110bbd1d4fa9c4fc57279545bda088c246b4

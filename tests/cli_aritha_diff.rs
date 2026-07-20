@@ -23,17 +23,20 @@
 //!   `math2_const pow` / `abs` / `sign` / `round ceil` / `round floor` (float
 //!   `.v`) — all measured 0. `sign`'s afloat now includes exactly 0.0, so the
 //!   zero→0 branch (not just −1/+1) is exercised.
-//! * `round rint` — **GOLDEN-ONLY**: the core `f64::round` (half away from zero)
-//!   diverges from vips's C `rint` (half to even) at exact half-integers
-//!   (max-abs-diff 1 on the honest afloat that reaches x.5). It is a viprs
-//!   regression pin (tol 0), not a vips oracle; a core issue is filed.
-//! * `hough_line` / `hough_circle` — **GOLDEN-ONLY**: the core Hough numerics
-//!   diverge structurally from vips (a one-cell distance-binning offset that
-//!   amplifies to max-abs-diff 32 on a collinear line; a different circle vote
-//!   model — a single point yields a core max of 1 vs a vips max of 4). There is
-//!   no meaningful vips tolerance oracle, so the references are viprs-generated
-//!   regression pins and a core issue is filed. These two tests compare `viprs`
-//!   against its own committed golden output at tol 0 (a regression pin).
+//! * `round rint` — **EXACT** (tol 0, upgraded from GOLDEN-ONLY): core issue #494
+//!   changed the core to round half TO EVEN, matching vips's C `rint` at exact
+//!   half-integers on the honest afloat that reaches x.5 (previously the core's
+//!   `f64::round`, half away from zero, diverged by 1 at every x.5). The
+//!   reference is now a genuine vips oracle (`round_rint_expected.v`).
+//! * `hough_line` / `hough_circle` — **GOLDEN-ONLY**: `hough_line`'s distance
+//!   binning is now vips-exact (core issue #495 fixed the one-cell offset), but
+//!   an INHERENT format/saturation gap remains — the core accumulates into
+//!   Gray16 (u16) while vips uses a uint accumulator, so a peak of >65535
+//!   collinear votes saturates in the core (no u32 carrier). `hough_circle`
+//!   still diverges structurally (a different circle vote model — a single point
+//!   yields a core max of 1 vs a vips max of 4). Neither has a full-width vips
+//!   oracle, so the references are viprs-generated regression pins compared at
+//!   tol 0.
 //!
 //! If the `libviprs-cli` sibling is not checked out, every test SKIPS with a
 //! clear message rather than failing — the dedicated `cli-differential` CI job
@@ -405,9 +408,31 @@ fn sign_matches_vips() {
     );
 }
 
-// NOTE: `round rint` is GOLDEN-ONLY (viprs regression pin), NOT a vips oracle —
-// see the module header and the `round_rint_matches_golden_pin` test in the
-// GOLDEN section below. The core's half-rounding rule diverges from vips.
+// NOTE: `round rint` is now EXACT against a real vips oracle (core issue #494
+// made the core round half-to-even, matching vips's C `rint`) — see the
+// `round_rint_matches_vips` test just below. It was formerly a GOLDEN-ONLY viprs
+// regression pin (the core's `f64::round`, half away from zero, diverged from
+// vips at exact half-integers).
+
+#[test]
+fn round_rint_matches_vips() {
+    if skip_if_no_cli("round_rint") {
+        return;
+    }
+    // EXACT (tol 0): on the discriminating afloat (which reaches exact
+    // half-integers), core issue #494 changed the core to round half TO EVEN
+    // (0.5→0, 2.5→2, −2.5→−2), matching vips's C `rint` bit-for-bit — previously
+    // the core mapped `f64::round` (half AWAY from zero: 0.5→1, 2.5→3, −2.5→−3),
+    // diverging by 1 at every x.5, which forced a GOLDEN-ONLY viprs pin. The
+    // reference is now a genuine vips oracle (`round_rint_expected.v`).
+    let out = o("round_rint.v");
+    run_viprs_ok(&["round", &fx(AFLOAT), &out, "rint"]);
+    decode_compare(
+        out_path("round_rint.v").as_path(),
+        &cli_fixture("aritha/round_rint_expected.v"),
+        EXACT,
+    );
+}
 
 #[test]
 fn round_ceil_matches_vips() {
@@ -456,28 +481,6 @@ fn clamp_matches_vips() {
 // vips — see the module header). tol 0: the committed golden was produced by
 // the same deterministic `viprs` binary this suite builds.
 // ---------------------------------------------------------------------------
-
-#[test]
-fn round_rint_matches_golden_pin() {
-    if skip_if_no_cli("round_rint") {
-        return;
-    }
-    // GOLDEN-ONLY: `viprs round … rint` maps the core `f64::round` (rounds half
-    // AWAY from zero) whereas vips's C `rint` rounds half TO EVEN, so on the
-    // discriminating afloat (which reaches exact half-integers) the two
-    // deterministically diverge at every x.5 (measured max-abs-diff 1: e.g. 0.5→
-    // core 1 / vips 0, 2.5→ core 3 / vips 2, −2.5→ core −3 / vips −2). That is a
-    // structural rule difference, not a bounded tolerance, so the reference is a
-    // committed viprs-generated regression pin (compared at tol 0) — NOT a vips
-    // oracle. A core issue is filed to reconcile `rint` with round-half-to-even.
-    let out = o("round_rint.v");
-    run_viprs_ok(&["round", &fx(AFLOAT), &out, "rint"]);
-    decode_compare(
-        out_path("round_rint.v").as_path(),
-        &cli_fixture("aritha/round_rint_golden.v"),
-        EXACT,
-    );
-}
 
 #[test]
 fn hough_line_matches_golden_pin() {
