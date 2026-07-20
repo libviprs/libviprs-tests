@@ -58,32 +58,37 @@ fn lib_rustdoc_normalised() -> String {
         .to_lowercase()
 }
 
-/// Slice the `## [Unreleased]` section out of `CHANGELOG.md` (up to the next
-/// released-version heading), whitespace-collapsed and lowercased, so the
-/// rename entry is asserted in the *unreleased* section specifically.
+/// Slice the most-recent CHANGELOG entry out of `CHANGELOG.md` — the first
+/// `## [..]` section that has body content — whitespace-collapsed and
+/// lowercased. That is `[Unreleased]` while the change is pending, or the
+/// latest released version once it ships: promoting `[Unreleased]` into a
+/// version section on release empties `[Unreleased]`, so the rename/deprecation
+/// entry then lives under that version. Either way it is the newest documented
+/// change, which is what the docs-preservation assertions care about.
 fn changelog_unreleased_normalised() -> String {
     let path = core_path("CHANGELOG.md");
     let raw = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-    let mut in_unreleased = false;
     let mut section = String::new();
+    let mut in_section = false;
     for line in raw.lines() {
         let t = line.trim_start();
-        if t.starts_with("## [Unreleased]") {
-            in_unreleased = true;
+        if t.starts_with("## [") {
+            if in_section && !section.trim().is_empty() {
+                break; // captured the first non-empty entry
+            }
+            in_section = true;
+            section.clear();
             continue;
         }
-        if in_unreleased && t.starts_with("## [") {
-            break; // reached the first released version heading
-        }
-        if in_unreleased {
+        if in_section {
             section.push_str(line);
             section.push(' ');
         }
     }
     assert!(
         !section.trim().is_empty(),
-        "CHANGELOG.md has no non-empty [Unreleased] section"
+        "CHANGELOG.md has no changelog entry with content"
     );
     section
         .split_whitespace()
