@@ -54,4 +54,9 @@
 # #492/#493 security hardening. The CLI-differential suites upgrade bandmean /
 # gamma / recomb / stdif / math2 pow|wop / round rint from BOUNDED-TOL|GOLDEN-ONLY
 # to EXACT (tol 0) against this counterpart; the two hough ops stay GOLDEN-ONLY.
-a0557196b9457a8cac97b37f066034bb518709e4
+#
+# Bumped to fix/525-rotation-double-apply (core #526): strip_matrix no longer
+# double-applies the page /Rotate on the pdfium matrix render path, so rotated
+# pages render correctly. The new rotation_libvips_pdfium_parity test builds and
+# passes bit-identically against this counterpart.
+ac1d56ff049ce0e0bb19cf79b4b612486c7574a5
