@@ -1,0 +1,142 @@
+# syntax=docker/dockerfile:1
+# =============================================================================
+# libvips built with the PDFium PDF backend (NOT poppler)
+#
+# Purpose: produce golden PNG reference renders for the libviprs-tests
+# rotation-correctness suite. libviprs (a pure-Rust libvips port) renders PDFs
+# with pdfium, so the golden references must be produced by libvips *using the
+# same pdfium engine* — otherwise a rotation test would be comparing against a
+# poppler render. Stock Homebrew libvips links poppler, and a from-source
+# libvips+pdfium build on the macOS host is blocked by a broken CommandLineTools
+# libc++, so we build on clean Linux inside this container instead.
+#
+# PDFium provenance: the pinned, checksum-verified pdfium binary published by
+# libviprs-dep (our own branch-pinned builder), the SAME source and version
+# (pdfium-7881) that this repo's root Dockerfile, ci.yml, and nightly.yml
+# already consume — NOT a floating bblanchon/pdfium-binaries "latest" channel.
+# Keep PDFIUM_RELEASE and the per-arch SHA-256 digests in lockstep with those
+# files (tests/pdfium_provenance.rs pins that outcome, issue #56).
+#
+# Build:
+#   docker build -f tools/Dockerfile.libvips-pdfium -t libviprs-libvips-pdfium tools/
+# Render (page 0 @ 72 dpi):
+#   docker run --rm -v <fixtures>:/in:ro -v <out>:/out libviprs-libvips-pdfium \
+#       vips pdfload /in/canonical.pdf /out/canonical.png --page 0 --dpi 72
+#
+# The build has no dependency on any local build context — pdfium and libvips
+# are fetched from the network — so the `tools/` context is used only to locate
+# this Dockerfile.
+# =============================================================================
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# --- libvips build toolchain + codec -dev libraries -------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        meson \
+        ninja-build \
+        pkg-config \
+        git \
+        curl \
+        ca-certificates \
+        libglib2.0-dev \
+        libexpat1-dev \
+        libjpeg-dev \
+        libpng-dev \
+        libtiff-dev \
+        libwebp-dev \
+        libexif-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- PDFium (prebuilt) from libviprs-dep, pinned + checksum-verified ---------
+# Pinned to the same pdfium-7881 build the rest of libviprs-tests consumes.
+# The libviprs-dep archive nests everything under a `pdfium-<arch>/` top-level
+# directory, so --strip-components=1 lands lib/libpdfium.so + include/*.h
+# directly under /opt/pdfium. The resolved tag is recorded in
+# /opt/pdfium/RESOLVED_TAG for provenance reporting.
+ARG PDFIUM_RELEASE=pdfium-7881
+ARG TARGETARCH
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+        amd64) PDFIUM_ARCH="linux-x64";   PDFIUM_SHA256="653f24f074afe6c868f634ae0cc954a1a89821f33bc7795f16065a14022b662b" ;; \
+        arm64) PDFIUM_ARCH="linux-arm64"; PDFIUM_SHA256="3a8940ae414a54601f6bc0b25fb3d589025320ee91fff378e12708259da5702d" ;; \
+        *)     echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    mkdir -p /opt/pdfium; \
+    curl -fL --retry 3 --retry-delay 2 --retry-connrefused \
+        -o /tmp/pdfium.tgz \
+        "https://github.com/libviprs/libviprs-dep/releases/download/${PDFIUM_RELEASE}/pdfium-${PDFIUM_ARCH}.tgz"; \
+    echo "${PDFIUM_SHA256}  /tmp/pdfium.tgz" | sha256sum -c -; \
+    tar xzf /tmp/pdfium.tgz -C /opt/pdfium --strip-components=1; \
+    rm /tmp/pdfium.tgz; \
+    printf '%s\n' "${PDFIUM_RELEASE}" > /opt/pdfium/RESOLVED_TAG; \
+    test -f /opt/pdfium/lib/libpdfium.so; \
+    test -f /opt/pdfium/include/fpdfview.h; \
+    echo "--- /opt/pdfium/lib ---"; ls -l /opt/pdfium/lib
+
+# --- pdfium.pc so libvips's meson discovers pdfium via pkg-config -----------
+# libvips 8.18.4 gates on `dependency('pdfium', version: '>=4200')`, so the
+# Version field must be the numeric pdfium build number. It is derived from the
+# pinned PDFIUM_RELEASE tag (pdfium-7881 -> 7881); if that ever fails to yield a
+# number >= 4200, fall back to 6000 as instructed.
+RUN set -eux; \
+    BUILD="$(printf '%s' "${PDFIUM_RELEASE}" | sed -E 's/[^0-9]//g')"; \
+    case "$BUILD" in ''|*[!0-9]*) BUILD=6000 ;; esac; \
+    if [ "$BUILD" -lt 4200 ]; then BUILD=6000; fi; \
+    mkdir -p /usr/local/lib/pkgconfig; \
+    { \
+        echo 'prefix=/opt/pdfium'; \
+        echo 'libdir=${prefix}/lib'; \
+        echo 'includedir=${prefix}/include'; \
+        echo ''; \
+        echo 'Name: pdfium'; \
+        echo 'Description: PDFium (prebuilt, libviprs-dep)'; \
+        echo "Version: ${BUILD}"; \
+        echo 'Libs: -L${libdir} -lpdfium'; \
+        echo 'Cflags: -I${includedir}'; \
+    } > /usr/local/lib/pkgconfig/pdfium.pc; \
+    echo "/opt/pdfium/lib" > /etc/ld.so.conf.d/pdfium.conf; \
+    ldconfig; \
+    echo "--- pdfium.pc ---"; cat /usr/local/lib/pkgconfig/pdfium.pc; \
+    echo "--- pkg-config sees ---"; \
+    PKG_CONFIG_PATH=/usr/local/lib/pkgconfig pkg-config --modversion pdfium
+
+ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+ENV LD_LIBRARY_PATH=/opt/pdfium/lib:/usr/local/lib
+
+# --- Build libvips v8.18.4 with pdfium enabled, poppler disabled ------------
+# -Dpdfium=enabled makes pdfium a HARD requirement: meson setup fails outright
+# if pdfium.pc is missing or its version is below the >=4200 floor. --libdir=lib
+# keeps libvips.so under /usr/local/lib (matching LD_LIBRARY_PATH above) instead
+# of a multiarch subdir, so the CLI resolves it at runtime.
+RUN set -eux; \
+    git clone --depth 1 --branch v8.18.4 https://github.com/libvips/libvips.git /tmp/libvips; \
+    cd /tmp/libvips; \
+    meson setup build \
+        -Dpdfium=enabled \
+        -Dpoppler=disabled \
+        -Dintrospection=disabled \
+        --prefix=/usr/local \
+        --libdir=lib; \
+    ninja -C build; \
+    ninja -C build install; \
+    ldconfig; \
+    rm -rf /tmp/libvips
+
+# --- Verify the PDF backend really is pdfium (fail the build otherwise) -----
+# Two hard gates, either of which fails the image build:
+#   A) the `pdfload` operation is registered. Because poppler is disabled and
+#      pdfium is the only remaining PDF backend, a registered pdfload can only
+#      be pdfium-backed (libvips names the op `pdfload` regardless of backend).
+#   B) libvips.so is actually linked against libpdfium.so — a backend-specific,
+#      wording-independent proof, so this cannot silently pass on a poppler build.
+RUN set -eux; \
+    vips --version; \
+    echo "=== vips --vips-config ==="; vips --vips-config || true; \
+    echo "=== PDF operations (vips -l | grep -i pdf) ==="; vips -l | grep -i pdf || true; \
+    vips -l | grep -qi pdfload; \
+    ldd /usr/local/lib/libvips.so* | grep -qi pdfium; \
+    echo "VERIFIED: libvips built with the pdfium PDF backend"
+
+WORKDIR /work
