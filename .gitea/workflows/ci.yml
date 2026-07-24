@@ -1,16 +1,35 @@
 name: CI
 
+# Runs on the self-hosted Gitea Actions runner (git.opsite.ca) against the
+# read-only pull-mirror of github.com/libviprs/libviprs-tests, and reports the
+# aggregate result back to GitHub as the `gitea/ci` commit status. GitHub keeps
+# only .github/workflows/gitea-ci-relay.yml, which nudges the mirror to sync.
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches: ['**']
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  # Post an early `pending` gitea/ci status so GitHub shows the run in-flight.
+  status:
+    name: Report pending
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post pending gitea/ci status to GitHub
+        if: always()
+        env:
+          GH_STATUS_TOKEN: ${{ secrets.GH_STATUS_TOKEN }}
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer $GH_STATUS_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -d "{\"state\":\"pending\",\"context\":\"gitea/ci\",\"description\":\"Gitea CI running\",\"target_url\":\"${{ github.server_url }}/${{ github.repository }}/actions\"}" || true
+
   test:
     name: Integration Tests
     runs-on: ubuntu-latest
@@ -21,19 +40,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
       # The default `cargo test` above builds phase3_tracing WITHOUT the
-      # `tracing` feature, so its per-tile span tests (emits_span_per_tile,
-      # tile_span_carries_coords) are cfg'd out and only the no-tracing counter
-      # tests run. Exercise the span tests explicitly under the feature so the
-      # per-tile `libviprs::tile` span wired in core PR #308 gates CI (issue
-      # #83). This mirrors the run tools/run_ported_cells.sh performs for the
-      # Docker mirror. phase3_tracing reads only the checked-in canonical PNG,
-      # so it needs no reference-suite fixtures.
+      # `tracing` feature, so its per-tile span tests are cfg'd out. Exercise
+      # them explicitly under the feature so the per-tile span gates CI (#83).
       - run: cargo test --features "ported_tests tracing" --test phase3_tracing
-      # The object-store sink integration tests (phase3_object_store_sink, the
-      # S3 leg of phase3_validation_stress, and sink_object_store_stub_contract)
-      # are gated behind `object-store-sink`, so the default `cargo test` above
-      # compiles them out. Exercise the feature so they actually run in CI
-      # (issue #382).
+      # The object-store sink integration tests are gated behind
+      # `object-store-sink`, so the default run compiles them out. Exercise the
+      # feature so they actually run (#382).
       - run: cargo test --features object-store-sink --test phase3_object_store_sink --test phase3_validation_stress --test sink_object_store_stub_contract
 
   test-pdfium:
@@ -59,13 +71,9 @@ jobs:
           sudo cp pdfium/lib/libpdfium.so /usr/local/lib/
           sudo cp -r pdfium/include/* /usr/local/include/
           sudo ldconfig
-      # Run the pdfium suite multi-threaded. The pdfium-render fork on the
-      # `libviprs/integration` branch takes the pdfium global mutex per call in
-      # `ThreadSafePdfiumBindings`, so concurrent FPDF access across cargo-test
-      # worker threads is safe. Dropping `--test-threads=1` makes the suite
-      # itself exercise that cross-test concurrency. The wall-clock perf-ratio
-      # smoke is `#[ignore]`d and runs in nightly.yml, so it never gates this
-      # job on shared runner timing noise.
+      # Run the pdfium suite multi-threaded; the pdfium-render fork takes the
+      # pdfium global mutex per call, so concurrent FPDF access is safe. The
+      # wall-clock perf-ratio smoke is `#[ignore]`d and runs in nightly.yml.
       - run: cargo test --features pdfium
 
   ported-tests:
@@ -81,13 +89,9 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       # tools/run_ported_cells.sh is the single source of truth for the green
-      # ported_* cells (twelve cells, 224 tests; ported_infrastructure runs
-      # with --test-threads=1 per its header). It also runs phase3_tracing
-      # under the tracing feature so the per-tile span tests gate here too
-      # (issue #83). The test pass runs fixture_audit first, proving the pinned
-      # fetch populated every fixture the suite needs. Clippy is scoped to the
-      # green targets because the two deferred codec cells (ported_foreign,
-      # ported_connection) do not compile yet; issue #77 tracks that remainder.
+      # ported_* cells. It also runs phase3_tracing under the tracing feature
+      # (#83) and runs fixture_audit first, proving the pinned fetch populated
+      # every fixture the suite needs. Clippy is scoped to the green targets.
       - run: ./tools/run_ported_cells.sh --clippy
       - run: ./tools/run_ported_cells.sh --require-fixtures
 
@@ -98,15 +102,9 @@ jobs:
       fail-fast: false
       matrix:
         # One cell per non-default feature so a build/lint regression under a
-        # feature-gated module (the `object-store-sink` object-store sink, the
-        # `packfile` archive sink, the `tracing` span instrumentation) can no
-        # longer ship green just because the default harness never compiled that
-        # code. `-Dwarnings` (via RUSTFLAGS) means every gated test target is
-        # fully type-checked and linted here, not merely conditionally excluded.
-        # `pdfium` has its own job above; `ported_tests` has the ported-tests
-        # job above (it cannot join this `--all-targets` matrix because the
-        # two deferred codec cells do not compile yet, so its clippy pass is
-        # scoped to the green cells via tools/run_ported_cells.sh; issue #77).
+        # feature-gated module can no longer ship green just because the default
+        # harness never compiled that code. `-Dwarnings` means every gated test
+        # target is fully type-checked and linted here.
         feature: [object-store-sink, packfile, tracing]
     steps:
       - uses: actions/checkout@v4
@@ -118,29 +116,22 @@ jobs:
       - run: cargo clippy --all-targets --features ${{ matrix.feature }} -- -D warnings
 
   cli-differential:
-        name: CLI Differential (all 17 op families)
+    name: CLI Differential (all 17 op families)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       # The CLI-differential harness (tests/common/cli.rs) builds and runs the
       # `viprs` binary from the libviprs-cli sibling, so BOTH counterparts must
-      # be laid down: the core crate (libviprs-cli depends on it by path) at
-      # COUNTERPART_REV, then libviprs-cli itself at CLI_COUNTERPART_REV.
+      # be laid down: the core crate at COUNTERPART_REV, then libviprs-cli at
+      # CLI_COUNTERPART_REV.
       - uses: ./.github/actions/clone-counterpart
       - uses: ./.github/actions/clone-cli-counterpart
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # No libvips is installed here: the vips references are committed under
-      # tests/fixtures/cli/ (regenerated offline by tools/gen_cli_expected.sh).
-      # No libpdfium.so is installed either, yet the harness builds the CLI with
-      # pdfium compiled in: libviprs-cli depends on the core crate with
-      # `features=["pdfium"]` (non-optional), so `--no-default-features` (which
-      # disables only the CLI crate's OWN default features) does NOT drop pdfium.
-      # The build still links because `pdfium-render` binds libpdfium at RUNTIME,
-      # not build/link time, and the morphology ops never touch a PDF path so
-      # libpdfium is never loaded. VIPRS_REQUIRE_CLI=1 turns a would-be silent
-      # SKIP (which reads to cargo as a pass) into a hard panic, so this job can
-      # never go green while failing to actually run viprs (CLI_CONTRACT.md §7).
+      # No libvips/libpdfium installed here: vips references are committed under
+      # tests/fixtures/cli/, and pdfium binds at runtime (never loaded by the
+      # morphology ops). VIPRS_REQUIRE_CLI=1 turns a would-be silent SKIP into a
+      # hard panic, so this job can never go green without actually running viprs.
       - env:
           VIPRS_REQUIRE_CLI: 1
         run: cargo test --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff
@@ -157,3 +148,28 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt -- --check
       - run: cargo clippy --all-targets -- -D warnings
+
+  # Aggregate the outcome of every real job into the final gitea/ci status.
+  report:
+    name: Report gitea/ci result
+    runs-on: ubuntu-latest
+    needs: [test, test-pdfium, ported-tests, feature-cells, cli-differential, lint]
+    if: always()
+    steps:
+      - name: Post final gitea/ci status to GitHub
+        if: always()
+        env:
+          GH_STATUS_TOKEN: ${{ secrets.GH_STATUS_TOKEN }}
+          RESULTS: "${{ needs.test.result }} ${{ needs.test-pdfium.result }} ${{ needs.ported-tests.result }} ${{ needs.feature-cells.result }} ${{ needs.cli-differential.result }} ${{ needs.lint.result }}"
+        run: |
+          if echo "$RESULTS" | grep -qwE 'failure|cancelled'; then
+            STATE=failure
+          else
+            STATE=success
+          fi
+          echo "job results: $RESULTS -> gitea/ci=$STATE"
+          curl -sf -X POST \
+            -H "Authorization: Bearer $GH_STATUS_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -d "{\"state\":\"$STATE\",\"context\":\"gitea/ci\",\"description\":\"Gitea CI $STATE\",\"target_url\":\"${{ github.server_url }}/${{ github.repository }}/actions\"}" || true
