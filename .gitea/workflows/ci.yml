@@ -19,6 +19,7 @@ jobs:
     name: Report pending
     runs-on: ubuntu-latest
     steps:
+      # target_url is human-clicked from GitHub, so it uses the PUBLIC forge URL (vars.GIT_PUBLIC_URL); github.server_url is the runner's internal gitea:3000, for API and git calls only.
       - name: Post pending gitea/ci status to GitHub
         if: always()
         env:
@@ -28,7 +29,7 @@ jobs:
             -H "Authorization: Bearer $GH_STATUS_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
-            -d "{\"state\":\"pending\",\"context\":\"gitea/ci\",\"description\":\"Gitea CI running\",\"target_url\":\"${{ github.server_url }}/${{ github.repository }}/actions\"}" || true
+            -d "{\"state\":\"pending\",\"context\":\"gitea/ci\",\"description\":\"Gitea CI running\",\"target_url\":\"${{ vars.GIT_PUBLIC_URL }}/${{ github.repository }}/actions\"}" || true
 
   test:
     name: Integration Tests
@@ -156,6 +157,7 @@ jobs:
     needs: [test, test-pdfium, ported-tests, feature-cells, cli-differential, lint]
     if: always()
     steps:
+      # target_url is human-clicked from GitHub, so it uses the PUBLIC forge URL (vars.GIT_PUBLIC_URL); github.server_url is the runner's internal gitea:3000, for API and git calls only.
       - name: Post final gitea/ci status to GitHub
         if: always()
         env:
@@ -172,4 +174,4 @@ jobs:
             -H "Authorization: Bearer $GH_STATUS_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
-            -d "{\"state\":\"$STATE\",\"context\":\"gitea/ci\",\"description\":\"Gitea CI $STATE\",\"target_url\":\"${{ github.server_url }}/${{ github.repository }}/actions\"}" || true
+            -d "{\"state\":\"$STATE\",\"context\":\"gitea/ci\",\"description\":\"Gitea CI $STATE\",\"target_url\":\"${{ vars.GIT_PUBLIC_URL }}/${{ github.repository }}/actions\"}" || true
