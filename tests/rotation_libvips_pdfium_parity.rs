@@ -26,8 +26,8 @@
 
 #![cfg(feature = "pdfium")]
 
-use libviprs::streaming::StripSource;
 use libviprs::PdfiumStripSource;
+use libviprs::streaming::StripSource;
 
 /// (input PDF, expected libvips+pdfium golden) fixture pairs. The `/Rotate 0`
 /// case (`canonical.pdf`) anchors that the flag-free path is unchanged; the
