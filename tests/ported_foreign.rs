@@ -1765,6 +1765,13 @@ fn test_dz_layout_xyz() {
 /// fixture under `tests/fixtures/zoomify_expected/`, produced offline with:
 ///   vips dzsave canonical_input.png zoomify_expected \
 ///     --layout zoomify --tile-size 128 --overlap 0 --suffix .png
+///
+/// The source is RGBA, so the shrunk overview level is compared with the
+/// one-sided `+1` bound of `assert_tiles_pixel_equal_shrink_round_up` rather
+/// than bit-exactly: `vips_region_shrink_alpha` truncates the alpha-weighted
+/// mean where libviprs rounds it half-up on purpose (libviprs/libviprs#458).
+/// The mechanism, and why a sample on the wrong side of it still fails, is
+/// documented on that helper.
 fn test_dz_layout_zoomify() {
     let src = decode_file(Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -1788,11 +1795,13 @@ fn test_dz_layout_zoomify() {
         .run()
         .unwrap();
 
-    // Every Zoomify tile matches the vips reference within tolerance (only the
-    // downscaled overview level can differ, by area-averaging rounding).
+    // Every Zoomify tile matches the vips reference: the four full-resolution
+    // tiles bit-exactly, the shrunk overview within the one-count round-up.
     let expected = common::dzsave_expected::collect_files(expected_dir, "png");
     let actual = common::dzsave_expected::collect_files(&base, "png");
-    common::dzsave_expected::assert_tiles_pixel_equal_tol(&expected, &actual, "zoomify", 0);
+    common::dzsave_expected::assert_tiles_pixel_equal_shrink_round_up(
+        &expected, &actual, "zoomify",
+    );
 
     // Zoomify sidecar: an ImageProperties.xml carrying the source dimensions
     // (as vips writes `<IMAGE_PROPERTIES WIDTH=.. HEIGHT=.. />`), no sibling .dzi.
@@ -1813,6 +1822,9 @@ fn test_dz_layout_zoomify() {
 /// under `tests/fixtures/iiif_expected/`, produced offline with:
 ///   vips dzsave canonical_input.png iiif_expected \
 ///     --layout iiif --tile-size 128 --overlap 0 --suffix .png
+///
+/// Same RGBA shrink bound as `test_dz_layout_zoomify`; see
+/// `assert_tiles_pixel_equal_shrink_round_up` for the mechanism.
 fn test_dz_layout_iiif() {
     let src = decode_file(Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -1837,10 +1849,11 @@ fn test_dz_layout_iiif() {
         .unwrap();
 
     // Every IIIF `{region}/{size},/0/default.png` tile matches the vips
-    // reference within tolerance.
+    // reference: the four full-resolution regions bit-exactly, the `full/128,`
+    // overview within the one-count round-up.
     let expected = common::dzsave_expected::collect_files(expected_dir, "png");
     let actual = common::dzsave_expected::collect_files(&base, "png");
-    common::dzsave_expected::assert_tiles_pixel_equal_tol(&expected, &actual, "iiif", 0);
+    common::dzsave_expected::assert_tiles_pixel_equal_shrink_round_up(&expected, &actual, "iiif");
 
     // IIIF sidecar: an info.json carrying the source dimensions (matches vips'
     // Image API v2 document), no sibling .dzi.
@@ -1863,6 +1876,10 @@ fn test_dz_layout_iiif() {
 /// `tests/fixtures/zip_expected/`, produced offline with:
 ///   vips dzsave canonical_input.png zip_expected \
 ///     --layout dz --tile-size 128 --overlap 0 --suffix .png
+///
+/// Same RGBA shrink bound as `test_dz_layout_zoomify`; this tree is the one
+/// that shows it cleanest, because it carries all nine levels: level 8 (full
+/// resolution) is bit-identical and levels 7 down to 0 each land in `[0, +1]`.
 fn test_dz_zip() {
     use libviprs::ZipSink;
 
@@ -1904,7 +1921,7 @@ fn test_dz_zip() {
     // libviprs mirrors each tile under both `<stem>_files/` (DeepZoom, vips-
     // compatible) and `<stem>/` (FsSink layout); compare the DeepZoom subtree.
     let actual = common::dzsave_expected::collect_files(&extracted.join("tiles_files"), "png");
-    common::dzsave_expected::assert_tiles_pixel_equal_tol(&expected, &actual, "zip", 0);
+    common::dzsave_expected::assert_tiles_pixel_equal_shrink_round_up(&expected, &actual, "zip");
 }
 
 #[test]
@@ -2891,12 +2908,25 @@ fn test_matload() {
 /// 2. Verify dimensions.
 ///
 /// Reference: test_foreign.py
+///
+/// Fixture correction, not a weakening: this cell used to read `sample.hdr`,
+/// which is not an Analyze file at all — it starts `#?RADIANCE` and
+/// `vipsheader` reports it as `141x980, rad, radload`. The Analyze fixture in
+/// the reference suite is the `t00740_tr1_segm.hdr` / `.img` pair, which
+/// `vipsheader` reports as `128x8064 short, 1 band, b-w, analyzeload`. The old
+/// spelling only looked green because nothing decoded either file; once
+/// libviprs/libviprs#593 wired the Radiance loader, `sample.hdr` started
+/// decoding and the cell went red while still testing the wrong format.
 fn test_analyzeload() {
     // Deferred: the Analyze decoder is not wired, so decode_file returns a
     // typed error rather than a raster. Pin that deferred contract.
     assert!(
-        decode_file(&ref_image("sample.hdr")).is_err(),
+        decode_file(&ref_image("t00740_tr1_segm.hdr")).is_err(),
         "deferred Analyze decode must return a typed error"
+    );
+    assert!(
+        decode_file(&ref_image("t00740_tr1_segm.img")).is_err(),
+        "deferred Analyze decode must return a typed error for the .img half too"
     );
 }
 
@@ -2968,12 +2998,22 @@ fn test_ppm() {
 /// 2. Verify dimensions.
 ///
 /// Reference: test_foreign.py::test_rad
+///
+/// No longer deferred: libviprs/libviprs#593 wired the Radiance HDR loader, so
+/// `decode_file` returns a raster here. The dimensions come from the binary —
+/// `vipsheader sample.hdr` reports `141x980, rad, radload` on vips 8.18.4.
+/// libviprs decodes it to linear float RGB rather than to vips' `rad`-coded
+/// 4-band RGBE storage; the sample values are the same radiance, just already
+/// expanded out of the shared exponent, which is the convention recorded for
+/// #506 in the epic's ORACLE_FACTS.
 fn test_rad() {
-    // Deferred: the Radiance HDR decoder is not wired, so decode_file returns a
-    // typed error rather than a raster. Pin that deferred contract.
+    let im = decode_file(&ref_image("sample.hdr")).unwrap();
+    assert_eq!(im.width(), 141);
+    assert_eq!(im.height(), 980);
     assert!(
-        decode_file(&ref_image("sample.hdr")).is_err(),
-        "deferred Radiance HDR decode must return a typed error"
+        im.format().is_float(),
+        "Radiance decodes to a float raster, got {:?}",
+        im.format()
     );
 }
 

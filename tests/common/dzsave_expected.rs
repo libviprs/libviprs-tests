@@ -68,6 +68,62 @@ pub fn assert_tiles_pixel_equal_tol(
     context: &str,
     tolerance: u8,
 ) -> u8 {
+    assert_tiles_within(
+        expected_files,
+        actual_files,
+        context,
+        -i16::from(tolerance),
+        i16::from(tolerance),
+    )
+}
+
+/// Compare two sets of PNG tiles from an **RGBA** source, where libviprs is
+/// allowed to sit exactly one count ABOVE the vips reference and never below.
+///
+/// This is not a slackened tolerance, it is the signature of one named
+/// divergence, and a sample on the wrong side of it still fails.
+///
+/// `dzsave` builds each pyramid level with `vips_region_shrink`
+/// (`libvips/iofuncs/region.c`). On an image with an alpha band that dispatches
+/// to `vips_region_shrink_alpha`, whose `SHRINK_ALPHA_TYPE` macro forms the
+/// alpha-weighted colour mean and the averaged alpha in `double` and then
+/// stores them through a C cast to the integer sample type, which truncates:
+/// `tq[z] = (a1*tp[z] + a2*tp[z+nb] + a3*tp1[z] + a4*tp1[z+nb]) / a;` and
+/// `tq[nb - 1] = a / 4;`. Its own no-alpha twin `SHRINK_TYPE_INT` rounds
+/// instead, `tq[z] = (tot + 2) >> 2`, so inside libvips a fully opaque RGBA
+/// image shrinks half a count darker than its RGB twin. libviprs closed that
+/// gap on purpose: `downscale_half_alpha` rounds half-up on both branches
+/// (libviprs/libviprs#458, under "Fixed" in that crate's CHANGELOG — "so a
+/// fully-opaque RGBA image downscales bit-identically to its RGB twin ...
+/// instead of carrying the systematic -0.5 LSB truncation bias").
+///
+/// So for every shrunk sample vips holds `floor(v)` and libviprs holds
+/// `floor(v)` or `floor(v) + 1`: the difference is one-sided and at most one
+/// count. Full-resolution tiles are copies, not shrinks, and stay bit-exact.
+///
+/// Measured on `canonical_input.png` (256x256 RGBA, fully opaque, tile 128,
+/// all three layouts plus the ZIP DeepZoom tree): level 8 is bit-identical,
+/// every shrunk level lands in `[0, +1]` — 320 differing samples out of 327 680
+/// at level 7, halving per level down to 3 at the 1x1 level.
+pub fn assert_tiles_pixel_equal_shrink_round_up(
+    expected_files: &[(String, Vec<u8>)],
+    actual_files: &[(String, Vec<u8>)],
+    context: &str,
+) -> u8 {
+    assert_tiles_within(expected_files, actual_files, context, 0, 1)
+}
+
+/// Shared comparison core: every overlapping sample must satisfy
+/// `min_diff <= libviprs - vips <= max_diff`, and any libviprs padding beyond
+/// the vips tile must be solid white. Returns the largest absolute difference
+/// seen.
+fn assert_tiles_within(
+    expected_files: &[(String, Vec<u8>)],
+    actual_files: &[(String, Vec<u8>)],
+    context: &str,
+    min_diff: i16,
+    max_diff: i16,
+) -> u8 {
     assert_eq!(
         expected_files.len(),
         actual_files.len(),
@@ -108,15 +164,16 @@ pub fn assert_tiles_pixel_equal_tol(
             for x in 0..(ew as usize * ch) {
                 let ev = epx[exp_row + x];
                 let av = apx[act_row + x];
-                let diff = (ev as i16 - av as i16).unsigned_abs() as u8;
+                let signed = i16::from(av) - i16::from(ev);
+                let diff = signed.unsigned_abs() as u8;
                 if diff > global_max_diff {
                     global_max_diff = diff;
                     max_diff_path = act_path.clone();
                 }
                 assert!(
-                    diff <= tolerance,
+                    (min_diff..=max_diff).contains(&signed),
                     "{context}: pixel mismatch at {act_path} row={y} col={} \
-                     vips={ev} libviprs={av} diff={diff} tolerance={tolerance}",
+                     vips={ev} libviprs={av} diff={signed} allowed={min_diff}..={max_diff}",
                     x / ch
                 );
             }
@@ -146,7 +203,8 @@ pub fn assert_tiles_pixel_equal_tol(
     }
 
     eprintln!(
-        "{context}: max pixel diff = {global_max_diff} (at {max_diff_path}), tolerance = {tolerance}"
+        "{context}: max pixel diff = {global_max_diff} (at {max_diff_path}), \
+         allowed = {min_diff}..={max_diff}"
     );
     global_max_diff
 }
