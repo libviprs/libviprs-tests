@@ -1038,7 +1038,9 @@ fn test_tiff_load_pixels() {
 /// /// Get the number of pages in a multi-page TIFF.
 /// fn tiff_page_count(path: &Path) -> Result<u32, DecodeError>;
 ///
-/// /// Decode a specific page from a multi-page TIFF (1-indexed).
+/// /// Decode a specific page from a multi-page TIFF. `page` is a zero-based
+/// /// index, so the valid range is `0..tiff_page_count`, matching the libvips
+/// /// `page` argument (libviprs#566).
 /// fn decode_tiff_page(path: &Path, page: u32) -> Result<Raster, DecodeError>;
 /// ```
 ///
@@ -1057,7 +1059,10 @@ fn test_tiff_multipage() {
         "OME TIFF should have multiple pages, got {page_count}"
     );
 
-    for p in 1..=page_count {
+    // `page` is an index and `page_count` is a count, so the range is
+    // `0..page_count`. This used to read `1..=page_count`, which skipped the
+    // first image and ran one past the last (libviprs#566).
+    for p in 0..page_count {
         let raster = decode_tiff_page(&tiff_path, p).unwrap();
         assert!(raster.width() > 0, "Page {p}: width should be positive");
         assert!(raster.height() > 0, "Page {p}: height should be positive");
