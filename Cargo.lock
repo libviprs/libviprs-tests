@@ -893,7 +893,7 @@ dependencies = [
  "image",
  "lopdf",
  "moxcms 0.8.1",
- "pdfium-render 0.9.3 (git+https://github.com/libviprs/pdfium-render.git?rev=48f0aa5d82871c1854a976fcbb8a0b1c366a739f)",
+ "pdfium-render 0.9.3 (git+https://github.com/libviprs/pdfium-render.git?rev=3b03093295b85486c2e42f514cef9647eb629c63)",
  "rustfft",
  "serde",
  "serde_json",
@@ -1153,7 +1153,7 @@ dependencies = [
 [[package]]
 name = "pdfium-render"
 version = "0.9.3"
-source = "git+https://github.com/libviprs/pdfium-render.git?rev=48f0aa5d82871c1854a976fcbb8a0b1c366a739f#48f0aa5d82871c1854a976fcbb8a0b1c366a739f"
+source = "git+https://github.com/libviprs/pdfium-render.git?rev=3b03093295b85486c2e42f514cef9647eb629c63#3b03093295b85486c2e42f514cef9647eb629c63"
 dependencies = [
  "bitflags",
  "bytemuck",
