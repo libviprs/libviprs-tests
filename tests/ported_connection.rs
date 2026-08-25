@@ -10,7 +10,8 @@ use std::path::Path;
 
 use libviprs::source::decode_bytes;
 use libviprs::{
-    PixelFormat, Raster, Source, Target, decode_file, decode_source, decode_svg, encode_to_target,
+    PixelFormat, Raster, Source, SvgOptions, Target, decode_file, decode_source, decode_svg,
+    encode_to_target,
 };
 
 /// Path to the libvips reference test images directory.
@@ -363,23 +364,29 @@ fn test_connection_matrix() {
 /// ## Required API
 ///
 /// ```rust,ignore
-/// /// Decode an SVG from bytes into a raster image at an optional DPI.
-/// fn decode_svg(data: &[u8], dpi: Option<f64>) -> Result<Raster, DecodeError>;
+/// /// dpi (default 72.0), scale (default 1.0) and unlimited (default false),
+/// /// which are vips's own svgload defaults.
+/// struct SvgOptions { dpi: f64, scale: f64, unlimited: bool }
+///
+/// /// Decode an SVG from bytes into a raster image under those options.
+/// fn decode_svg(data: &[u8], options: SvgOptions) -> Result<Raster, DecodeError>;
 /// ```
 ///
 /// ## Test logic (from libvips test_connection.py::test_connection_svg)
 ///
-/// SVG rasterisation needs an external `librsvg` path, so the pure-Rust build
-/// defers it: `decode_svg` returns a typed `DecodeError` naming SVG rather than
-/// a raster. Pin that deferred contract here (asserting the typed error, not a
-/// panic); when a rasteriser lands this flips back to the width/height check.
+/// The rasteriser exists now (libviprs#502), but it sits behind the non-default
+/// `svg` feature and this suite does not turn that on, so `decode_svg` still
+/// returns a typed `DecodeError` naming SVG rather than a raster. Pin that
+/// contract here (asserting the typed error, not a panic); enabling the feature
+/// flips this back to the width/height check.
 ///
 /// Reference: test_connection.py::test_connection_svg
 fn test_connection_svg() {
-    // decode_svg takes 2 args (data, dpi); the 1-arg call was the mis-port.
-    // Proof: the foreign cell's 2-arg form is the canonical shared crate export.
+    // decode_svg takes the document plus an `SvgOptions`, and the defaults are
+    // vips's own, so `default()` is the plain `svgload_buffer` call this cell
+    // ports. The old `Option<f64>` dpi argument went away with libviprs#591.
     let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\" />";
-    let err = decode_svg(svg, None).expect_err("SVG rasterisation is deferred");
+    let err = decode_svg(svg, SvgOptions::default()).expect_err("SVG rasterisation is deferred");
     assert!(
         err.to_string().contains("SVG"),
         "expected a typed SVG-unavailable decode error, got {err}"
