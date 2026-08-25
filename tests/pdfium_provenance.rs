@@ -7,13 +7,17 @@
 //! SHA-256 verification, float the release channel, or let the Docker and CI
 //! pins drift out of lockstep.
 //!
-//! The tests read the checked-in `Dockerfile`, `.github/workflows/ci.yml`,
-//! and `.gitignore` from the crate root and assert structural properties. They
-//! do not require the `pdfium` feature or a native PDFium install, so they run
-//! on every `cargo test` invocation.
+//! The tests read the checked-in `Dockerfile`, the CI workflow (resolved by
+//! name, see `tests/common/workflows.rs`), and `.gitignore` from the crate
+//! root and assert structural properties. They do not require the `pdfium`
+//! feature or a native PDFium install, so they run on every `cargo test`
+//! invocation.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+mod common;
+use common::workflows::read_workflow;
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -225,7 +229,7 @@ fn dockerfile_fetches_pinned_checksummed_binary() {
 /// checksum-verified binary sourced from libviprs-dep, not a floating channel.
 #[test]
 fn ci_fetches_pinned_checksummed_binary() {
-    let ci = read(".github/workflows/ci.yml");
+    let ci = read_workflow("ci.yml");
 
     assert!(
         ci.contains("libviprs/libviprs-dep"),
@@ -261,7 +265,7 @@ fn ci_fetches_pinned_checksummed_binary() {
 #[test]
 fn docker_and_ci_pins_are_in_lockstep() {
     let df = read("Dockerfile");
-    let ci = read(".github/workflows/ci.yml");
+    let ci = read_workflow("ci.yml");
 
     let df_release = values_after(&df, "PDFIUM_RELEASE")
         .into_iter()
