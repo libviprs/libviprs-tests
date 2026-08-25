@@ -891,6 +891,7 @@ dependencies = [
  "blake3",
  "flate2",
  "image",
+ "image-webp",
  "lopdf",
  "moxcms 0.8.1",
  "pdfium-render 0.9.3 (git+https://github.com/libviprs/pdfium-render.git?rev=3b03093295b85486c2e42f514cef9647eb629c63)",
