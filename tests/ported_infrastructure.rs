@@ -592,7 +592,7 @@ mod timeout {
     ///
     /// ```rust,ignore
     /// /// Encode raster as GIF bytes.
-    /// fn Raster::encode_gif(&self) -> Result<Vec<u8>, EncodeError>;
+    /// fn Raster::encode_gif(&self, options: gif::SaveOptions) -> Result<Vec<u8>, EncodeError>;
     /// ```
     ///
     /// ## Test logic
@@ -605,8 +605,9 @@ mod timeout {
     fn test_timeout_gifsave() {
         let data = vec![128u8; 1000 * 1000 * 3];
         let im = Raster::new(1000, 1000, PixelFormat::Rgb8, data).unwrap();
-        // The core has no `encode_gif`; its GIF surface is extension-dispatch
-        // in `Raster::save`, which returns a typed
+        // This exercises the GIF surface through `Raster::save`'s extension
+        // dispatch rather than `encode_gif`, because `save` is what a caller
+        // reaches for under a timeout. It returns a typed
         // `SaveError::UnsupportedExtension` (a clean error, never a panic),
         // exactly the graceful-degradation contract this test checks.
         let dir = tempfile::tempdir().unwrap();
@@ -625,7 +626,7 @@ mod timeout {
     /// ## Required API
     ///
     /// ```rust,ignore
-    /// fn Raster::encode_webp(&self, quality: u8) -> Result<Vec<u8>, EncodeError>;
+    /// fn Raster::encode_webp(&self, options: webp::SaveOptions) -> Result<Vec<u8>, EncodeError>;
     /// ```
     ///
     /// ## Test logic
