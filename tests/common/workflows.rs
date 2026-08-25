@@ -8,9 +8,10 @@
 //!
 //! The Gitea Actions migration (#135) moved `ci.yml` and `nightly.yml` from
 //! `.github/workflows/` to `.gitea/workflows/` and left the guards pointing at
-//! the old path (#137). A guard that reads the wrong CI file has failed at its
-//! own purpose, and a stale local checkout that still carries the removed file
-//! hides that: it goes green locally and red in CI.
+//! the old path (#137); dropping Gitea (libviprs/libviprs#585) moved them back.
+//! A guard that reads the wrong CI file has failed at its own purpose, and a
+//! stale local checkout that still carries the removed file hides that: it goes
+//! green locally and red in CI.
 //!
 //! So resolution lives here, once, and it refuses to guess. [`read_workflow`]
 //! looks for a workflow by name in every directory this repo has kept
@@ -22,7 +23,11 @@ use std::path::{Path, PathBuf};
 /// Every directory this repo has kept CI workflow definitions in, current
 /// location first. Add to this list when the workflows move again; the guards
 /// themselves need no change.
-pub const WORKFLOW_DIRS: &[&str] = &[".gitea/workflows", ".github/workflows"];
+///
+/// `.gitea/workflows` stays listed even though the directory is gone: a stale
+/// checkout that still carries the removed copy then trips the "exists in 2
+/// locations" panic below instead of silently pinning the wrong file.
+pub const WORKFLOW_DIRS: &[&str] = &[".github/workflows", ".gitea/workflows"];
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
