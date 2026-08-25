@@ -96,4 +96,17 @@
 # zoomify comparisons, bandmean, and the two smartcrop RGBA cells) fail
 # byte-identically against the previous pin too, so this bump neither caused
 # nor fixed them.
-82529c3635c01cea0d0ec463cf7d1587b67e1438
+#
+# Bumped to 4222d7f, which is libviprs #591 (issue #502): the SVG lane. It has
+# to move for this suite to compile at all. `decode_svg` left `foreign_stubs`
+# for the new `crate::svg` module and its second argument went from
+# `Option<f64>` dpi to an `SvgOptions` struct, so the two ported call sites here
+# (ported_connection::test_connection_svg and ported_foreign::test_svgload) no
+# longer type-check against the previous pin, and `SvgOptions` does not exist
+# there to name. The crate-root spelling `libviprs::decode_svg` is unchanged.
+#
+# The deferred contract both cells pin is unchanged too. The rasteriser is real
+# now, but it lives behind the non-default `svg` feature and this suite does not
+# enable it, so `decode_svg` still returns a typed `DecodeError` naming SVG
+# rather than a raster. Both cells still assert exactly that.
+4222d7fddfbc33b9b2562f5fffb5cd852c1f065c
