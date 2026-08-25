@@ -48,6 +48,13 @@ fn region_builder_matches_vips_crop_dzsave() {
 /// into `info.json` `@id` exactly as vips does (vips writes
 /// `https://example.com/iiif/<name>`), and the tiles must match vips' IIIF
 /// output under `iiif_id_expected/`.
+///
+/// `canonical_input.png` is RGBA, so the shrunk `full/128,` overview is
+/// compared with the one-sided `+1` bound rather than bit-exactly: vips
+/// truncates the alpha-weighted 2x mean and libviprs rounds it half-up on
+/// purpose (libviprs/libviprs#458). The `@id` itself is compared verbatim, and
+/// the four full-resolution regions are still bit-exact. See
+/// `common::dzsave_expected::assert_tiles_pixel_equal_shrink_round_up`.
 #[test]
 fn iiif_id_configurable_matches_vips() {
     let src = decode_file(&fixture("canonical_input.png")).unwrap();
@@ -68,7 +75,9 @@ fn iiif_id_configurable_matches_vips() {
     let expected_dir = fixture("iiif_id_expected");
     let expected = common::dzsave_expected::collect_files(&expected_dir, "png");
     let actual = common::dzsave_expected::collect_files(&base, "png");
-    common::dzsave_expected::assert_tiles_pixel_equal_tol(&expected, &actual, "iiif-id", 0);
+    common::dzsave_expected::assert_tiles_pixel_equal_shrink_round_up(
+        &expected, &actual, "iiif-id",
+    );
 
     let json = std::fs::read_to_string(base.join("info.json")).unwrap();
     let expected_json = std::fs::read_to_string(expected_dir.join("info.json")).unwrap();
