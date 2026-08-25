@@ -58,43 +58,50 @@ fn lib_rustdoc_normalised() -> String {
         .to_lowercase()
 }
 
-/// Slice the most-recent CHANGELOG entry out of `CHANGELOG.md` — the first
-/// `## [..]` section that has body content — whitespace-collapsed and
-/// lowercased. That is `[Unreleased]` while the change is pending, or the
-/// latest released version once it ships: promoting `[Unreleased]` into a
-/// version section on release empties `[Unreleased]`, so the rename/deprecation
-/// entry then lives under that version. Either way it is the newest documented
-/// change, which is what the docs-preservation assertions care about.
-fn changelog_unreleased_normalised() -> String {
+/// Split `CHANGELOG.md` into its `## [..]` entries, pairing each heading with
+/// its body whitespace-collapsed and lowercased.
+///
+/// Deliberately version-agnostic. A changelog entry does not stay where it was
+/// written: Keep a Changelog has a release promote `[Unreleased]` into a fresh
+/// version section, so any assertion aimed at `[Unreleased]` goes stale the
+/// moment a release ships and then fails by construction. That is exactly what
+/// 0.4.0 did to the rename entry (libviprs-tests#141). Returning every entry
+/// lets a caller ask "does *some* entry record this?", which survives releases,
+/// while still keeping the question scoped to a single entry so unrelated
+/// sections cannot satisfy a multi-part assertion between them.
+fn changelog_sections_normalised() -> Vec<(String, String)> {
     let path = core_path("CHANGELOG.md");
     let raw = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-    let mut section = String::new();
-    let mut in_section = false;
+    let mut sections: Vec<(String, String)> = Vec::new();
     for line in raw.lines() {
         let t = line.trim_start();
         if t.starts_with("## [") {
-            if in_section && !section.trim().is_empty() {
-                break; // captured the first non-empty entry
-            }
-            in_section = true;
-            section.clear();
+            sections.push((t.trim_end().to_string(), String::new()));
             continue;
         }
-        if in_section {
-            section.push_str(line);
-            section.push(' ');
+        // Anything before the first `## [..]` heading is the file preamble.
+        if let Some((_, body)) = sections.last_mut() {
+            body.push_str(line);
+            body.push(' ');
         }
     }
     assert!(
-        !section.trim().is_empty(),
-        "CHANGELOG.md has no changelog entry with content"
+        !sections.is_empty(),
+        "{} has no `## [..]` changelog entries",
+        path.display()
     );
-    section
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase()
+    sections
+        .into_iter()
+        .map(|(heading, body)| {
+            let body = body
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase();
+            (heading, body)
+        })
+        .collect()
 }
 
 /// #385/#389: the README must document `object-store-sink` as the canonical
@@ -139,26 +146,35 @@ fn lib_rs_feature_flags_rustdoc_advertises_object_store_sink() {
 }
 
 /// #387/#390: the CHANGELOG must record the `s3` -> `object-store-sink` rename
-/// and the `s3` deprecation in the [Unreleased] section, as the crate declares
-/// adherence to Keep a Changelog and SemVer.
+/// and the `s3` deprecation, as the crate declares adherence to Keep a
+/// Changelog and SemVer.
+///
+/// This asks *which* entry carries the rename rather than naming one. It
+/// originally read `[Unreleased]`, because that is where the entry sat while
+/// the rename was pending, and 0.4.0 promoted it into `## [0.4.0]` on release,
+/// which is precisely what Keep a Changelog prescribes and which broke the test
+/// (libviprs-tests#141). Re-pinning it to `[0.4.0]` would only relocate the
+/// staleness, so the guard now scans every entry instead. It still requires one
+/// single entry to tell the whole story, so four unrelated sections cannot
+/// satisfy the four checks between them.
+///
+/// What remains is a weak guard, and deliberately so: released history does not
+/// change, so this can only fail if someone rewrites the 0.4.0 entry or drops
+/// the rename before it ships in a future one.
 #[test]
 fn changelog_records_s3_rename_and_deprecation() {
-    let unreleased = changelog_unreleased_normalised();
+    let sections = changelog_sections_normalised();
+    let records_the_rename = |body: &str| {
+        body.contains("object-store-sink")
+            && (body.contains("`s3`") || body.contains(" s3 "))
+            && body.contains("renamed")
+            && body.contains("deprecated")
+    };
     assert!(
-        unreleased.contains("object-store-sink"),
-        "CHANGELOG [Unreleased] does not mention the new `object-store-sink` feature (#387/#390)"
-    );
-    assert!(
-        unreleased.contains("`s3`") || unreleased.contains(" s3 "),
-        "CHANGELOG [Unreleased] does not mention the old `s3` feature name (#387/#390)"
-    );
-    assert!(
-        unreleased.contains("renamed"),
-        "CHANGELOG [Unreleased] does not record the feature *rename* (#387/#390)"
-    );
-    assert!(
-        unreleased.contains("deprecated"),
-        "CHANGELOG [Unreleased] does not record the `s3` deprecation (#387/#390)"
+        sections.iter().any(|(_, body)| records_the_rename(body)),
+        "no CHANGELOG entry records the `s3` -> `object-store-sink` rename \
+         together with the `s3` deprecation (#387/#390); entries scanned: {:?}",
+        sections.iter().map(|(h, _)| h.as_str()).collect::<Vec<_>>()
     );
 }
 
