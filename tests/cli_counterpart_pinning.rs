@@ -69,9 +69,9 @@ fn ci_clones_pinned_cli_counterpart_with_no_branch_fallback() {
         "clone-cli-counterpart action must assert `git rev-parse HEAD` equals the pin"
     );
 
-    // The workflow itself lives under `.gitea/workflows/` since the Gitea
-    // Actions migration (#135); the composite actions it calls deliberately
-    // stayed under `.github/actions/`, so the `uses:` path below is unchanged.
+    // `read_workflow` resolves ci.yml wherever it currently lives; the
+    // composite actions it calls have always stayed under `.github/actions/`,
+    // so the `uses:` path below is unchanged by either CI move.
     let ci = read_workflow("ci.yml");
     assert!(
         ci.contains("./.github/actions/clone-cli-counterpart"),

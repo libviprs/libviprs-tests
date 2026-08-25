@@ -14,7 +14,7 @@ set -euo pipefail
 # BigTIFF/tiled) either assert the typed Unsupported/decode contract or stay
 # `#[ignore]` with a precise reason. This script is the single source of truth
 # for the green-cell list: the Docker mirror (Dockerfile CMD via run-tests.sh),
-# the pre-commit hooks (install-hooks.sh), and .gitea/workflows/ci.yml all
+# the pre-commit hooks (install-hooks.sh), and .github/workflows/ci.yml all
 # call it, so promoting a cell to green is a one-file change.
 #
 # After the ported cells this script also runs phase3_tracing under the
