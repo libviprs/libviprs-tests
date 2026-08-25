@@ -2112,16 +2112,21 @@ fn test_dz_region() {
 /// Reference: test_foreign.py::test_webp
 fn test_webp() {
     let im = decode_file(&ref_image("1.webp")).unwrap();
-    assert!(im.width() > 0);
-    assert!(im.height() > 0);
+    assert_eq!((im.width(), im.height()), (550, 368));
+    assert_eq!(im.format(), PixelFormat::Rgb8);
 
-    // Deferred external codec: the encoder returns a typed
-    // EncodeError::Unsupported rather than bytes. Pin that contract.
-    let __err = im.encode_webp(webp::SaveOptions::default()).unwrap_err();
-    assert!(
-        matches!(__err, EncodeError::Unsupported { .. }),
-        "deferred encoder must return typed Unsupported, got {__err:?}"
-    );
+    // The encoder is lossless-only, so step 3 needs no tolerance at all:
+    // there is no quantisation anywhere in it and the round trip is the
+    // identity. `Q` is not a tolerance question here, it is unrepresentable
+    // (libviprs#568): `webp::SaveOptions` carries a `Compression` whose one
+    // variant is `Lossless`.
+    let bytes = im.encode_webp(webp::SaveOptions::default()).unwrap();
+    assert_eq!(&bytes[..4], b"RIFF");
+    assert_eq!(&bytes[8..12], b"WEBP");
+    let back = decode_bytes(&bytes).unwrap();
+    assert_eq!((back.width(), back.height()), (im.width(), im.height()));
+    assert_eq!(back.format(), im.format());
+    assert_eq!(back.data(), im.data(), "lossless WebP is an exact identity");
 }
 
 #[test]
