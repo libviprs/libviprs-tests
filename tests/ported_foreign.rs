@@ -2820,16 +2820,24 @@ fn test_openexrload() {
 /// ## Test logic
 ///
 /// 1. Load a whole-slide image at level 0.
-/// 2. Verify dimensions are positive.
+/// 2. Verify the base level decodes at its full size.
 ///
 /// Reference: test_foreign.py
 fn test_openslideload() {
-    // Deferred: the OpenSlide decoder is not wired, so decode_file returns a
-    // typed error rather than a raster. Pin that deferred contract.
-    assert!(
-        decode_file(&ref_image("CMU-1-Small-Region.svs")).is_err(),
-        "deferred OpenSlide decode must return a typed error"
-    );
+    // An Aperio `.svs` IS a pyramidal TIFF, and libviprs#563 took `decode_file`
+    // off path-extension dispatch and onto the same content sniff
+    // `decode_bytes` already used. So this stopped failing on an unrecognised
+    // `.svs` extension: the TIFF magic wins and the base level decodes. libvips
+    // does the same when it has no OpenSlide, falling through to tiffload.
+    //
+    // Still deferred is the OpenSlide surface itself — level selection,
+    // associated images, the slide's own metadata — so this pins the base
+    // level only.
+    let raster = decode_file(&ref_image("CMU-1-Small-Region.svs"))
+        .expect("an .svs is a pyramidal TIFF, so its base level must decode");
+    assert_eq!(raster.width(), 2220);
+    assert_eq!(raster.height(), 2967);
+    assert_eq!(raster.format(), PixelFormat::Rgb8);
 }
 
 #[test]
