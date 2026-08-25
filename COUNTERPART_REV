@@ -109,4 +109,13 @@
 # now, but it lives behind the non-default `svg` feature and this suite does not
 # enable it, so `decode_svg` still returns a typed `DecodeError` naming SVG
 # rather than a raster. Both cells still assert exactly that.
-4222d7fddfbc33b9b2562f5fffb5cd852c1f065c
+# Bumped for the format wave: #563 (one sniff table and per-format codec modules,
+# which takes the path extension out of the format decision entirely), #591 (SVG
+# rasterise behind a non-default svg feature), #593 (Radiance HDR load and save),
+# and #597 (WebP still load and lossless save). #597 is the one that forces this
+# bump: encode_webp's quality argument became an unrepresentable Compression enum,
+# because the only pure-Rust encoder is lossless-only, so the ported webp cell
+# cannot compile against the old pin. Also carries #598, which fused the
+# convolution inner loop, and #561 and #556, which deliberately moved output bytes
+# for cast and the Lab to LabS store.
+0eb7a753e019b5adce27ba0ab063f4b952c67966
