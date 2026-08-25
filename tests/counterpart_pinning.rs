@@ -9,6 +9,9 @@
 
 use std::path::{Path, PathBuf};
 
+mod common;
+use common::workflows::read_workflow;
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
 }
@@ -56,7 +59,10 @@ fn ci_checks_out_pinned_counterpart_with_no_branch_fallback() {
         "clone-counterpart action must check out the exact fetched commit"
     );
 
-    let ci = read(".github/workflows/ci.yml");
+    // The workflow itself lives under `.gitea/workflows/` since the Gitea
+    // Actions migration (#135); the composite actions it calls deliberately
+    // stayed under `.github/actions/`, so the `uses:` path below is unchanged.
+    let ci = read_workflow("ci.yml");
     assert!(
         ci.contains("./.github/actions/clone-counterpart"),
         "every job needing the sibling must clone it via the pinned action"
@@ -98,7 +104,7 @@ fn reference_suite_fetch_is_scripted_and_pinned() {
 
 #[test]
 fn ci_wires_the_pinned_fetch_step() {
-    let ci = read(".github/workflows/ci.yml");
+    let ci = read_workflow("ci.yml");
     assert!(
         ci.contains("tools/fetch_reference_suite.sh"),
         "ci.yml must fetch reference fixtures via the pinned script as a CI step"

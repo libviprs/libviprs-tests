@@ -32,7 +32,7 @@
 //! turns this into a spurious red on an unrelated PR. Wall-clock ratios
 //! are a nightly-quality signal, not a per-PR gate: both tests carry
 //! `#[ignore]` so the normal `cargo test` run never blocks on them, and
-//! `.github/workflows/nightly.yml` runs them on a schedule via
+//! `.gitea/workflows/nightly.yml` runs them on a schedule via
 //! `cargo test --features pdfium -- --ignored`, where a transient blip
 //! is a retryable nightly, not a merge blocker. Removing `#[ignore]`
 //! from either test re-arms the flake and is guarded by

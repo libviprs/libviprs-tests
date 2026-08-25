@@ -10,6 +10,9 @@
 
 use std::path::{Path, PathBuf};
 
+mod common;
+use common::workflows::read_workflow;
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
 }
@@ -66,7 +69,10 @@ fn ci_clones_pinned_cli_counterpart_with_no_branch_fallback() {
         "clone-cli-counterpart action must assert `git rev-parse HEAD` equals the pin"
     );
 
-    let ci = read(".github/workflows/ci.yml");
+    // The workflow itself lives under `.gitea/workflows/` since the Gitea
+    // Actions migration (#135); the composite actions it calls deliberately
+    // stayed under `.github/actions/`, so the `uses:` path below is unchanged.
+    let ci = read_workflow("ci.yml");
     assert!(
         ci.contains("./.github/actions/clone-cli-counterpart"),
         "the CLI-differential job must clone the CLI via the pinned action"
@@ -87,7 +93,7 @@ fn ci_clones_pinned_cli_counterpart_with_no_branch_fallback() {
 /// which makes the harness panic instead of skipping when the CLI is absent.
 #[test]
 fn cli_differential_job_requires_the_cli_to_run() {
-    let ci = read(".github/workflows/ci.yml");
+    let ci = read_workflow("ci.yml");
     assert!(
         ci.contains("VIPRS_REQUIRE_CLI: 1") || ci.contains("VIPRS_REQUIRE_CLI: \"1\""),
         "the cli-differential job must set VIPRS_REQUIRE_CLI=1 so a failure to lay \
@@ -107,7 +113,7 @@ fn cli_differential_job_requires_the_cli_to_run() {
 /// the differential cells while making a forgotten wiring a hard CI failure.
 #[test]
 fn cli_differential_job_runs_every_diff_binary() {
-    let ci = read(".github/workflows/ci.yml");
+    let ci = read_workflow("ci.yml");
     let tests_dir = repo_root().join("tests");
     let mut diff_bins: Vec<String> = std::fs::read_dir(&tests_dir)
         .expect("read tests/ dir")

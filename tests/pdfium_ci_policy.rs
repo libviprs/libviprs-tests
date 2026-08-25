@@ -19,6 +19,9 @@
 
 use std::path::{Path, PathBuf};
 
+mod common;
+use common::workflows::read_workflow;
+
 /// The serial-execution flag whose removal issue #59 pins. Assembled from
 /// fragments so this guard file does not itself match a raw substring scan
 /// for the flag in the workflow / Dockerfile.
@@ -72,7 +75,7 @@ fn assert_no_serial_flag_in_commands(file: &str, contents: &str) {
 
 #[test]
 fn ci_runs_the_pdfium_suite_multi_threaded() {
-    let ci = read(".github/workflows/ci.yml");
+    let ci = read_workflow("ci.yml");
     assert_no_serial_flag_in_commands("ci.yml", &ci);
 }
 
@@ -108,7 +111,7 @@ fn perf_ratio_smoke_is_ignored_out_of_normal_ci() {
 
 #[test]
 fn nightly_workflow_runs_the_ignored_perf_smoke_on_a_schedule() {
-    let nightly = read(".github/workflows/nightly.yml");
+    let nightly = read_workflow("nightly.yml");
     assert!(
         nightly.contains("schedule:") && nightly.contains("cron:"),
         "nightly.yml must run on a cron schedule"
