@@ -186,24 +186,45 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "convolution/blur.mat",
     "convolution/sobel.mat",
     "convolution/sep.mat",
+    // #558 discriminating inputs + the mask that breaks any tolerance.
+    "convolution/noise64.png",
+    "convolution/boxsum1147.png",
+    "convolution/eye16.v",
+    "convolution/hostile.mat",
     // gaussmat / logmat (S5 matrix creators → float `.v`).
     "convolution/gaussmat_int_expected.v",
     "convolution/gaussmat_sep_expected.v",
     "convolution/gaussmat_float_expected.v",
     "convolution/logmat_int_expected.v",
     "convolution/logmat_float_expected.v",
-    // conv / convsep (matrix-file mask): integer (≤1 LSB) PNG + float `.v`.
+    // conv / convsep (matrix-file mask): integer (EXACT, VIPS_NOVECTOR=1
+    // reference — issue #558) PNG + float `.v`.
     "convolution/conv_blur_int_expected.png",
     "convolution/conv_sobel_float_expected.v",
+    "convolution/convsep_int_expected.png",
     "convolution/convsep_float_expected.v",
+    // #558 discriminators: a window summing to 1147 (C 127, vector 128, floor
+    // 127) and a mask libvips's own accuracy gate accepts on which the paths
+    // differ by 57.
+    "convolution/conv_boxsum1147_int_expected.png",
+    "convolution/conv_hostile_int_expected.png",
+    // #558 regime pins: scale-1 mask (vector path runs, agrees anyway) and a
+    // ushort input (vector path gated off at convi.c:1151).
+    "convolution/conv_sobel_int_expected.png",
+    "convolution/conv_ushort_int_expected.v",
     // compass: max/integer (EXACT, scale-1 mask) PNG + sum/float `.v`.
     "convolution/compass_max_int_expected.png",
     "convolution/compass_sum_float_expected.v",
     "convolution/compass_sum_int_expected.v",
-    // gaussblur: integer (≤1 LSB) PNG + float `.v`.
+    // gaussblur: integer (EXACT, VIPS_NOVECTOR=1 reference) PNG + float `.v`,
+    // plus the #558 sigma sweep — 1.6 (vector-path gap 4, the case a tol of 1
+    // would fail), 0.8 (gap 2), and 0.6 (intize declines the mask, gap 0).
     "convolution/gaussblur_int_expected.png",
+    "convolution/gaussblur_s1.6_int_expected.png",
+    "convolution/gaussblur_s0.8_int_expected.png",
+    "convolution/gaussblur_s0.6_int_expected.png",
     "convolution/gaussblur_float_expected.v",
-    // sharpen (LabS unsharp, ≤1 LSB) PNG.
+    // sharpen (LabS unsharp, ≤1 LSB — issue #581, NOT #558) PNG.
     "convolution/sharpen_expected.png",
     // spcor (float NCC) + fastcor (uint→float SSD, EXACT) surfaces.
     "convolution/spcor_expected.v",

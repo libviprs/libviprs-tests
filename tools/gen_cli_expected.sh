@@ -45,7 +45,44 @@ if ! command -v "$VIPS" >/dev/null 2>&1; then
 fi
 
 VIPS_VERSION="$("$VIPS" --version)"
+# The SIMD target set of the oracle build. Recorded because whether libvips's
+# vector integer-convolution path runs at all is a build-and-CPU property, not a
+# version property (issue #558). It is NOT recorded because the target set
+# changes the arithmetic — it does not: dropping NEON_BF16 and leaving NEON
+# gives byte-identical output at nine sigmas, while the same comparison against
+# VIPS_NOVECTOR=1 diverges at eight of the nine.
+VIPS_TARGETS="$("$VIPS" --targets 2>/dev/null | sed 's/  */ /g' | paste -sd';' - | sed 's/;/; /g')"
 echo "==> Using oracle: $VIPS_VERSION"
+echo "==> Oracle targets: $VIPS_TARGETS"
+
+# ---------------------------------------------------------------------------
+# The portable-C arm of libvips's integer convolution (issue #558).
+#
+# On UCHAR images `vips_convi` has TWO implementations that disagree, and
+# libvips does not bound the disagreement:
+#
+#   * `vips_convi_gen`, the portable C loop. libvips's own documentation names
+#     it as the specification — "@mask is converted to an integer mask with
+#     rint() of each element ... For UCHAR images, vips_convi uses a fast vector
+#     path based on half-float arithmetic. THIS CAN PRODUCE SLIGHTLY DIFFERENT
+#     RESULTS. Disable the vector path with --vips-novector or VIPS_NOVECTOR or
+#     vips_vector_set_enabled()" (convi.c:1271-1284) — and it is also the path
+#     libvips falls back to whenever `vips_convi_intize` declines a mask.
+#   * a HWY fixed-point vector path, which convolves with REQUANTISED
+#     coefficients. A 3x3 box blur, scale 9, on a window summing to 1147: the C
+#     path gives (1147 + 4) / 9 = 127, and so does floor, while the vector path
+#     gives (57 * 1147 + 256) >> 9 = 128, because it is filtering with
+#     57/512 = 0.111328 rather than 1/9.
+#
+# libviprs implements the documented C one, so every uchar integer-convolution
+# reference below is generated through `novector_vips`. That makes these
+# references EXACT rather than tolerance-banded, and it makes the claim
+# checkable: `VIPS_NOVECTOR=1 vips` reproduces libviprs byte for byte.
+#
+# Do NOT "fix" a failure here by widening a tolerance. A tolerance is what hid
+# this for two waves.
+# ---------------------------------------------------------------------------
+novector_vips() { VIPS_NOVECTOR=1 "$VIPS" "$@"; }
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -912,19 +949,32 @@ EOF
 #    integer-precision rounding-scheme gap below. `compass --combine sum` at
 #    INTEGER precision is likewise EXACT — its distinct 16-bit-promotion +
 #    saturation branch (out_fmt = ushort) is deterministic integer arithmetic.
-#  * conv / gaussblur at INTEGER precision with a scaled mask are **BOUNDED-TOL
-#    ≤1 LSB** (tol 1), NOT the EXACT that OP_MAP.md provisionally listed: vips's
-#    `vips_convi` bakes the mask into a power-of-two fixed-point form and shifts
-#    (`>> sexp`), while the core divides `(sum + scale/2) / scale`; the two
-#    round differently by at most one LSB. This is a MEASURED core-vs-vips
-#    rounding difference (a scale-1 mask — as compass uses — is exact, proving
-#    it is the scale division, not a CLI bug). Flagged as an open question.
+#  * conv / convsep / gaussblur at INTEGER precision on uchar are **EXACT
+#    (tol 0)** against a `VIPS_NOVECTOR=1` reference, and are generated that way
+#    (issue #558). They used to be BOUNDED-TOL ≤1 LSB against a default-`vips`
+#    reference. That tolerance was wrong twice over. Its stated cause was vips
+#    shifting by `>> sexp` where the core divides `(sum + scale/2) / scale` —
+#    but `sexp` is the ORC variable, never set in a HWY build, so the
+#    justification described a code path absent from the binary it was measured
+#    against. And "at most one LSB" is false: `gaussblur … 1.6` on this same
+#    eye.png moves 256 samples by up to 4, and `convsep … sep.mat` by 4, both of
+#    which the ≤1 tolerance would have failed the moment anybody varied a
+#    parameter. What actually differs is that the vector path convolves with
+#    REQUANTISED COEFFICIENTS, and nobody has ever bounded that: see
+#    `conv_hostile_int_expected.png`, where a mask libvips's own accuracy gate
+#    ACCEPTS moves samples by 57.
 #  * convsep / conv / compass / gaussblur / gaussmat / logmat at FLOAT precision
 #    and spcor are float surfaces: compared at a small BOUNDED-TOL (the core
 #    accumulates in a different order than vips's vectorised path; measured
 #    ≤1.5e-5 on the author Mac, with headroom for cross-platform libm/FMA drift).
 #  * gaussmat / logmat at INTEGER precision are integer-valued matrices: tol 0.
-#  * sharpen is BOUNDED-TOL ≤1 LSB (the LabS unsharp round trip; measured 1).
+#  * sharpen keeps its OWN BOUNDED-TOL ≤1 LSB, and it is NOT the tolerance
+#    above. sharpen convolves the L of LabS, which is 16-bit, and the vector
+#    path is gated on `BandFmt == VIPS_FORMAT_UCHAR` (convi.c:1151), so sharpen
+#    takes the portable C path on BOTH libvips builds — verified with
+#    VIPS_INFO=1, which reports "convi: using C path". Whatever sharpen's
+#    deviation is, #558 cannot be its mechanism; it is a real libviprs bug,
+#    tracked as issue #581, and it was hiding under the shared constant.
 #
 # Every input is chosen DISCRIMINATING (a broken/identity op fails loudly): the
 # `eye.png` zone-plate is high-frequency, so a box blur moves pixels by up to 59
@@ -948,14 +998,60 @@ echo "==> [convolution input] eye.png (16x16 Gray8 zone-plate, high frequency)"
 echo "==> [convolution input] patch.png (5x5 extract of eye.png; correlation template)"
 "$VIPS" extract_area "$CONVOL/eye.png" "$CONVOL/patch.png" 4 4 5 5
 
+# --- #558 discriminating inputs ---------------------------------------------
+# The old convolution cell could not tell libvips's two integer-convolution
+# paths apart on purpose: it happened to, at one sigma, by one unit. These
+# three inputs are chosen so the difference is loud, so that a future
+# regeneration against the wrong path fails instead of drifting.
+
+# A 64x64 pseudo-random field. `vips gaussnoise --seed` is deterministic (same
+# seed, byte-identical output — verified), so this stays reproducible. High
+# entropy is what makes a hostile mask hostile: on the 16x16 zone-plate the same
+# mask only reaches 2, on this it reaches 57.
+echo "==> [convolution input] noise64.png (64x64 Gray8, gaussnoise seed 42)"
+"$VIPS" gaussnoise "$TMP/gn.v" 64 64 --mean 128 --sigma 50 --seed 42
+"$VIPS" cast "$TMP/gn.v" "$CONVOL/noise64.png" uchar
+
+# A 3x3 field whose every 3x3 window (edges replicated) sums to exactly 1147:
+# eight 127s around a single 131. That is the arithmetic the panel used to kill
+# "it is just the rounding mode":
+#     C path      (1147 + 9/2) / 9        = 127
+#     floor       floor(1147 / 9)         = 127   <- SAME, so not the rounding
+#     vector path (57 * 1147 + 256) >> 9  = 128   <- different COEFFICIENTS
+# The vector path is filtering with 57/512 = 0.111328, not 1/9 = 0.111111.
+echo "==> [convolution input] boxsum1147.png (3x3; every window sums to 1147)"
+"$VIPS" black "$TMP/bx.v" 3 3
+"$VIPS" linear "$TMP/bx.v" "$TMP/bx127.v" 0 127 --uchar
+"$VIPS" copy "$TMP/bx127.v" "$TMP/bxdraw.v"
+"$VIPS" draw_rect "$TMP/bxdraw.v" 131 1 1 1 1
+"$VIPS" copy "$TMP/bxdraw.v" "$CONVOL/boxsum1147.png"
+
+# A 16-bit carrier for the ushort regime boundary. `vips_convi`'s vector path is
+# gated on `BandFmt == VIPS_FORMAT_UCHAR` (convi.c:1151), so a ushort image
+# takes the portable C path on every libvips build and libviprs cannot be wrong
+# about it. Nothing in the suite tested that until now. `.v` rather than PNG
+# because that is the carrier the 16-bit iocleanup fixtures already use.
+echo "==> [convolution input] eye16.v (16x16 ushort zone-plate)"
+"$VIPS" linear "$TMP/veye.v" "$TMP/eye16f.v" 32767.5 32767.5
+"$VIPS" cast "$TMP/eye16f.v" "$CONVOL/eye16.v" ushort
+
 # --- Mask files (vips text matrix; read by BOTH vips and viprs) --------------
-# blur: a 3x3 box (scale 9 -> the fixed-point rounding-scheme gap shows).
-# sobel: a 3x3 edge detector (scale 1 -> no coefficient rounding; odd-square, so
-#        compass can rotate it). sep: a 1x5 separable smoother (scale 10).
-echo "==> [convolution mask] blur.mat / sobel.mat / sep.mat"
+# blur: a 3x3 box (scale 9 -> the two libvips paths differ; see above).
+# sobel: a 3x3 edge detector (scale 1 -> `vips_convi_intize` is the identity, so
+#        the vector path runs AND agrees; odd-square, so compass can rotate it).
+# sep: a 1x5 separable smoother (scale 10).
+# hostile: a mask libvips's own accuracy gate ACCEPTS — VIPS_INFO=1 reports
+#        "convi: using vector path" — on which the two paths differ by 57.
+#        `vips_convi_intize`'s check (convi.c:1096-1113) is a DC-gain test
+#        against exact real arithmetic at one grey level on a flat field; it
+#        constrains sum(w_hat - w) and says nothing about per-pixel error,
+#        which is sum((w_hat - w) * p). This is the regression that fails if
+#        anybody ever writes a tolerance for integer conv again.
+echo "==> [convolution mask] blur.mat / sobel.mat / sep.mat / hostile.mat"
 printf '3 3 9\n1 1 1\n1 1 1\n1 1 1\n'   > "$CONVOL/blur.mat"
 printf '3 3 1\n1 2 1\n0 0 0\n-1 -2 -1\n' > "$CONVOL/sobel.mat"
 printf '5 1 10\n1 2 4 2 1\n'            > "$CONVOL/sep.mat"
+printf '3 3 3 0\n45 -17 -25\n-33 -15 -34\n55 53 -26\n' > "$CONVOL/hostile.mat"
 
 # --- References — one vips run per differential case -------------------------
 # gaussmat / logmat: the double matrix is `cast … float`ed so the libviprs
@@ -970,15 +1066,16 @@ echo "==> [logmat] integer + float separable -> float .v"
 "$VIPS" logmat "$TMP/lm.v"  2 0.1;                             "$VIPS" cast "$TMP/lm.v"  "$CONVOL/logmat_int_expected.v"   float
 "$VIPS" logmat "$TMP/lmf.v" 2 0.1 --separable --precision float; "$VIPS" cast "$TMP/lmf.v" "$CONVOL/logmat_float_expected.v" float
 
-echo "==> [conv] box blur integer (PNG, ≤1 LSB) + sobel float (.v)"
-"$VIPS" conv "$CONVOL/eye.png" "$CONVOL/conv_blur_int_expected.png"   "$CONVOL/blur.mat"  --precision integer
-"$VIPS" conv "$CONVOL/eye.png" "$CONVOL/conv_sobel_float_expected.v"  "$CONVOL/sobel.mat" --precision float
+echo "==> [conv] box blur integer (PNG, EXACT via VIPS_NOVECTOR=1) + sobel float (.v)"
+novector_vips conv "$CONVOL/eye.png" "$CONVOL/conv_blur_int_expected.png"   "$CONVOL/blur.mat"  --precision integer
+"$VIPS"       conv "$CONVOL/eye.png" "$CONVOL/conv_sobel_float_expected.v"  "$CONVOL/sobel.mat" --precision float
 
-echo "==> [convsep] separable smoother, float (.v)"
-"$VIPS" convsep "$CONVOL/eye.png" "$CONVOL/convsep_float_expected.v" "$CONVOL/sep.mat" --precision float
+echo "==> [convsep] separable smoother, integer (PNG, EXACT) + float (.v)"
+novector_vips convsep "$CONVOL/eye.png" "$CONVOL/convsep_int_expected.png"   "$CONVOL/sep.mat" --precision integer
+"$VIPS"       convsep "$CONVOL/eye.png" "$CONVOL/convsep_float_expected.v"   "$CONVOL/sep.mat" --precision float
 
 echo "==> [compass] max integer (PNG, EXACT — scale-1 mask) + sum float/integer (.v)"
-"$VIPS" compass "$CONVOL/eye.png" "$CONVOL/compass_max_int_expected.png" "$CONVOL/sobel.mat" \
+novector_vips compass "$CONVOL/eye.png" "$CONVOL/compass_max_int_expected.png" "$CONVOL/sobel.mat" \
     --times 4 --angle d45 --combine max --precision integer
 "$VIPS" compass "$CONVOL/eye.png" "$CONVOL/compass_sum_float_expected.v" "$CONVOL/sobel.mat" \
     --times 4 --angle d45 --combine sum --precision float
@@ -990,15 +1087,55 @@ echo "==> [compass] max integer (PNG, EXACT — scale-1 mask) + sum float/intege
 # decode-compare requires matching format classes, so the reference is
 # `vips cast … ushort` — lossless for these values (max 812 « 65535) and the same
 # Gray16 class viprs produces (unlike fastcor, whose viprs surface is float).
-"$VIPS" compass "$CONVOL/eye.png" "$TMP/compass_sum_int_uint.v" "$CONVOL/sobel.mat" \
+novector_vips compass "$CONVOL/eye.png" "$TMP/compass_sum_int_uint.v" "$CONVOL/sobel.mat" \
     --times 4 --angle d45 --combine sum --precision integer
 "$VIPS" cast "$TMP/compass_sum_int_uint.v" "$CONVOL/compass_sum_int_expected.v" ushort
 
-echo "==> [gaussblur] integer (PNG, ≤1 LSB) + float (.v)"
-"$VIPS" gaussblur "$CONVOL/eye.png" "$CONVOL/gaussblur_int_expected.png" 1.5 --precision integer
-"$VIPS" gaussblur "$CONVOL/eye.png" "$CONVOL/gaussblur_float_expected.v" 1.5 --precision float
+echo "==> [gaussblur] integer (PNG, EXACT via VIPS_NOVECTOR=1) + float (.v)"
+novector_vips gaussblur "$CONVOL/eye.png" "$CONVOL/gaussblur_int_expected.png" 1.5 --precision integer
+"$VIPS"       gaussblur "$CONVOL/eye.png" "$CONVOL/gaussblur_float_expected.v" 1.5 --precision float
 
-echo "==> [sharpen] eye (mono, high-freq) --sigma 1 --m1 1 --m2 2 (PNG, ≤1 LSB)"
+# --- #558 discriminating references -----------------------------------------
+# Each of these is EXACT against the portable-C path AND has a large, measured
+# gap to the vectorised path, so a reference regenerated against the wrong
+# libvips fails loudly rather than sliding under a tolerance. The gaps below
+# were measured on vips 8.18.4 with targets: NEON_BF16 NEON.
+echo "==> [#558] gaussblur sigma 1.6 (vector-path gap 4 — the case tol=1 would fail)"
+novector_vips gaussblur "$CONVOL/eye.png" "$CONVOL/gaussblur_s1.6_int_expected.png" 1.6 --precision integer
+
+echo "==> [#558] gaussblur sigma 0.8 on noise64 (vector-path gap 2)"
+novector_vips gaussblur "$CONVOL/noise64.png" "$CONVOL/gaussblur_s0.8_int_expected.png" 0.8 --precision integer
+
+echo "==> [#558] box blur on the 1147 window (vector-path gap 1, whole image)"
+novector_vips conv "$CONVOL/boxsum1147.png" "$CONVOL/conv_boxsum1147_int_expected.png" \
+    "$CONVOL/blur.mat" --precision integer
+
+echo "==> [#558] hostile mask libvips's own accuracy gate accepts (vector-path gap 57)"
+novector_vips conv "$CONVOL/noise64.png" "$CONVOL/conv_hostile_int_expected.png" \
+    "$CONVOL/hostile.mat" --precision integer
+
+# --- #558 regime boundaries --------------------------------------------------
+# Three regimes, not two, and nothing on the API surface says which one a mask
+# is in. These pin the two where the paths CANNOT differ, so a future change
+# that moves a mask across `vips_convi_intize`'s accept/reject boundary is
+# visible as a test failure rather than as a quiet re-pin.
+echo "==> [#558 regime] ushort never diverges (convi.c:1151 gates on UCHAR)"
+novector_vips conv "$CONVOL/eye16.v" "$CONVOL/conv_ushort_int_expected.v" \
+    "$CONVOL/blur.mat" --precision integer
+
+echo "==> [#558 regime] sigma 0.6: intize declines the mask, libvips runs C itself"
+novector_vips gaussblur "$CONVOL/eye.png" "$CONVOL/gaussblur_s0.6_int_expected.png" 0.6 --precision integer
+
+echo "==> [#558 regime] scale-1 mask: the vector path RUNS and still agrees"
+novector_vips conv "$CONVOL/eye.png" "$CONVOL/conv_sobel_int_expected.png" \
+    "$CONVOL/sobel.mat" --precision integer
+
+# sharpen is deliberately NOT run through novector_vips. It convolves the L of
+# LabS, which is 16-bit, so `vips_convi`'s uchar gate (convi.c:1151) never opens
+# and VIPS_INFO=1 reports "convi: using C path" on the plain binary. Setting
+# VIPS_NOVECTOR here would change nothing and would wrongly imply #558 reaches
+# it. Its remaining deviation is a separate libviprs bug, issue #581.
+echo "==> [sharpen] eye (mono, high-freq) --sigma 1 --m1 1 --m2 2 (PNG, ≤1 LSB, issue #581)"
 "$VIPS" sharpen "$CONVOL/eye.png" "$CONVOL/sharpen_expected.png" --sigma 1 --m1 1 --m2 2
 
 echo "==> [spcor] normalised cross-correlation (.v float, eps 1e-5)"
@@ -2481,14 +2618,32 @@ pins) the aritha CLI-differential suite (\`tests/cli_aritha_diff.rs\`) compares
 \`viprs\` output against. Generated offline by \`tools/gen_cli_expected.sh\`,
 NEVER by CI.
 
-- **Oracle**: \`$VIPS_VERSION\`
+- **Oracle**: \`$VIPS_VERSION\`, SIMD targets \`$VIPS_TARGETS\`
+- **libvips path pinned**: every **uchar integer-precision convolution**
+  reference here is generated with \`VIPS_NOVECTOR=1\`, i.e. against
+  \`vips_convi_gen\`, the portable C loop libvips's own docs call the
+  specification (\`convi.c:1271-1284\`: "For UCHAR images, vips_convi uses a
+  fast vector path based on half-float arithmetic. **This can produce slightly
+  different results.**"). libviprs implements that path, so these references are
+  EXACT rather than tolerance-banded. Float precision, ushort inputs and
+  \`sharpen\` are path-independent and are generated on the plain binary.
+  Issue #558.
 - **Common inputs** (under \`convolution/\`): \`eye.png\` (16×16 Gray8 zone-plate,
   high-frequency so a blur/edge op is non-vacuous — a box blur moves it by up to
   59, compass by 254; \`sharpen\` runs on that same mono zone-plate),
   \`patch.png\` (5×5 extract of \`eye.png\`, the correlation template with a
   sharp best-match peak).
+- **#558 discriminating inputs**: \`noise64.png\` (64×64 Gray8,
+  \`gaussnoise --seed 42\`; high entropy is what makes a hostile mask hostile —
+  the same mask reaches 2 on the zone-plate and 57 here), \`boxsum1147.png\`
+  (3×3, eight 127s around a 131, so every replicated window sums to 1147),
+  \`eye16.v\` (16×16 **ushort** zone-plate, the regime where the vector path is
+  gated off entirely by \`convi.c:1151\`).
 - **Masks**: \`blur.mat\` (3×3 box, scale 9), \`sobel.mat\` (3×3 edge, scale 1,
-  odd-square for \`compass\`), \`sep.mat\` (1×5 separable smoother, scale 10).
+  odd-square for \`compass\`), \`sep.mat\` (1×5 separable smoother, scale 10),
+  \`hostile.mat\` (3×3 scale 3, \`[45 -17 -25 / -33 -15 -34 / 55 53 -26]\` — a
+  mask \`vips_convi_intize\` **accepts** and on which the two libvips paths
+  differ by 57).
 - **Carriers**: integer uchar outputs → PNG; float / matrix / correlation
   surfaces → native \`.v\`. vips writes the gaussmat/logmat matrix as **double**
   and fastcor as **uint**, neither of which the libviprs decoder reads, so they
@@ -2501,12 +2656,25 @@ NEVER by CI.
   16-bit-promotion + saturation branch; summed sobel edges reach 812; vips
   emits uint, core emits Gray16, cast to ushort \`.v\`), and \`fastcor\` (integer SSD). Also gaussmat/logmat at
   **integer** precision (integer-valued matrices).
-- **BOUNDED-TOL ≤1 LSB (tol 1)**: \`conv\` and \`gaussblur\` at **integer**
-  precision with a **scaled** mask. This is a MEASURED core-vs-vips rounding-scheme
-  difference — vips's \`vips_convi\` uses a power-of-two fixed-point shift while the
-  core divides \`(sum + scale/2)/scale\` — NOT the EXACT that OP_MAP.md
-  provisionally listed. The scale-1 compass case proves it is the scale division
-  (a scale-1 mask is exact). Also \`sharpen\` (LabS unsharp round trip).
+- **EXACT (tol 0), integer convolution on uchar**: \`conv\`, \`convsep\` and
+  \`gaussblur\` at **integer** precision, against the \`VIPS_NOVECTOR=1\`
+  references. These used to carry a ≤1 LSB tolerance whose justification cited
+  vips shifting by \`>> sexp\`; \`sexp\` is the **ORC** variable and is never set
+  in a HWY build, so that described a code path absent from the binary it was
+  measured against. And ≤1 was false: on this same \`eye.png\`,
+  \`gaussblur … 1.6\` moves 256 samples by up to 4 and \`convsep … sep.mat\` by
+  4. The real mechanism is that the vector path convolves with **requantised
+  coefficients** — \`conv_boxsum1147_int_expected.png\` isolates it: on a window
+  summing to 1147, C gives \`(1147 + 4) / 9 = 127\`, **floor gives 127 too**, and
+  the vector path gives \`(57 * 1147 + 256) >> 9 = 128\` because it filters with
+  \`57/512\`, not \`1/9\`.
+- **BOUNDED-TOL ≤1 LSB (tol 1), \`sharpen\` ONLY**: the LabS unsharp round trip.
+  This is **not** the tolerance above and must not be merged back into it.
+  \`sharpen\` convolves the L of LabS, which is 16-bit, and the vector path is
+  gated on \`BandFmt == VIPS_FORMAT_UCHAR\` (\`convi.c:1151\`), so it takes the
+  portable C path on both builds — \`VIPS_INFO=1\` reports "convi: using C
+  path". #558 therefore cannot be its mechanism. The deviation is a real
+  libviprs bug, tracked as issue **#581**, which the shared constant was hiding.
 - **BOUNDED-TOL float (small eps)**: \`conv\`/\`compass\`/\`gaussblur\` at float
   precision, \`convsep\` (measured ≤1.5e-5 on the author Mac), \`gaussmat\`/\`logmat\`
   float precision, and \`spcor\` (eps 1e-5): float surfaces whose accumulation
@@ -2519,9 +2687,16 @@ Inputs + masks:
 \`\`\`
 vips eye veye.v 16 16 ; vips linear veye.v convolution/eye.png 127.5 127.5 --uchar
 vips extract_area convolution/eye.png convolution/patch.png 4 4 5 5
+vips gaussnoise gn.v 64 64 --mean 128 --sigma 50 --seed 42
+vips cast gn.v convolution/noise64.png uchar
+vips black bx.v 3 3 ; vips linear bx.v bx127.v 0 127 --uchar
+vips copy bx127.v bxdraw.v ; vips draw_rect bxdraw.v 131 1 1 1 1
+vips copy bxdraw.v convolution/boxsum1147.png
+vips linear veye.v eye16f.v 32767.5 32767.5 ; vips cast eye16f.v convolution/eye16.v ushort
 printf '3 3 9\\n1 1 1\\n1 1 1\\n1 1 1\\n'    > convolution/blur.mat
 printf '3 3 1\\n1 2 1\\n0 0 0\\n-1 -2 -1\\n' > convolution/sobel.mat
 printf '5 1 10\\n1 2 4 2 1\\n'              > convolution/sep.mat
+printf '3 3 3 0\\n45 -17 -25\\n-33 -15 -34\\n55 53 -26\\n' > convolution/hostile.mat
 # matrix family CLI-differential reference provenance
 
 These fixtures are the committed vips oracle references the matrix
@@ -2949,15 +3124,23 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`convolution/gaussmat_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips gaussmat gmf.v 2 0.2 --precision float\` then cast float |
 | \`convolution/logmat_int_expected.v\` | BOUNDED-TOL (tol 0) | \`vips logmat lm.v 2 0.1\` then cast float |
 | \`convolution/logmat_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips logmat lmf.v 2 0.1 --separable --precision float\` then cast float |
-| \`convolution/conv_blur_int_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips conv eye.png conv_blur_int_expected.png blur.mat --precision integer\` |
+| \`convolution/conv_blur_int_expected.png\` | EXACT (tol 0) | \`VIPS_NOVECTOR=1 vips conv eye.png conv_blur_int_expected.png blur.mat --precision integer\` (vector-path gap 1) |
 | \`convolution/conv_sobel_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips conv eye.png conv_sobel_float_expected.v sobel.mat --precision float\` |
+| \`convolution/convsep_int_expected.png\` | EXACT (tol 0) | \`VIPS_NOVECTOR=1 vips convsep eye.png convsep_int_expected.png sep.mat --precision integer\` (vector-path gap **4**) |
 | \`convolution/convsep_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips convsep eye.png convsep_float_expected.v sep.mat --precision float\` |
-| \`convolution/compass_max_int_expected.png\` | EXACT (tol 0) | \`vips compass eye.png … sobel.mat --times 4 --angle d45 --combine max --precision integer\` |
+| \`convolution/compass_max_int_expected.png\` | EXACT (tol 0) | \`VIPS_NOVECTOR=1 vips compass eye.png … sobel.mat --times 4 --angle d45 --combine max --precision integer\` (scale-1 mask: gap 0 either way) |
 | \`convolution/compass_sum_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips compass eye.png … sobel.mat --times 4 --angle d45 --combine sum --precision float\` |
-| \`convolution/compass_sum_int_expected.v\` | EXACT (tol 0) | \`vips compass eye.png … sobel.mat --times 4 --angle d45 --combine sum --precision integer\` then \`vips cast … ushort\` (vips emits uint; core emits Gray16; 16-bit-promotion path) |
-| \`convolution/gaussblur_int_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips gaussblur eye.png gaussblur_int_expected.png 1.5 --precision integer\` |
+| \`convolution/compass_sum_int_expected.v\` | EXACT (tol 0) | \`VIPS_NOVECTOR=1 vips compass eye.png … sobel.mat --times 4 --angle d45 --combine sum --precision integer\` then \`vips cast … ushort\` (vips emits uint; core emits Gray16; 16-bit-promotion path) |
+| \`convolution/gaussblur_int_expected.png\` | EXACT (tol 0) | \`VIPS_NOVECTOR=1 vips gaussblur eye.png gaussblur_int_expected.png 1.5 --precision integer\` (vector-path gap 1) |
+| \`convolution/gaussblur_s1.6_int_expected.png\` | EXACT (tol 0) | \`VIPS_NOVECTOR=1 vips gaussblur eye.png … 1.6 --precision integer\` (vector-path gap **4** — the case a tol of 1 would fail) |
+| \`convolution/gaussblur_s0.8_int_expected.png\` | EXACT (tol 0) | \`VIPS_NOVECTOR=1 vips gaussblur noise64.png … 0.8 --precision integer\` (vector-path gap 2; separable gaussmat scale 38) |
+| \`convolution/gaussblur_s0.6_int_expected.png\` | EXACT (tol 0), regime pin | \`VIPS_NOVECTOR=1 vips gaussblur eye.png … 0.6 --precision integer\` (\`vips_convi_intize\` declines the 3×1 scale-30 mask as "too inaccurate", so libvips runs C itself: gap 0) |
+| \`convolution/conv_boxsum1147_int_expected.png\` | EXACT (tol 0) | \`VIPS_NOVECTOR=1 vips conv boxsum1147.png … blur.mat --precision integer\` (127 here, 128 on the vector path, **floor also 127** — isolates the requantised coefficients from the rounding mode) |
+| \`convolution/conv_hostile_int_expected.png\` | EXACT (tol 0), bound-breaking | \`VIPS_NOVECTOR=1 vips conv noise64.png … hostile.mat --precision integer\` (vector-path gap **57**, on a mask \`vips_convi_intize\` accepts) |
+| \`convolution/conv_sobel_int_expected.png\` | EXACT (tol 0), regime pin | \`VIPS_NOVECTOR=1 vips conv eye.png … sobel.mat --precision integer\` (scale 1: the vector path RUNS and still agrees, because intize is the identity) |
+| \`convolution/conv_ushort_int_expected.v\` | EXACT (tol 0), regime pin | \`VIPS_NOVECTOR=1 vips conv eye16.v … blur.mat --precision integer\` (ushort: the vector path is gated off at \`convi.c:1151\`, so gap 0 by construction) |
 | \`convolution/gaussblur_float_expected.v\` | BOUNDED-TOL (float eps) | \`vips gaussblur eye.png gaussblur_float_expected.v 1.5 --precision float\` |
-| \`convolution/sharpen_expected.png\` | BOUNDED-TOL ≤1 LSB | \`vips sharpen eye.png sharpen_expected.png --sigma 1 --m1 1 --m2 2\` |
+| \`convolution/sharpen_expected.png\` | BOUNDED-TOL ≤1 LSB (**issue #581**, NOT #558) | \`vips sharpen eye.png sharpen_expected.png --sigma 1 --m1 1 --m2 2\` (plain binary on purpose: LabS is 16-bit, so \`VIPS_INFO=1\` reports "convi: using C path" and \`VIPS_NOVECTOR\` changes nothing) |
 | \`convolution/spcor_expected.v\` | BOUNDED-TOL (eps 1e-5) | \`vips spcor eye.png patch.png spcor_expected.v\` |
 | \`convolution/fastcor_expected.v\` | EXACT (tol 0) | \`vips fastcor eye.png patch.png fc_uint.v\` then \`vips cast fc_uint.v … float\` |
 | \`matrix/matrixinvert3_expected.v\` | BOUNDED-TOL (f32, measured 0) | \`vips matrixinvert m3.mat mi3.v\` then \`vips cast mi3.v matrixinvert3_expected.v float\` (direct cofactor path) |
