@@ -122,11 +122,29 @@ for cell in "${PARALLEL_CELLS[@]}"; do
     PARALLEL_TARGETS+=(--test "$cell")
 done
 
-cargo test --features ported_tests "${PARALLEL_TARGETS[@]}"
+# Every leg runs even when an earlier one fails, and the script exits non-zero
+# at the end naming the legs that failed. `set -e` used to abort at the first
+# failing leg, which meant the ZipSink and tracing legs below never ran once
+# anything ahead of them was red — that is exactly how test_dz_zip's failure
+# stayed invisible through libviprs-tests#148. `--no-fail-fast` does the same
+# job inside a single cargo invocation: without it cargo stops after the first
+# failing test BINARY, so one red cell hides every cell listed after it.
+FAILED_LEGS=()
+run_leg() {
+    local name="$1"
+    shift
+    if ! "$@"; then
+        FAILED_LEGS+=("$name")
+    fi
+}
+
+run_leg "green cells" \
+    cargo test --features ported_tests --no-fail-fast "${PARALLEL_TARGETS[@]}"
 
 echo ""
 echo "Running $SERIAL_CELL with --test-threads=1 (mutates process-global state)..."
-cargo test --features ported_tests --test "$SERIAL_CELL" -- --test-threads=1
+run_leg "$SERIAL_CELL" \
+    cargo test --features ported_tests --no-fail-fast --test "$SERIAL_CELL" -- --test-threads=1
 
 # Exercise the per-tile tracing spans under the `tracing` feature. The default
 # `cargo test` build compiles phase3_tracing WITHOUT `tracing`, so its span
@@ -141,11 +159,17 @@ cargo test --features ported_tests --test "$SERIAL_CELL" -- --test-threads=1
 # (libviprs-tests#90). It uses only synthetic rasters, so it needs no fixtures.
 echo ""
 echo "Running the ZipSink cell under --features 'ported_tests packfile'..."
-cargo test --features "ported_tests packfile" --test ported_foreign -- test_dz_zip
+run_leg "test_dz_zip (packfile)" \
+    cargo test --features "ported_tests packfile" --no-fail-fast --test ported_foreign -- test_dz_zip
 
 echo ""
 echo "Running phase3_tracing under --features tracing (per-tile span tests)..."
-cargo test --features "ported_tests tracing" --test phase3_tracing
+run_leg "phase3_tracing (tracing)" \
+    cargo test --features "ported_tests tracing" --no-fail-fast --test phase3_tracing
 
 echo ""
+if [ "${#FAILED_LEGS[@]}" -gt 0 ]; then
+    echo "FAILED legs: ${FAILED_LEGS[*]}" >&2
+    exit 1
+fi
 echo "Green ported cells passed."
