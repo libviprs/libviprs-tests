@@ -15,12 +15,12 @@ use image::ImageEncoder;
 use libviprs::source::decode_bytes;
 use libviprs::{
     EncodeError, EngineBuilder, EngineConfig, EngineKind, FsSink, JpegSubsample, Layout,
-    MagickLoadOptions, PixelFormat, PyramidPlanner, Raster, SaveError, SinkError, TiffCompression,
-    TileFormat, decode_bytes_fail_on, decode_file, decode_file_fail_on, decode_file_sequential,
-    decode_file_with_shrink, decode_svg, decode_tiff_page, extract_page_image,
-    extract_page_image_dpi, extract_page_image_with_background, extract_page_image_with_password,
-    generate_pyramid_region, gif, magickload, magickload_with, pdf_info, pdf_info_with_password,
-    thumbnail, thumbnail_crop, tiff_page_count, webp,
+    MagickLoadOptions, PixelFormat, PyramidPlanner, Raster, SaveError, SinkError, SvgOptions,
+    TiffCompression, TileFormat, decode_bytes_fail_on, decode_file, decode_file_fail_on,
+    decode_file_sequential, decode_file_with_shrink, decode_svg, decode_tiff_page,
+    extract_page_image, extract_page_image_dpi, extract_page_image_with_background,
+    extract_page_image_with_password, generate_pyramid_region, gif, magickload, magickload_with,
+    pdf_info, pdf_info_with_password, thumbnail, thumbnail_crop, tiff_page_count, webp,
 };
 
 mod common;
@@ -2738,8 +2738,12 @@ fn test_jxlsave() {
 /// ## Required API
 ///
 /// ```rust,ignore
-/// /// Decode an SVG from bytes into a raster image at a given DPI.
-/// fn decode_svg(data: &[u8], dpi: Option<f64>) -> Result<Raster, DecodeError>;
+/// /// dpi (default 72.0), scale (default 1.0) and unlimited (default false),
+/// /// which are vips's own svgload defaults.
+/// struct SvgOptions { dpi: f64, scale: f64, unlimited: bool }
+///
+/// /// Decode an SVG from bytes into a raster image under those options.
+/// fn decode_svg(data: &[u8], options: SvgOptions) -> Result<Raster, DecodeError>;
 /// ```
 ///
 /// ## Test logic (from libvips test_foreign.py::test_svg)
@@ -2750,9 +2754,12 @@ fn test_jxlsave() {
 /// Reference: test_foreign.py::test_svg
 fn test_svgload() {
     let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"50\"><rect width=\"100\" height=\"50\" fill=\"red\"/></svg>";
-    // SVG rasterisation is deferred (needs librsvg); decode_svg returns a
-    // typed error naming SVG rather than a raster. Pin that contract.
-    let __err = decode_svg(svg, None).unwrap_err();
+    // The rasteriser landed in libviprs#502 behind the non-default `svg`
+    // feature, which this suite does not enable, so decode_svg still returns a
+    // typed error naming SVG rather than a raster. Pin that contract. The old
+    // `Option<f64>` dpi argument became `SvgOptions` in libviprs#591, and the
+    // defaults are vips's own.
+    let __err = decode_svg(svg, SvgOptions::default()).unwrap_err();
     assert!(
         __err.to_string().contains("SVG"),
         "deferred SVG rasteriser must return a typed error, got {__err}"
