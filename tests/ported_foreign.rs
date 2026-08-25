@@ -19,8 +19,8 @@ use libviprs::{
     TileFormat, decode_bytes_fail_on, decode_file, decode_file_fail_on, decode_file_sequential,
     decode_file_with_shrink, decode_svg, decode_tiff_page, extract_page_image,
     extract_page_image_dpi, extract_page_image_with_background, extract_page_image_with_password,
-    generate_pyramid_region, magickload, magickload_with, pdf_info, pdf_info_with_password,
-    thumbnail, thumbnail_crop, tiff_page_count,
+    generate_pyramid_region, gif, magickload, magickload_with, pdf_info, pdf_info_with_password,
+    thumbnail, thumbnail_crop, tiff_page_count, webp,
 };
 
 mod common;
@@ -2100,7 +2100,7 @@ fn test_dz_region() {
 /// fn decode_file(path: &Path) -> Result<Raster, DecodeError>; // already exists, needs WebP support
 ///
 /// /// Encode raster as WebP bytes.
-/// fn Raster::encode_webp(&self, quality: u8) -> Result<Vec<u8>, EncodeError>;
+/// fn Raster::encode_webp(&self, options: webp::SaveOptions) -> Result<Vec<u8>, EncodeError>;
 /// ```
 ///
 /// ## Test logic (from libvips test_foreign.py::test_webp)
@@ -2117,7 +2117,7 @@ fn test_webp() {
 
     // Deferred external codec: the encoder returns a typed
     // EncodeError::Unsupported rather than bytes. Pin that contract.
-    let __err = im.encode_webp(80).unwrap_err();
+    let __err = im.encode_webp(webp::SaveOptions::default()).unwrap_err();
     assert!(
         matches!(__err, EncodeError::Unsupported { .. }),
         "deferred encoder must return typed Unsupported, got {__err:?}"
@@ -2132,7 +2132,7 @@ fn test_webp() {
 ///
 /// ```rust,ignore
 /// fn decode_file(path: &Path) -> Result<Raster, DecodeError>; // needs GIF support
-/// fn Raster::encode_gif(&self) -> Result<Vec<u8>, EncodeError>;
+/// fn Raster::encode_gif(&self, options: gif::SaveOptions) -> Result<Vec<u8>, EncodeError>;
 /// ```
 ///
 /// ## Test logic (from libvips test_foreign.py::test_gif)
@@ -2147,7 +2147,7 @@ fn test_gifload() {
     assert!(im.width() > 0);
     assert!(im.height() > 0);
 
-    let buf = im.encode_gif().unwrap();
+    let buf = im.encode_gif(gif::SaveOptions::default()).unwrap();
     let im2 = decode_bytes(&buf).unwrap();
     assert_eq!(im2.width(), im.width());
     assert_eq!(im2.height(), im.height());
@@ -2288,14 +2288,9 @@ fn test_gifload_frame_error() {
 /// ## Required API
 ///
 /// ```rust,ignore
-/// /// Encode raster as GIF bytes with options.
-/// fn Raster::encode_gif(&self) -> Result<Vec<u8>, EncodeError>;
-///
-/// /// Encode raster as interlaced GIF bytes.
-/// fn Raster::encode_gif_interlaced(&self) -> Result<Vec<u8>, EncodeError>;
-///
-/// /// Encode raster as GIF with a specific dither level (0.0 - 1.0).
-/// fn Raster::encode_gif_dither(&self, dither: f64) -> Result<Vec<u8>, EncodeError>;
+/// /// Encode raster as GIF bytes. Interlacing and the dither level (0.0 - 1.0)
+/// /// are fields on the options struct rather than separate methods.
+/// fn Raster::encode_gif(&self, options: gif::SaveOptions) -> Result<Vec<u8>, EncodeError>;
 ///
 /// /// Get the number of pages (frames) in a multi-page image.
 /// fn Raster::get_n_pages(&self) -> u32;
@@ -2312,7 +2307,7 @@ fn test_gifsave() {
     let im = decode_file(&ref_image("trans-x.gif")).unwrap();
     // Deferred external codec: the encoder returns a typed
     // EncodeError::Unsupported rather than bytes. Pin that contract.
-    let __err = im.encode_gif().unwrap_err();
+    let __err = im.encode_gif(gif::SaveOptions::default()).unwrap_err();
     assert!(
         matches!(__err, EncodeError::Unsupported { .. }),
         "deferred encoder must return typed Unsupported, got {__err:?}"
@@ -2825,16 +2820,24 @@ fn test_openexrload() {
 /// ## Test logic
 ///
 /// 1. Load a whole-slide image at level 0.
-/// 2. Verify dimensions are positive.
+/// 2. Verify the base level decodes at its full size.
 ///
 /// Reference: test_foreign.py
 fn test_openslideload() {
-    // Deferred: the OpenSlide decoder is not wired, so decode_file returns a
-    // typed error rather than a raster. Pin that deferred contract.
-    assert!(
-        decode_file(&ref_image("CMU-1-Small-Region.svs")).is_err(),
-        "deferred OpenSlide decode must return a typed error"
-    );
+    // An Aperio `.svs` IS a pyramidal TIFF, and libviprs#563 took `decode_file`
+    // off path-extension dispatch and onto the same content sniff
+    // `decode_bytes` already used. So this stopped failing on an unrecognised
+    // `.svs` extension: the TIFF magic wins and the base level decodes. libvips
+    // does the same when it has no OpenSlide, falling through to tiffload.
+    //
+    // Still deferred is the OpenSlide surface itself — level selection,
+    // associated images, the slide's own metadata — so this pins the base
+    // level only.
+    let raster = decode_file(&ref_image("CMU-1-Small-Region.svs"))
+        .expect("an .svs is a pyramidal TIFF, so its base level must decode");
+    assert_eq!(raster.width(), 2220);
+    assert_eq!(raster.height(), 2967);
+    assert_eq!(raster.format(), PixelFormat::Rgb8);
 }
 
 #[test]
