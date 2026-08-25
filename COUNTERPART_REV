@@ -59,4 +59,41 @@
 # double-applies the page /Rotate on the pdfium matrix render path, so rotated
 # pages render correctly. The new rotation_libvips_pdfium_parity test builds and
 # passes bit-identically against this counterpart.
-ac1d56ff049ce0e0bb19cf79b4b612486c7574a5
+#
+# Bumped to 82529c3, which is this whole session's core work and not just the
+# two changes with companions in this commit. Those two: #576 (issue #563)
+# routes both decode entry points through one format sniff and moves the WebP
+# and GIF stubs into their own modules behind options-struct signatures, so
+# `encode_webp(quality)` and the three GIF stubs are gone and the ported_foreign
+# / ported_infrastructure call sites here follow them; and #584 (issue #558)
+# states the integer-convolution parity contract as `VIPS_NOVECTOR=1`, which is
+# what the regenerated cli_convolution_diff references now pin.
+#
+# Riding along, and listed because the CLI-differential cells decode real output
+# bytes rather than asserting on an API: #579 (#561) makes cast truncate float
+# samples the way vips_cast does, #580 (#556) truncates the LabS code and takes
+# the direct Lab <-> LabS edge, #557 adds the sobel/scharr/prewitt edge
+# detectors, #553 (#551) the generic 2-image join, #545 (#534) an internal mask
+# offset summand, #542 (#536) generic 2-image remainder, #541 (#533)
+# matrixmultiply, #544 (#535) the real VipsInterpretation codes 30/31 for
+# OkLab/OkLch, #554 (#552) absolute Oklab/Oklch pins plus the direct OkLab <->
+# OkLch route, and #578's canny oracle capture. #527 also drops the withdrawn
+# auto-apply-rotation from the pinned pdfium-render fork, which is the
+# Cargo.lock change committed alongside this bump.
+#
+# Of the two changes that move output bytes, only #561 has a differential cell
+# of its own: the two cast cells in cli_conversion_diff compare against
+# committed vips references, and the fix moves libviprs onto vips rather than
+# off it, so they pass unchanged. #556 has no Lab <-> LabS cell here at all; it
+# reaches this suite only through sharpen, which convolves the L of LabS, and
+# sharpen still lands inside its own 1-LSB tolerance (libviprs#581).
+#
+# One expectation genuinely had to move, and it is #563's doing: an Aperio .svs
+# IS a pyramidal TIFF, so once decode_file sniffs content instead of trusting
+# the path extension, test_openslideload's fixture decodes rather than erroring.
+# That test now pins the base level. Everything else is green against this
+# counterpart; the six ported-cell failures that remain (the dzsave iiif and
+# zoomify comparisons, bandmean, and the two smartcrop RGBA cells) fail
+# byte-identically against the previous pin too, so this bump neither caused
+# nor fixed them.
+82529c3635c01cea0d0ec463cf7d1587b67e1438
