@@ -9,6 +9,7 @@
 //! Manual (#[ignore]) stubs document what remains to be implemented.
 
 use std::io::Cursor;
+use std::num::NonZeroU16;
 use std::path::Path;
 
 use image::ImageEncoder;
@@ -19,8 +20,9 @@ use libviprs::{
     TiffCompression, TileFormat, decode_bytes_fail_on, decode_file, decode_file_fail_on,
     decode_file_sequential, decode_file_with_shrink, decode_svg, decode_tiff_page,
     extract_page_image, extract_page_image_dpi, extract_page_image_with_background,
-    extract_page_image_with_password, generate_pyramid_region, gif, magickload, magickload_with,
-    pdf_info, pdf_info_with_password, thumbnail, thumbnail_crop, tiff_page_count, webp,
+    extract_page_image_with_password, generate_pyramid_region, gif, jxl, magickload,
+    magickload_with, pdf_info, pdf_info_with_password, thumbnail, thumbnail_crop, tiff_page_count,
+    webp,
 };
 
 mod common;
@@ -2733,30 +2735,75 @@ fn test_jp2ksave() {
 /// ## Required API
 ///
 /// ```rust,ignore
-/// fn Raster::encode_jxl(&self, lossless: bool) -> Result<Vec<u8>, EncodeError>;
+/// fn Raster::encode_jxl(&self, options: jxl::SaveOptions) -> Result<Vec<u8>, EncodeError>;
 /// fn decode_bytes(data: &[u8]) -> Result<Raster, DecodeError>;
 /// ```
 ///
 /// ## Test logic (from libvips test_foreign.py::test_jxlsave)
 ///
-/// libvips tests JXL entirely via save_load_buffer — no .jxl fixture file.
+/// libvips tests JXL entirely via save_load_buffer, with no .jxl fixture file.
 /// 1. Load sample.jpg as the source colour image.
 /// 2. Encode as JXL (lossy), decode, verify dimensions and avg within threshold.
 /// 3. Encode as JXL (lossless), decode, verify exact round-trip.
 /// 4. Lossy buffer should be much smaller than lossless.
 ///
+/// Steps 2 and 4 have no spelling here and that is the point rather than a
+/// gap. The only JPEG XL encoder reachable in pure Rust is `zune-jpegxl`,
+/// which is lossless modular and has no VarDCT path anywhere in it, so
+/// `jxlsave`'s `distance`, `Q`, `tier` and `effort` have nothing behind
+/// them. libviprs#620 made lossy unrepresentable rather than accepting one
+/// of those arguments and discarding it: `jxl::SaveOptions` carries a
+/// `Compression` whose one variant is `Lossless`, and `Compression` is
+/// `#[non_exhaustive]` so `Lossy { distance }` can join it later without
+/// breaking this cell. With no lossy buffer to produce there is nothing to
+/// compare a size against either.
+///
+/// Step 3 then needs no tolerance at all, because there is no quantisation
+/// anywhere in the pipeline and the round trip is the exact identity. The
+/// cell checks it at both integer carriers, since JPEG XL holds 16-bit
+/// samples natively where WebP does not.
+///
 /// Reference: test_foreign.py::test_jxlsave
 fn test_jxlsave() {
     let im = decode_file(&ref_image("sample.jpg")).unwrap();
 
-    // Lossy round-trip
-    // Deferred external codec: the encoder returns a typed
-    // EncodeError::Unsupported rather than bytes. Pin that contract.
-    let __err = im.encode_jxl(false).unwrap_err();
-    assert!(
-        matches!(__err, EncodeError::Unsupported { .. }),
-        "deferred encoder must return typed Unsupported, got {__err:?}"
+    let bytes = im.encode_jxl(jxl::SaveOptions::default()).unwrap();
+    // A bare codestream, which is also what `vips jxlsave --keep none`
+    // writes: the encoder emits no ISOBMFF box container, so there is
+    // nowhere for an ICC profile, an EXIF block or an XMP packet to go.
+    assert_eq!(&bytes[..2], b"\xff\x0a");
+
+    let back = decode_bytes(&bytes).unwrap();
+    assert_eq!((back.width(), back.height()), (im.width(), im.height()));
+    assert_eq!(back.format(), im.format());
+    assert_eq!(
+        back.data(),
+        im.data(),
+        "lossless JPEG XL is an exact identity"
     );
+
+    // The 16-bit carrier too, which is where JPEG XL and WebP part company:
+    // `encode_webp` refuses a wide raster because the format has no 16-bit
+    // sample, and this encoder does not have to.
+    let wide = im.cast(PixelFormat::Rgb16);
+    let wide_bytes = wide.encode_jxl(jxl::SaveOptions::default()).unwrap();
+    let wide_back = decode_bytes(&wide_bytes).unwrap();
+    assert_eq!(wide_back.format(), PixelFormat::Rgb16);
+    assert_eq!(
+        wide_back.data(),
+        wide.data(),
+        "the 16-bit round trip is exact as well"
+    );
+
+    // Float has no encoder behind it, and the refusal names the remedy
+    // rather than quantising silently. vips writes float samples natively.
+    let float = im.cast(PixelFormat::FloatF32(NonZeroU16::new(3).unwrap()));
+    let err = float
+        .encode_jxl(jxl::SaveOptions::default())
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("float"), "{err}");
+    assert!(err.contains("cast"), "{err}");
 }
 
 #[test]
