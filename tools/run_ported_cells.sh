@@ -9,7 +9,7 @@ set -euo pipefail
 # against the current core. The two codec cells (ported_foreign,
 # ported_connection) landed with the codec surface (core PRs #309-#315,
 # issue #77): the real-impl subset is green, and the genuinely-external codec
-# tests (HEIF/AVIF, JP2K, JPEG-XL, WebP/GIF encode, magick, SVG, UHDR,
+# tests (HEIF/AVIF, JP2K, WebP/GIF encode, magick, SVG, UHDR,
 # FITS/OpenEXR/OpenSlide/MAT/Analyze/NIfTI/Radiance, OJPEG/JPEG-in-TIFF/CCITT/
 # BigTIFF/tiled) either assert the typed Unsupported/decode contract or stay
 # `#[ignore]` with a precise reason. This script is the single source of truth
@@ -161,6 +161,18 @@ echo ""
 echo "Running the ZipSink cell under --features 'ported_tests packfile'..."
 run_leg "test_dz_zip (packfile)" \
     cargo test --features "ported_tests packfile" --no-fail-fast --test ported_foreign -- test_dz_zip
+
+# test_jxlsave has two bodies, for the same reason and in the same shape. The
+# green-cells leg above ran the feature-off one, which pins the typed refusal a
+# default build reports; this leg runs the round trip against the real codec.
+# libviprs put JPEG XL behind a non-default `jxl` feature (libviprs#500)
+# because it costs 21 crates, and without this leg the cell would stay green
+# while having quietly stopped touching the codec at all. It reads sample.jpg
+# from the reference suite fetched above.
+echo ""
+echo "Running the JPEG XL cell under --features 'ported_tests jxl'..."
+run_leg "test_jxlsave (jxl)" \
+    cargo test --features "ported_tests jxl" --no-fail-fast --test ported_foreign -- test_jxlsave
 
 echo ""
 echo "Running phase3_tracing under --features tracing (per-tile span tests)..."

@@ -44,6 +44,13 @@ packfile = ["libviprs/packfile"]
 # does not support `optional = true` on dev-deps), but they are only
 # *linked* from code guarded by `#[cfg(feature = "tracing")]`.
 tracing = ["libviprs/tracing"]
+# Activates the core crate's non-default `jxl` feature so `test_jxlsave` in
+# `tests/ported_foreign.rs` exercises the real JPEG XL round trip rather than
+# the typed refusal the default build reports (libviprs#500). The cell asserts
+# under both, so the feature is what decides which contract is pinned, not
+# whether anything is pinned at all. `tools/run_ported_cells.sh` runs it both
+# ways, the same shape `test_dz_zip` uses for `packfile`.
+jxl = ["libviprs/jxl"]
 
 [dependencies]
 libviprs = { path = "../libviprs" }
@@ -52,7 +59,9 @@ pdfium-render = { version = "0.9", optional = true }
 # here also reach the core `libviprs` crate's `image` dependency, so the ported
 # foreign cell's `decode_file`/`decode_bytes` calls gain the pure-Rust decoders
 # for these formats (bmp/gif/pnm/tga/ico/webp/hdr). See tools/run_ported_cells.sh
-# and issue #77. Encode-only external formats (heif/avif/jp2k/jxl) stay deferred.
+# and issue #77. Encode-only external formats (heif/avif/jp2k) stay deferred;
+# JPEG XL has a real decoder and a real lossless encoder as of libviprs#500,
+# behind the `jxl` feature above.
 image = { version = "0.25", default-features = false, features = [
     "jpeg", "png", "tiff", "bmp", "gif", "pnm", "tga", "ico", "webp", "hdr",
 ] }
