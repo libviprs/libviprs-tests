@@ -735,23 +735,25 @@ fn test_smartcrop_attention() {
 ///
 /// The literals are right: `vips smartcrop rgba.png out.png 80 60 --interesting
 /// attention --attention-x --attention-y` on vips 8.18.4 prints 20 then 124.
-/// libviprs returns (124, 84), and that is a core parity gap, not a stale
-/// expectation, so this stays `#[ignore]` rather than being re-pinned to the
-/// wrong answer. Mechanism: `vips_smartcrop_build` premultiplies once into a
-/// float image and `vips_resize` then works on it WITHOUT un-premultiplying
-/// ("This operation does not premultiply alpha" — `libvips/resample/resize.c`),
-/// so the analysis image keeps transparent areas at colour 0. libviprs'
-/// `attention_crop` calls `resize_with` with the default
-/// `ResizeOptions::premultiplied = false`, so the core's own premultiply
-/// bracket (libviprs/libviprs#458) un-premultiplies the already-premultiplied
-/// analysis image on the way out, and the 407 fully transparent pixels of the
-/// 32x32 working image come back as bright garbage (up to 255) where vips has
-/// 0. Those fake bright regions dominate the edge and skin scoring and move the
-/// argmax. Confirmed by isolation: hand the same premultiplied image to
-/// libviprs with the alpha band dropped and it returns vips' (20, 124)
-/// exactly, and the no-alpha `test_smartcrop_attention` above already matches
-/// vips bit for bit.
-#[ignore = "core parity gap: attention_crop resizes the premultiplied analysis image without ResizeOptions::premultiplied, so its un-premultiply turns transparent pixels bright and moves the argmax; vips (20,124) vs libviprs (124,84)"]
+/// This used to be `#[ignore]`d because libviprs returned (124, 84), a real
+/// core parity gap rather than a stale expectation. `libviprs/libviprs#603`
+/// closed it and the cell is live again.
+///
+/// The mechanism is worth keeping written down, because it is a trap for the
+/// next operation that composes on `resize`. `vips_smartcrop_build`
+/// premultiplies once into a float image and `vips_resize` then works on it
+/// WITHOUT un-premultiplying ("This operation does not premultiply alpha" —
+/// `libvips/resample/resize.c`), so the analysis image keeps transparent areas
+/// at colour 0 all the way to the argmax. libviprs' `resize` premultiplies on
+/// its own (`libviprs/libviprs#458`, a deliberate divergence), so its bracket
+/// was un-premultiplying the already-premultiplied analysis image on the way
+/// out, and the 407 fully transparent pixels of the 32x32 working image came
+/// back as bright garbage (up to 255) where vips has 0. Those fake bright
+/// regions dominated the edge and skin scoring and moved the argmax. The core
+/// now drops the alpha band before the shrink, which is exactly what vips
+/// computes: it discards that band right after the resize anyway
+/// (`extract_band(0, "n", 3)`), and a resample that does not premultiply is
+/// per-band independent.
 fn test_smartcrop_rgba() {
     let im = decode_file(&ref_image("rgba.png")).unwrap();
     let (result, attention_x, attention_y) =
@@ -780,12 +782,12 @@ fn test_smartcrop_rgba() {
 ///
 /// Reference: test_conversion.py::test_smartcrop
 ///
-/// Same core parity gap as [`test_smartcrop_rgba`], and it reproduces
-/// identically here (libviprs returns (124, 84) on this path too): passing
-/// `premultiplied = true` only skips the smartcrop-level premultiply, it does
+/// Same core parity gap as [`test_smartcrop_rgba`], and it used to reproduce
+/// identically here (libviprs returned (124, 84) on this path too): passing
+/// `premultiplied = true` only skips the smartcrop-level premultiply, it did
 /// not stop `attention_crop`'s `resize_with` from bracketing its own
-/// premultiply / un-premultiply pair around the resize.
-#[ignore = "core parity gap: same attention_crop resize bracket as test_smartcrop_rgba; vips (20,124) vs libviprs (124,84)"]
+/// premultiply / un-premultiply pair around the resize. Fixed by
+/// `libviprs/libviprs#603` and live again.
 fn test_smartcrop_rgba_premultiplied() {
     let im = decode_file(&ref_image("rgba.png")).unwrap();
     let im = im.premultiply();
