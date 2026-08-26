@@ -118,4 +118,16 @@
 # cannot compile against the old pin. Also carries #598, which fused the
 # convolution inner loop, and #561 and #556, which deliberately moved output bytes
 # for cast and the Lab to LabS store.
-0eb7a753e019b5adce27ba0ab063f4b952c67966
+#
+# Bumped to fix/581-srgb-lut @ d2fe494 (core #610, issue #581) so this repo's own
+# cli-differential job tests the three tolerances below against the fix rather
+# than against main, where they would still be at 1. The core change ports the
+# interpolated Y2v lookup vips uses for the linear -> sRGB store
+# (colour/LabQ2sRGB.c:126-146, :282-353) instead of evaluating the transfer
+# function analytically, which takes `colourspace icc_pcs_lab.v ... srgb` to PNG,
+# `colourspace --source-space lab` to PNG, and `sharpen` from measured 1 to
+# measured 0. It also moves output bytes for EVERY conversion into srgb, rgb16,
+# b-w, grey16 and hsv, and truncates the sRGB -> HSV hue and saturation codes the
+# way sRGB2HSV.c:113-117 does. This is a BRANCH commit, not a main commit: repin
+# to the merge commit once #610 lands.
+d2fe494a59a3f6b0f431489e8ee5748461bf76de
