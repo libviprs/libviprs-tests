@@ -118,27 +118,19 @@
 # cannot compile against the old pin. Also carries #598, which fused the
 # convolution inner loop, and #561 and #556, which deliberately moved output bytes
 # for cast and the Lab to LabS store.
+# Bumped to the epic #520 batch landing on main: the nine reviewed core PRs
+# (#610 sRGB LUT, #611 alpha dead zone, #612 arrayjoin/TIFF limits, #613 MSRV
+# docs, #623 .v trailer, #624 conv scale, #625 FITS, #626 OpenEXR, #628 JPEG XL
+# behind a non-default `jxl` feature), five oracle-capture areas (JP2K, AVIF,
+# UHDR, MAT/Analyze, NIfTI), and two merge-repair PRs (#654, #656).
 #
-# Bumped to 261b51d, which is libviprs #596 (issues #570 and #571): still-image
-# GIF load and save. This is the minimal commit that carries the encoder, and it
-# is deliberately not the current core main. Three ported GIF cells cannot be
-# verified against a pin that predates it: `test_gifsave` asserted the deferred
-# `EncodeError::Unsupported` stub and now gets real GIF89a bytes back, so
-# `unwrap_err()` panics on an `Ok`, and `test_gifload` and
-# `test_gifload_truncated` were `#[ignore]`d against a missing encoder and a
-# decode path that rejected a broken tail. All three follow the shipped
-# behaviour in this commit.
+# #628 is the one that forces this bump: `encode_jxl` now takes a
+# `jxl::SaveOptions` rather than a bool, and JPEG XL sits behind a non-default
+# feature, so the ported cell here has two arms. #160 carries that cell and is
+# merged.
 #
-# I stopped here rather than at core main so this bump carries one behaviour
-# change and nothing else. The four commits above 261b51d on core main (#601
-# zero-based decode_tiff_page, #602 the direct Lch/Cmc to LabS edges, #599
-# canny, #600 the .v trailer) each have or want a companion of their own, and
-# folding them in would put four unrelated changes under this lane's
-# verification.
-#
-# Anything downstream of #596 in this repo is load and save structure, not
-# bytes: the quantiser is median cut against vips's libimagequant, so the cells
-# pin palette size, the reserved transparent index, the interlace flag and
-# round-trip fidelity rather than byte-identical output. The measured facts are
-# `oracle-captures/foreign-gif/oracle.json` in the core repo.
-261b51d4aeada416102d20eba807815f5f77c310
+# Verified against this exact counterpart with the two checkouts laid out as
+# siblings, the way the integration job lays them out: the ported cells compile
+# under `--features ported_tests`, and `cargo test` gives 748 passed, 0 failed,
+# 11 ignored.
+f62a56a4e0487523e2e051d3aac6b7b84e2bb885
