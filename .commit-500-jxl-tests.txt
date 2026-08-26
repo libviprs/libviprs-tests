@@ -1,0 +1,24 @@
+test(ported): follow JPEG XL encode to a real lossless codec
+
+libviprs#619 and #620 give JPEG XL a decoder and a lossless encoder, so the
+deferred contract test_jxlsave pinned, encode_jxl returning a typed
+EncodeError::Unsupported, no longer holds. The signature moves too:
+encode_jxl(lossless: bool) becomes encode_jxl(jxl::SaveOptions), so this is a
+compile fix rather than only a behaviour follow-up.
+
+The cell now does what the libvips cell it was ported from does, minus the two
+steps that have nothing behind them. Steps 2 and 4 there encode lossy and
+compare the buffer sizes; the only JPEG XL encoder reachable in pure Rust is
+lossless modular with no VarDCT path anywhere in it, so distance, Q, tier and
+effort have no spelling at all and there is no lossy buffer to size. That is
+the deliberate answer #620 took rather than accepting one of those arguments
+and discarding it.
+
+Step 3 needs no tolerance, because there is no quantisation in the pipeline and
+the round trip is the exact identity. The cell checks it at both integer
+carriers, since JPEG XL holds 16-bit samples natively where WebP does not, and
+pins the float refusal, which is the one carrier vips writes and libviprs does
+not.
+
+COUNTERPART_REV stays where it is until the core PR merges and there is a SHA
+to pin.
