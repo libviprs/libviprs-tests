@@ -118,4 +118,27 @@
 # cannot compile against the old pin. Also carries #598, which fused the
 # convolution inner loop, and #561 and #556, which deliberately moved output bytes
 # for cast and the Lab to LabS store.
-0eb7a753e019b5adce27ba0ab063f4b952c67966
+#
+# Bumped to 261b51d, which is libviprs #596 (issues #570 and #571): still-image
+# GIF load and save. This is the minimal commit that carries the encoder, and it
+# is deliberately not the current core main. Three ported GIF cells cannot be
+# verified against a pin that predates it: `test_gifsave` asserted the deferred
+# `EncodeError::Unsupported` stub and now gets real GIF89a bytes back, so
+# `unwrap_err()` panics on an `Ok`, and `test_gifload` and
+# `test_gifload_truncated` were `#[ignore]`d against a missing encoder and a
+# decode path that rejected a broken tail. All three follow the shipped
+# behaviour in this commit.
+#
+# I stopped here rather than at core main so this bump carries one behaviour
+# change and nothing else. The four commits above 261b51d on core main (#601
+# zero-based decode_tiff_page, #602 the direct Lch/Cmc to LabS edges, #599
+# canny, #600 the .v trailer) each have or want a companion of their own, and
+# folding them in would put four unrelated changes under this lane's
+# verification.
+#
+# Anything downstream of #596 in this repo is load and save structure, not
+# bytes: the quantiser is median cut against vips's libimagequant, so the cells
+# pin palette size, the reserved transparent index, the interlace flag and
+# round-trip fidelity rather than byte-identical output. The measured facts are
+# `oracle-captures/foreign-gif/oracle.json` in the core repo.
+261b51d4aeada416102d20eba807815f5f77c310

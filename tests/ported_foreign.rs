@@ -2152,7 +2152,6 @@ fn test_webp() {
 }
 
 #[test]
-#[ignore = "GIF decodes but does not match the libvips reference PNG pixel-for-pixel; animated-GIF frame compositing parity is deferred"]
 /// GIF load/save.
 ///
 /// ## Required API
@@ -2168,11 +2167,19 @@ fn test_webp() {
 /// 2. Verify dimensions and band count.
 /// 3. Encode to GIF buffer, verify round-trip dimensions.
 ///
+/// libviprs#596 (issues #570 and #571) landed both halves, so this runs.
+/// The literals are the vips 8.18.4 capture in
+/// `oracle-captures/foreign-gif/oracle.json`: `loads["trans-x.gif"]` is
+/// 100x100 with FOUR bands and one page, because a frame declares a
+/// transparent index and `nsgifload.c:271` sizes the image
+/// `has_transparency ? 4 : 3`.
+///
 /// Reference: test_foreign.py::test_gif
 fn test_gifload() {
     let im = decode_file(&ref_image("trans-x.gif")).unwrap();
-    assert!(im.width() > 0);
-    assert!(im.height() > 0);
+    assert_eq!((im.width(), im.height()), (100, 100));
+    assert_eq!(im.format(), PixelFormat::Rgba8);
+    assert_eq!(im.get_int("n-pages"), Some(1));
 
     let buf = im.encode_gif(gif::SaveOptions::default()).unwrap();
     let im2 = decode_bytes(&buf).unwrap();
@@ -2241,7 +2248,6 @@ fn test_gifload_animation_dispose_previous() {
 }
 
 #[test]
-#[ignore = "needs the deferred fail_on strictness knob; decode_file_fail_on always errors, so the is_ok assertion cannot hold"]
 /// Truncated GIF loads normally but fails with fail_on="warning"/"truncated".
 ///
 /// ## Required API
@@ -2253,14 +2259,31 @@ fn test_gifload_animation_dispose_previous() {
 ///
 /// ## Test logic (from libvips test_foreign.py::test_gifload_truncated)
 ///
-/// 1. Load truncated.gif normally — should succeed.
-/// 2. Load with fail_on="warning" — should fail.
-/// 3. Load with fail_on="truncated" — should fail.
+/// 1. Load truncated.gif normally, which should succeed.
+/// 2. Load with fail_on="warning", which should fail.
+/// 3. Load with fail_on="truncated", which should fail.
+///
+/// Step 1 is what libviprs#596 moved: the previous decode path rejected the
+/// broken tail outright, and the codec now keeps the rows that did arrive.
+/// The geometry is the vips 8.18.4 capture in
+/// `oracle-captures/foreign-gif/oracle.json`: `loads["truncated.gif"]` is
+/// 575x800 with FOUR bands, because a frame that runs out of data leaves
+/// the rest of the canvas uncomposited and therefore transparent, and that
+/// is what sets `has_transparency` even though the graphic control
+/// extension clears the transparency flag.
+///
+/// Steps 2 and 3 hold for a weaker reason than they look: `fail_on` is
+/// still the blanket `foreign_stubs` stub that errors for every level and
+/// every format, so they do not yet prove the truncation was noticed. They
+/// only become real when the strictness knob lands.
 ///
 /// Reference: test_foreign.py::test_gifload_truncated
 fn test_gifload_truncated() {
     let im = decode_file(&ref_image("truncated.gif"));
     assert!(im.is_ok(), "Truncated GIF should load normally");
+    let im = im.unwrap();
+    assert_eq!((im.width(), im.height()), (575, 800));
+    assert_eq!(im.format(), PixelFormat::Rgba8);
 
     let fail_warn = decode_file_fail_on(&ref_image("truncated.gif"), "warning");
     assert!(
@@ -2310,34 +2333,158 @@ fn test_gifload_frame_error() {
 }
 
 #[test]
-/// Animated GIF save roundtrip preserving metadata; interlace and dither effects.
+/// GIF save roundtrip preserving metadata; interlace and dither effects.
 ///
 /// ## Required API
 ///
 /// ```rust,ignore
-/// /// Encode raster as GIF bytes. Interlacing and the dither level (0.0 - 1.0)
-/// /// are fields on the options struct rather than separate methods.
+/// /// Encode raster as GIF bytes. Interlacing, the dither level (0.0 - 1.0)
+/// /// and the palette bitdepth are fields on the options struct rather than
+/// /// separate methods.
 /// fn Raster::encode_gif(&self, options: gif::SaveOptions) -> Result<Vec<u8>, EncodeError>;
 ///
-/// /// Get the number of pages (frames) in a multi-page image.
-/// fn Raster::get_n_pages(&self) -> u32;
+/// /// Read back a metadata integer, which is where the page count lives.
+/// fn Raster::get_int(&self, name: &str) -> Option<i64>;
 /// ```
 ///
 /// ## Test logic (from libvips test_foreign.py::test_gifsave)
 ///
-/// 1. Load an animated GIF, save to buffer, reload, verify page count matches.
-/// 2. Save interlaced GIF — size >= non-interlaced.
-/// 3. Save with higher dither — larger file.
+/// 1. Save to a buffer, reload, verify page count matches.
+/// 2. Save interlaced GIF, size >= non-interlaced, same pixels.
+/// 3. Save with a higher dither, the palette mapping moves.
+///
+/// libviprs#596 (issues #570 and #571) retired the deferred stub this cell
+/// used to pin, so it asserts the encoder rather than its absence. Every
+/// literal comes from the vips 8.18.4 capture in
+/// `oracle-captures/foreign-gif/oracle.json`:
+///
+/// * `saves.transparent_index_reservation`: vips reserves palette index 0
+///   for transparency whenever the palette does not saturate
+///   `min(255, 1 << bitdepth)` (`cgifsave.c:795-796`), so an ordinary
+///   OPAQUE image saved by `vips gifsave` reloads with FOUR bands.
+///   cramps.gif is exactly that case. It loads three-band, and at the
+///   default bitdepth 8 its sixteen colours leave the index free, so it
+///   comes back four-band. At bitdepth 2 the four entries saturate and it
+///   comes back three-band.
+/// * `saves.interlace`: `interlaced_flag` true, `progressive_flag` false,
+///   `reload_identical` true.
+/// * `saves.dither`: the level is not monotone in pixels changed for vips,
+///   and not monotone in bytes for libviprs either, measured on cramps.gif
+///   at bitdepth 2 as 5821, 5792, 5810, 5855 then 5747 bytes for dither
+///   0, 0.25, 0.5, 0.75 and 1.0. So upstream's "higher dither, larger file"
+///   is not a property either encoder has, and only the `dither == 0`
+///   identity is pinned as an equality. The rest is pinned as "the mapping
+///   moved".
+///
+/// Deferred: upstream reloads an ANIMATED GIF and matches the page count.
+/// #596 is still-image only and its loader takes frame 0, the way `vips
+/// gifload` defaults to `page = 0, n = 1`, so cogs.gif loads `n-pages 5`
+/// and re-saves to `n-pages 1`. The round trip is pinned on a one-frame
+/// source until the animation lane lands.
 ///
 /// Reference: test_foreign.py::test_gifsave
 fn test_gifsave() {
+    // 1. Round trip. trans-x.gif is one frame, and GIF's LZW is exactly
+    // lossless once the palette fits, so this is an identity.
     let im = decode_file(&ref_image("trans-x.gif")).unwrap();
-    // Deferred external codec: the encoder returns a typed
-    // EncodeError::Unsupported rather than bytes. Pin that contract.
-    let __err = im.encode_gif(gif::SaveOptions::default()).unwrap_err();
+    assert_eq!(im.get_int("n-pages"), Some(1));
+    let plain = im.encode_gif(gif::SaveOptions::default()).unwrap();
+    let back = decode_bytes(&plain).unwrap();
+    assert_eq!((back.width(), back.height()), (im.width(), im.height()));
+    assert_eq!(
+        back.get_int("n-pages"),
+        im.get_int("n-pages"),
+        "a one-frame source must reload with the same page count"
+    );
+    assert_eq!(
+        back.data(),
+        im.data(),
+        "the source palette fits, so the round trip is exact"
+    );
+
+    // The reserved transparent index, which is why an opaque source comes
+    // back carrying a band it did not have.
+    let opaque = decode_file(&ref_image("cramps.gif")).unwrap();
+    assert_eq!(opaque.format(), PixelFormat::Rgb8);
+    let spare = decode_bytes(&opaque.encode_gif(gif::SaveOptions::default()).unwrap()).unwrap();
+    assert_eq!(
+        spare.format(),
+        PixelFormat::Rgba8,
+        "bitdepth 8 leaves index 0 free, so the reload gains an alpha band"
+    );
+    let rgb: Vec<u8> = spare
+        .data()
+        .chunks_exact(4)
+        .flat_map(|p| &p[..3])
+        .copied()
+        .collect();
+    assert_eq!(rgb, opaque.data(), "the spare index must not move a colour");
+    let saturated = opaque
+        .encode_gif(gif::SaveOptions {
+            bitdepth: 2,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        decode_bytes(&saturated).unwrap().format(),
+        PixelFormat::Rgb8,
+        "four entries for four colours leaves no index free, so no alpha band"
+    );
+
+    // 2. Interlace.
+    let woven = im
+        .encode_gif(gif::SaveOptions {
+            interlaced: true,
+            ..Default::default()
+        })
+        .unwrap();
+    let woven_back = decode_bytes(&woven).unwrap();
+    assert_eq!(
+        back.get_int("interlaced"),
+        None,
+        "the default save is progressive"
+    );
+    assert_eq!(
+        woven_back.get_int("interlaced"),
+        Some(1),
+        "the interlace flag must reach the wire"
+    );
     assert!(
-        matches!(__err, EncodeError::Unsupported { .. }),
-        "deferred encoder must return typed Unsupported, got {__err:?}"
+        woven.len() >= plain.len(),
+        "interlacing reorders rows, so LZW cannot do better: {} < {}",
+        woven.len(),
+        plain.len()
+    );
+    assert_eq!(
+        woven_back.data(),
+        back.data(),
+        "interlacing changes storage, not pixels"
+    );
+
+    // 3. Dither, on a source that overflows the palette so there is a
+    // quantisation error to diffuse in the first place. cramps.gif at its
+    // own bitdepth 4 is exact and dither cannot move anything.
+    let nearest = gif::SaveOptions {
+        dither: 0.0,
+        bitdepth: 2,
+        ..Default::default()
+    };
+    let once = opaque.encode_gif(nearest).unwrap();
+    assert_eq!(
+        once,
+        opaque.encode_gif(nearest).unwrap(),
+        "the undithered path must be deterministic"
+    );
+    let diffused = opaque
+        .encode_gif(gif::SaveOptions {
+            dither: 1.0,
+            ..nearest
+        })
+        .unwrap();
+    assert_ne!(
+        decode_bytes(&diffused).unwrap().data(),
+        decode_bytes(&once).unwrap().data(),
+        "dithering must change which palette entry a pixel takes"
     );
 }
 

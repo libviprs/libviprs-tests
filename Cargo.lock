@@ -890,6 +890,7 @@ dependencies = [
  "ab_glyph",
  "blake3",
  "flate2",
+ "gif",
  "image",
  "image-webp",
  "lopdf",
