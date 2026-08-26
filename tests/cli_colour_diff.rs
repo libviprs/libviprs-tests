@@ -24,8 +24,8 @@
 //! | `colourspace … xyz`   | `.v` float | 1e-4 | 1.5e-5 |
 //! | `colourspace … scrgb` | `.v` float | 1e-4 | 1.0e-6 |
 //! | `colourspace … lab` → PNG (#36) | PNG uchar | 1 (≤1 LSB) | 0 |
-//! | `colourspace icc_pcs_lab.v … srgb` → PNG (#36 non-round-trip) | PNG uchar | 1 (≤1 LSB) | 1 |
-//! | `colourspace --source-space lab` → PNG | PNG uchar | 1 (≤1 LSB) | 1 |
+//! | `colourspace icc_pcs_lab.v … srgb` → PNG (#36 non-round-trip) | PNG uchar | 0 (EXACT) | 0 |
+//! | `colourspace --source-space lab` → PNG | PNG uchar | 0 (EXACT) | 0 |
 //! | `dE76` | `.v` float | 1e-4 | 6.5e-5 |
 //! | `dE00` | `.v` float | 1e-4 | 6.5e-5 |
 //! | `dECMC` (GOLDEN-ONLY) | `.v` float | 1e-3 | 0 (viprs self-pin) |
@@ -60,9 +60,30 @@ use tempfile::TempDir;
 /// so the two agree to well under 1e-4 (measured ≤6.5e-5).
 const FLOAT_TOL: f64 = 1e-4;
 
-/// BOUNDED-TOL ≤1 LSB for the interpretation-aware PNG saves (`colourspace … lab`
-/// written to an integer sink runs the vips-style LAB→sRGB conversion, #36; and
-/// the `--source-space` override): uchar, measured 0 / 1.
+/// EXACT: bit-exact decode comparison (`CLI_CONTRACT.md` §5). The two
+/// non-round-trip `colourspace … → PNG` cells below used to sit at ≤1 LSB
+/// and now measure 0, because libviprs core #581 ported the interpolated
+/// `Y2v` lookup vips actually uses for the linear → sRGB store
+/// (`colour/LabQ2sRGB.c:126-146`, `:282-353`) instead of evaluating the
+/// transfer function analytically. That was the whole of the deviation:
+/// on the neutral LabS L sweep it moved 16295 of 98304 sRGB codes by one
+/// count, and the two cells here were seeing the tail of it.
+const EXACT: f64 = 0.0;
+
+/// BOUNDED-TOL ≤1 LSB for the ROUND-TRIP interpretation-aware PNG save
+/// (`colourspace … lab` written to an integer sink runs the vips-style
+/// LAB→sRGB conversion, #36): uchar, measured 0.
+///
+/// This is the only ≤1-LSB cell left in the file, and it is deliberate
+/// rather than left over. It measures 0 and always has: the
+/// round trip indexes the `Y2v` table with an exact integer and never
+/// interpolates, so it was never exposed to the #581 mechanism at all.
+/// The band it keeps is the cross-arch one — the table is built with
+/// `powf` in `f32`, and a libm that lands an ULP away on some other host
+/// would shift a table entry and therefore a code. Do NOT fold the two
+/// EXACT cells back into this constant: they are exact for a reason and
+/// sharing a number is how the last conflation happened (see the
+/// `sharpen` note in `cli_convolution_diff.rs`).
 const UCHAR_1LSB: f64 = 1.0;
 
 /// BOUNDED-TOL ≤2 LSB for the device-space ICC round trips (`icc_export`,
@@ -203,8 +224,9 @@ fn colourspace_lab_to_png_runs_interpretation_aware_save() {
 // rgb.png), so an identity/no-op colourspace would still pass it; here the
 // reference DIFFERS from the input, so a raw-cast / no-op colourspace would
 // garble the output. This makes the PNG path discriminate the colourspace
-// transform itself, not just the interpretation-aware save. uchar ≤1 LSB
-// (measured 1).
+// transform itself, not just the interpretation-aware save. EXACT (tol 0)
+// since libviprs core #581; it used to be ≤1 LSB at measured 1, and the 1
+// was the interpolated-LUT deviation in the linear → sRGB store.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -222,7 +244,7 @@ fn colourspace_lab_input_to_png_discriminates_the_transform() {
     decode_compare(
         &out,
         &cli_fixture("colour/colourspace_lab_input_png_expected.png"),
-        UCHAR_1LSB,
+        EXACT,
     );
 }
 
@@ -230,7 +252,7 @@ fn colourspace_lab_input_to_png_discriminates_the_transform() {
 // colourspace --source-space — force the sRGB-tagged input to be read as LAB,
 // then convert to sRGB. Genuinely discriminating: if --source-space were ignored
 // the op would collapse to the srgb->srgb identity (255 apart from this result).
-// uchar ≤1 LSB (measured 1).
+// EXACT (tol 0) since libviprs core #581, same mechanism as the cell above.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -250,7 +272,7 @@ fn colourspace_source_space_override_matches_vips() {
     decode_compare(
         &out,
         &cli_fixture("colour/colourspace_srcspace_expected.png"),
-        UCHAR_1LSB,
+        EXACT,
     );
 }
 
