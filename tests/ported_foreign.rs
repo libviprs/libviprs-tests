@@ -9,6 +9,8 @@
 //! Manual (#[ignore]) stubs document what remains to be implemented.
 
 use std::io::Cursor;
+// Only the `jxl`-feature-on body of `test_jxlsave` names a float carrier.
+#[cfg(feature = "jxl")]
 use std::num::NonZeroU16;
 use std::path::Path;
 
@@ -2763,10 +2765,23 @@ fn test_jp2ksave() {
 /// cell checks it at both integer carriers, since JPEG XL holds 16-bit
 /// samples natively where WebP does not.
 ///
+/// The codec landed behind libviprs' non-default `jxl` feature, so this cell
+/// has two bodies and asserts under both. `--features jxl` runs the round
+/// trip; the default build pins the typed refusal, the way `test_svgload`
+/// below pins `svg`'s. Two bodies rather than one `#[cfg]` on the whole test
+/// because a cell that silently stops asserting is the failure mode this
+/// suite exists to catch, and `tools/run_ported_cells.sh` runs it both ways
+/// for the same reason it runs `test_dz_zip` under `packfile`.
+///
 /// Reference: test_foreign.py::test_jxlsave
 fn test_jxlsave() {
     let im = decode_file(&ref_image("sample.jpg")).unwrap();
+    jxlsave_body(&im);
+}
 
+/// The `jxl`-feature-on body: the real round trip.
+#[cfg(feature = "jxl")]
+fn jxlsave_body(im: &Raster) {
     let bytes = im.encode_jxl(jxl::SaveOptions::default()).unwrap();
     // A bare codestream, which is also what `vips jxlsave --keep none`
     // writes: the encoder emits no ISOBMFF box container, so there is
@@ -2804,6 +2819,20 @@ fn test_jxlsave() {
         .to_string();
     assert!(err.contains("float"), "{err}");
     assert!(err.contains("cast"), "{err}");
+}
+
+/// The `jxl`-feature-off body: the encoder is compiled out, so it reports the
+/// typed `Unsupported` every format without an encoder in the build reports,
+/// carrying the name the caller asked for. The signature is the same one the
+/// feature-on body calls, which is the half of the contract that matters to a
+/// consumer who does not enable the feature.
+#[cfg(not(feature = "jxl"))]
+fn jxlsave_body(im: &Raster) {
+    let err = im.encode_jxl(jxl::SaveOptions::default()).unwrap_err();
+    assert!(
+        matches!(err, EncodeError::Unsupported { ref format } if format == "jxl"),
+        "without the jxl feature the encoder must refuse by name, got {err:?}"
+    );
 }
 
 #[test]
