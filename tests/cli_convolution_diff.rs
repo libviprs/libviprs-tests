@@ -56,14 +56,18 @@
 //!   nothing about per-pixel error `sum((w_hat - w) * p)`.
 //!   `conv_hostile_mask_matches_vips_exact` uses a mask that gate **accepts**
 //!   and on which the two paths differ by **57**.
-//! * **BOUNDED-TOL ≤1 LSB (tol 1) — `sharpen` ONLY.** This is a separate
-//!   tolerance with a separate cause and it must not be folded back into the
-//!   one above. `sharpen` convolves the L of LabS, which is 16-bit, and the
-//!   vector path is gated on `BandFmt == VIPS_FORMAT_UCHAR` (`convi.c:1151`),
-//!   so `sharpen` takes the portable C path on **both** libvips builds
-//!   (`VIPS_INFO=1` reports "convi: using C path"). #558 cannot be its
-//!   mechanism. The remaining deviation is a real libviprs bug, issue #581,
-//!   which the shared constant was concealing.
+//! * **`sharpen` is EXACT (tol 0) as of libviprs core #581.** It used to
+//!   carry its own ≤1-LSB band. #558 split that off from the integer-`conv`
+//!   constant and showed the vector path could not explain it — the vector
+//!   path is gated on `BandFmt == VIPS_FORMAT_UCHAR` (`convi.c:1151`) and
+//!   `sharpen` convolves the L of LabS, which is 16-bit, so both libvips
+//!   builds take the portable C path (`VIPS_INFO=1` reports "convi: using C
+//!   path"). #581 then found the deviation was never in the convolution at
+//!   all: it was in the `scRGB -> sRGB` store the sharpened LabS comes back
+//!   through, where libviprs evaluated the transfer function analytically
+//!   and vips reads an interpolated integer LUT
+//!   (`colour/LabQ2sRGB.c:126-146`, `:282-353`). With the LUT ported,
+//!   `sharpen` matches vips byte for byte.
 //! * **BOUNDED-TOL float (small eps)** — the large-magnitude float image
 //!   surfaces (`conv`/`compass`/`gaussblur` float, `convsep`, measured ≤1.5e-5
 //!   on the author Mac — the core's two-pass accumulation order differs from
@@ -113,22 +117,6 @@ use tempfile::TempDir;
 /// EXACT: bit-exact decode comparison (CLI_CONTRACT.md §5). Used for the
 /// scale-1 compass, fastcor, and the integer-valued gaussmat/logmat matrices.
 const EXACT: f64 = 0.0;
-
-/// BOUNDED-TOL ≤1 LSB for **`sharpen` and nothing else** (issue #581).
-///
-/// This used to be shared with integer `conv`/`gaussblur`, and sharing it was
-/// hiding two unrelated causes under one number. Integer convolution on uchar
-/// is now EXACT against a `VIPS_NOVECTOR=1` reference (#558); what is left
-/// here is `sharpen`'s own deviation, which #558 demonstrably cannot explain:
-/// `sharpen` runs its unsharp mask on the L of LabS, which is 16-bit, and
-/// `vips_convi`'s vector path is gated on `BandFmt == VIPS_FORMAT_UCHAR`
-/// (`convi.c:1151`), so both libvips builds take the portable C path here —
-/// `VIPS_INFO=1` says "convi: using C path" on the plain binary.
-///
-/// Measured max-abs-diff 1 on this fixture and 44 of 256 samples deviating.
-/// Do NOT reuse this constant for another op: give the next deviation its own
-/// name and its own explanation, or the same conflation happens again.
-const SHARPEN_LSB: f64 = 1.0;
 
 /// BOUNDED-TOL for the large-magnitude float image surfaces
 /// (`conv`/`compass`/`gaussblur` float, `convsep`). Measured ≤1.5e-5 on the
@@ -742,17 +730,17 @@ fn gaussblur_float_matches_vips_bounded_tol() {
 // ---------------------------------------------------------------------------
 // sharpen — S1, LabS unsharp mask. m1/m2 nonzero so it truly sharpens.
 //
-// This is the ONLY remaining tolerance in the cell, it has its own constant,
-// and it is NOT issue #558. sharpen convolves the L of LabS, which is 16-bit,
-// and `vips_convi`'s vector path is gated on `BandFmt == VIPS_FORMAT_UCHAR`
-// (convi.c:1151), so both libvips builds take the portable C path here —
-// confirmed with VIPS_INFO=1. 44 of 256 samples deviate; that is a real
-// libviprs bug, tracked as issue #581, and until #558 it was hiding under a
-// constant shared with integer conv.
+// EXACT (tol 0) as of libviprs core #581. This cell carried the last tolerance
+// in the file, at 44 of 256 samples deviating by 1, and it was never the
+// convolution: #558 ruled the vector path out (16-bit LabS takes the portable
+// C path on both builds, convi.c:1151, confirmed with VIPS_INFO=1), and #581
+// tracked it to the scRGB -> sRGB store on the way back out of LabS, where
+// vips reads an interpolated integer LUT and libviprs was evaluating the
+// curve. Do not re-add a band here without a mechanism to name.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn sharpen_matches_vips_bounded_tol() {
+fn sharpen_matches_vips_exact() {
     if skip_if_no_cli("sharpen") {
         return;
     }
@@ -771,7 +759,7 @@ fn sharpen_matches_vips_bounded_tol() {
     decode_compare(
         &out,
         &cli_fixture("convolution/sharpen_expected.png"),
-        SHARPEN_LSB,
+        EXACT,
     );
 }
 
