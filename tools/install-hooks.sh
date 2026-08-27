@@ -11,6 +11,9 @@ set -euo pipefail
 #                 Check & Lint. Update the per-repo cargo command lists below
 #                 when a repo's CI matrix changes, and re-run this script.
 #   pre-push    — Docker test suite via run-tests.sh (slow, on every push)
+#                 Runs against the working tree being pushed, which for a
+#                 linked worktree is not the main checkout the hooks
+#                 directory lives in (libviprs/libviprs#684).
 #
 # Usage:  ./tools/install-hooks.sh          # from libviprs-tests/
 #         ./libviprs-tests/tools/install-hooks.sh  # from workspace root
@@ -134,9 +137,41 @@ set -euo pipefail
 # Installed by libviprs-tests/tools/install-hooks.sh
 # To skip (emergency only): git push --no-verify
 
-REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-WORKSPACE_ROOT="$(cd "$REPO_DIR/.." && pwd)"
+# A repo's main checkout and all of its linked worktrees share one hooks
+# directory, and git invokes the hook with $0 inside that shared directory.
+# Anything resolved from $0 is therefore the main checkout, whichever tree is
+# actually being pushed, which is how every lane worktree on epic #520 gated
+# against `main` instead of against its own branch (libviprs/libviprs#684).
+# A worktree's .git is a file holding a gitdir: pointer rather than a
+# directory, so walking up from it does not work either. Ask git, which runs
+# hooks from the top of the working tree whose commits are going out.
+TREE="$(git rev-parse --show-toplevel)"
+
+# --git-common-dir is the *main* checkout's .git for a linked worktree, and a
+# path relative to here for the main checkout itself, so resolve it from the
+# tree rather than assuming it is absolute. Its parent tells us which repo
+# this is, and where the sibling libviprs-tests checkout lives.
+MAIN_CHECKOUT="$(cd "$TREE" && cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd)"
+REPO_NAME="$(basename "$MAIN_CHECKOUT")"
+WORKSPACE_ROOT="$(cd "$MAIN_CHECKOUT/.." && pwd)"
 RUN_TESTS="$WORKSPACE_ROOT/libviprs-tests/tools/run-tests.sh"
+
+# Hand the pushed tree to the suite in whichever slot it belongs. Without
+# this run-tests.sh falls back to the sibling checkouts, which is the whole
+# defect. libviprs-cli has no slot in this suite and keeps the old behaviour.
+case "$REPO_NAME" in
+    libviprs)
+        export LIBVIPRS_DIR="$TREE"
+        ;;
+    libviprs-tests)
+        export LIBVIPRS_TESTS_DIR="$TREE"
+        # A push that changes the harness gates on the harness it changes,
+        # not on the copy sitting in the main checkout.
+        if [ -x "$TREE/tools/run-tests.sh" ]; then
+            RUN_TESTS="$TREE/tools/run-tests.sh"
+        fi
+        ;;
+esac
 
 if [ ! -f "$RUN_TESTS" ]; then
     echo "Warning: run-tests.sh not found at $RUN_TESTS"
@@ -144,11 +179,8 @@ if [ ! -f "$RUN_TESTS" ]; then
     exit 0
 fi
 
-echo "Running pre-push test suite..."
-"$RUN_TESTS"
-
-EXIT_CODE=$?
-if [ $EXIT_CODE -ne 0 ]; then
+echo "Running pre-push test suite on $TREE..."
+if ! "$RUN_TESTS"; then
     echo ""
     echo "Pre-push tests failed. Push aborted."
     echo "Fix the failures or use: git push --no-verify"
