@@ -161,14 +161,24 @@ if [ ! -f "$LIBVIPRS_DIR/Cargo.toml" ]; then
     exit 1
 fi
 
+# git exports GIT_DIR, GIT_WORK_TREE and friends into every hook it runs, and
+# they beat both `-C` and the working directory. Left in place they make `git`
+# answer for the repository that is pushing rather than for the directory it
+# was pointed at, which is the same class of lie as #684 itself: the banner
+# below reported the pushing branch's HEAD as the revision of an unrelated
+# tree. Ask cleanly.
+git_at() {
+    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX git "$@"
+}
+
 # A one-line description of a tree for the banner. The whole of #684 is that
 # "which commit did that just test?" had no answer anywhere in the output, so
 # print one, twice: before the run and again with the verdict.
 tree_desc() {
     local dir="$1"
     local rev
-    if rev="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)"; then
-        if [ -n "$(git -C "$dir" status --porcelain 2>/dev/null | head -1)" ]; then
+    if rev="$(git_at -C "$dir" rev-parse --short HEAD 2>/dev/null)"; then
+        if [ -n "$(git_at -C "$dir" status --porcelain 2>/dev/null | head -1)" ]; then
             rev="$rev+dirty"
         fi
         printf '%s' "$rev"
@@ -307,14 +317,19 @@ echo ""
 echo "Running tests (${ARCH_LABEL})..."
 echo "================================================================"
 
+# `set -e` used to take the script out at this line on a failing run, so
+# everything below it, the verdict, the trees it was built from, and the
+# container cleanup, never happened. The push aborted on docker's status with
+# no report of what had been tested.
+set +e
 docker run \
     --platform "$PLATFORM" \
     --name "$CONTAINER_NAME" \
     --memory=4g \
     ${DOCKER_RUN_MOUNTS[@]+"${DOCKER_RUN_MOUNTS[@]}"} \
     "$IMAGE_NAME"
-
 EXIT_CODE=$?
+set -e
 
 # ---------------------------------------------------------------------------
 # Cleanup

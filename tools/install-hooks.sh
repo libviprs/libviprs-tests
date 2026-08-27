@@ -159,12 +159,18 @@ RUN_TESTS="$WORKSPACE_ROOT/libviprs-tests/tools/run-tests.sh"
 # Hand the pushed tree to the suite in whichever slot it belongs. Without
 # this run-tests.sh falls back to the sibling checkouts, which is the whole
 # defect. libviprs-cli has no slot in this suite and keeps the old behaviour.
+# Both slots get pinned, not just the one being pushed. run-tests.sh falls
+# back to the siblings of wherever the script itself sits, and the script the
+# line below may pick sits inside the worktree, whose neighbours are other
+# lanes rather than the workspace. Naming both leaves nothing to infer.
 case "$REPO_NAME" in
     libviprs)
         export LIBVIPRS_DIR="$TREE"
+        export LIBVIPRS_TESTS_DIR="$WORKSPACE_ROOT/libviprs-tests"
         ;;
     libviprs-tests)
         export LIBVIPRS_TESTS_DIR="$TREE"
+        export LIBVIPRS_DIR="$WORKSPACE_ROOT/libviprs"
         # A push that changes the harness gates on the harness it changes,
         # not on the copy sitting in the main checkout.
         if [ -x "$TREE/tools/run-tests.sh" ]; then
@@ -178,6 +184,13 @@ if [ ! -f "$RUN_TESTS" ]; then
     echo "Skipping pre-push tests. Install libviprs-tests as a sibling directory."
     exit 0
 fi
+
+# git hands every hook a GIT_DIR (and, in a worktree, one pointing at the
+# per-worktree admin directory), and it wins over -C and over the working
+# directory for every git command anything below runs. Leaving it set made the
+# suite report this push's HEAD as the revision of trees it had never looked
+# at. The paths above are already resolved, so drop it here.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_QUARANTINE_PATH
 
 echo "Running pre-push test suite on $TREE..."
 if ! "$RUN_TESTS"; then

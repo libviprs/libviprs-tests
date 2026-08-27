@@ -200,3 +200,100 @@ fn run_tests_still_defaults_to_the_sibling_layout() {
         sibling.display()
     );
 }
+
+/// git hands every hook a `GIT_DIR`, and in a worktree it points at that
+/// worktree's admin directory. It beats both `git -C` and the working
+/// directory, so a `git` call made from inside the gate answers for the
+/// repository doing the pushing whatever directory it was aimed at. The first
+/// run of the fixed hook reported the pushing branch's HEAD as the revision of
+/// an unrelated tree, which is #684 wearing a different hat: a banner that
+/// names the wrong commit is no better than a gate that builds the wrong one.
+#[test]
+fn run_tests_does_not_report_the_pushing_repo_as_another_tree() {
+    let core = tempfile::tempdir().expect("temp dir for a stand-in core crate");
+    let core_path = core.path().canonicalize().expect("canonical temp path");
+    std::fs::write(
+        core_path.join("Cargo.toml"),
+        "[package]\nname = \"libviprs\"\nversion = \"0.0.0\"\n",
+    )
+    .expect("write stand-in Cargo.toml");
+
+    let mut cmd = Command::new("bash");
+    cmd.arg(repo_root().join("tools/run-tests.sh"))
+        .arg("--plan")
+        .arg("--libviprs")
+        .arg(&core_path)
+        .arg("--libviprs-tests")
+        .arg(repo_root());
+
+    // Reproduce the hook's environment where there is one to reproduce. Inside
+    // the container the build context carries no `.git`, so there is no git
+    // dir to inherit and the assertion below simply holds for the plainer
+    // reason; on a developer checkout it is the real thing.
+    if let Ok(out) = Command::new("git")
+        .arg("-C")
+        .arg(repo_root())
+        .args(["rev-parse", "--absolute-git-dir"])
+        .output()
+    {
+        if out.status.success() {
+            let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !dir.is_empty() {
+                cmd.env("GIT_DIR", dir);
+            }
+        }
+    }
+
+    let out = cmd.output().expect("run tools/run-tests.sh --plan");
+    assert!(
+        out.status.success(),
+        "`run-tests.sh --plan` failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let plan = String::from_utf8_lossy(&out.stdout);
+    let line = plan
+        .lines()
+        .find(|l| l.contains(&core_path.display().to_string()))
+        .unwrap_or_else(|| panic!("no plan line names the stand-in core tree:\n{plan}"));
+    assert!(
+        line.contains("not a git checkout"),
+        "run-tests.sh described a directory that is not a git checkout as though \
+         it were one, which means it answered from the inherited GIT_DIR rather \
+         than from the tree it was handed. Line was: {line}"
+    );
+}
+
+/// The same leak, from the hook's side: it has to drop the git environment
+/// before handing over, or every `git` call the suite makes inherits it.
+#[test]
+fn pre_push_hook_clears_the_inherited_git_environment() {
+    let hook = generated_pre_push();
+    assert!(
+        hook.contains("unset GIT_DIR"),
+        "the pre-push hook must unset GIT_DIR before running the suite; git \
+         exports it into hooks and it wins over `git -C`, so anything the \
+         suite asks git answers for the pushing repository (#684)"
+    );
+}
+
+/// Both slots get named, not just the one being pushed. run-tests.sh falls
+/// back to the siblings of wherever the script sits, and for a libviprs-tests
+/// push that script is inside the worktree, whose neighbours are other lanes.
+#[test]
+fn pre_push_hook_pins_both_trees_not_just_the_pushed_one() {
+    let hook = generated_pre_push();
+    let libviprs_arm = hook
+        .split("libviprs-tests)")
+        .next()
+        .expect("the case statement has a libviprs arm");
+    assert!(
+        libviprs_arm.contains("LIBVIPRS_TESTS_DIR=\"$WORKSPACE_ROOT/libviprs-tests\""),
+        "a libviprs push must also pin the test tree to the workspace sibling, \
+         rather than leaving run-tests.sh to infer it (#684)"
+    );
+    assert!(
+        hook.contains("LIBVIPRS_DIR=\"$WORKSPACE_ROOT/libviprs\""),
+        "a libviprs-tests push must also pin the core tree to the workspace \
+         sibling, rather than leaving run-tests.sh to infer it (#684)"
+    );
+}
