@@ -3032,11 +3032,15 @@ fn test_svgload() {
 ///
 /// Reference: test_foreign.py::test_fits
 fn test_fitsload() {
-    // Deferred: the FITS decoder is not wired, so decode_file returns a
-    // typed error rather than a raster. Pin that deferred contract.
+    // FITS is wired now (libviprs#625, issue #505), so this asserts what the
+    // doc above always described instead of pinning the deferral it replaced.
+    let raster = decode_file(&ref_image("WFPC2u5780205r_c0fx.fits"))
+        .expect("the reference WFPC2 FITS image decodes");
     assert!(
-        decode_file(&ref_image("WFPC2u5780205r_c0fx.fits")).is_err(),
-        "deferred FITS decode must return a typed error"
+        raster.width() > 0 && raster.height() > 0,
+        "FITS decode returned a {}x{} raster",
+        raster.width(),
+        raster.height()
     );
 }
 
@@ -3056,11 +3060,19 @@ fn test_fitsload() {
 ///
 /// Reference: test_foreign.py
 fn test_openexrload() {
-    // Deferred: the OpenEXR decoder is not wired, so decode_file returns a
-    // typed error rather than a raster. Pin that deferred contract.
+    // OpenEXR is wired now (libviprs#626, issue #504), so this stops
+    // asserting the deferral. It still errors, and the reason is the point:
+    // this reference fixture uses CHANNEL SUBSAMPLING, which the port refuses
+    // deliberately rather than guessing at a resample. The old assertion
+    // passed for the wrong reason, holding while the decoder did not exist
+    // and continuing to hold once it did, so it could never have told us
+    // whether EXR worked. Pin the specific refusal instead of "is_err".
+    let err = decode_file(&ref_image("sample.exr"))
+        .expect_err("sample.exr subsamples channels, which the port refuses");
+    let msg = err.to_string();
     assert!(
-        decode_file(&ref_image("sample.exr")).is_err(),
-        "deferred OpenEXR decode must return a typed error"
+        msg.contains("subsampling"),
+        "expected the channel-subsampling refusal, got: {msg}"
     );
 }
 
