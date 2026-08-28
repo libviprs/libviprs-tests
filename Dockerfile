@@ -62,6 +62,15 @@ ENV CARGO_PROFILE_DEV_DEBUG=0
 # The wall-clock perf-ratio smoke is `#[ignore]`d here and runs in the nightly
 # workflow, so it never gates this container run.
 #
+# The integration step compiles and runs in two calls with a `sync` between
+# them, rather than in the one `cargo test` that does both. Building ~130 test
+# binaries leaves gigabytes of dirty page cache in the cgroup, and dirty pages
+# cannot be reclaimed until they have been written back, so the first
+# memory-hungry test binary to start could push the group over its ceiling
+# faster than reclaim could answer. The kernel then killed it, and it came back
+# as a SIGKILL against whichever test was running (libviprs/libviprs#683).
+# Flushing first costs a second and makes that cache cheap to give up.
+#
 # The final step runs the green ported_* cells (feature = "ported_tests") via
 # tools/run_ported_cells.sh, the single source of truth for the green-cell
 # list (deferred remainder: issue #77). The cells read the pinned libvips
@@ -82,7 +91,8 @@ CMD sh -c '\
     echo "================================================================" && \
     echo "Running libviprs-tests integration tests (with pdfium)..." && \
     echo "================================================================" && \
-    cd /src/libviprs-tests && cargo test --features pdfium && \
+    cd /src/libviprs-tests && cargo test --features pdfium --no-run && sync && \
+    cargo test --features pdfium && \
     echo "" && \
     echo "================================================================" && \
     echo "Running libviprs-tests green ported cells (ported_tests)..." && \
