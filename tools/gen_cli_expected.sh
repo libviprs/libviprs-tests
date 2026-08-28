@@ -3453,9 +3453,10 @@ CLI-differential suite (\`tests/cli_resample_diff.rs\`) decode-compares \`viprs\
 output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
 
 - **Oracle**: \`$VIPS_VERSION\` for every fixture a full run of this script wrote.
-- **The committed set is not one run (libviprs#724).** Everything under
-  \`resample/\` was generated on vips 8.18.4 except \`hf.v\` and
-  \`resize_vscale_float_expected.v\`, which are vips 8.18.6, and that mix is
+- **The committed set is not one run (libviprs#724, libviprs#780).** Everything
+  under \`resample/\` was generated on vips 8.18.4 except the three float files
+  \`hf.v\`, \`resize_vscale_float_expected.v\` and
+  \`affine_bicubic_float_expected.v\`, which are vips 8.18.6, and that mix is
   measured rather than tolerated: re-running this generator on 8.18.6 and
   byte-comparing reproduces 24 of the 25 8.18.4 fixtures EXACTLY, and the 25th
   (\`index.v\`) differs in ONE byte — the \`4\` of the \`8.18.4\` in the XML

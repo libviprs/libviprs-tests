@@ -1127,9 +1127,10 @@ These fixtures are the committed vips oracle references the resample
 CLI-differential suite (`tests/cli_resample_diff.rs`) decode-compares `viprs`
 output against. Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
 
-- **Oracle**: `vips-8.18.4`, except `hf.v` and
-  `resize_vscale_float_expected.v`, which are `vips-8.18.6` — libviprs#724
-  needed a new float reference and the vips on the author host had moved.
+- **Oracle**: `vips-8.18.4`, except the three float files `hf.v`,
+  `resize_vscale_float_expected.v` and `affine_bicubic_float_expected.v`, which
+  are `vips-8.18.6` — libviprs#724 and libviprs#780 needed new float references
+  and the vips on the author host had moved.
 - **That mix is measured, not assumed.** Re-running this generator on 8.18.6 and
   byte-comparing reproduces 24 of the 25 earlier resample fixtures exactly. The
   25th is `index.v`, and it differs in ONE byte: the `4` of the `8.18.4` in the
