@@ -117,7 +117,11 @@ jobs:
       # hard panic, so this job can never go green without actually running viprs.
       - env:
           VIPRS_REQUIRE_CLI: 1
-        run: cargo test --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff
+        # install_hooks_mirror_ci's cli arm is the only place the cli's
+        # pre-commit hook is compared against the cli's own CI, and it can only
+        # run where the sibling is laid down, which is here
+        # (libviprs/libviprs#715).
+        run: cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff
 
   lint:
     name: Lint
@@ -131,3 +135,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt -- --check
       - run: cargo clippy --all-targets -- -D warnings
+      # The pre-push hook is a real file rather than a heredoc inside
+      # install-hooks.sh (libviprs/libviprs#695), so it gets linted like the
+      # rest of the shell. shellcheck ships on the ubuntu-latest image.
+      - run: shellcheck tools/*.sh tools/hooks/pre-push

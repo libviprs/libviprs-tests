@@ -65,7 +65,16 @@ impl Workspace {
         // real one.
         let tools = root.join("libviprs-tests/tools");
         std::fs::create_dir_all(&tools).expect("create the stand-in tools directory");
-        for script in ["install-hooks.sh", "run-tests.sh", "run_ported_cells.sh"] {
+        std::fs::create_dir_all(tools.join("hooks")).expect("create the stand-in hooks directory");
+        // The installer points the shim it writes at tools/hooks/pre-push and
+        // refuses to install without it, so the stand-in harness carries the
+        // real one (libviprs/libviprs#695).
+        for script in [
+            "install-hooks.sh",
+            "run-tests.sh",
+            "run_ported_cells.sh",
+            "hooks/pre-push",
+        ] {
             let to = tools.join(script);
             std::fs::copy(repo_root().join("tools").join(script), &to)
                 .unwrap_or_else(|e| panic!("copy tools/{script} into the stand-in workspace: {e}"));

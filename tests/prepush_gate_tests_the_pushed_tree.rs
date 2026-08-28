@@ -10,83 +10,189 @@
 //! as "my branch passes" and meant nothing of the kind.
 //!
 //! Two properties have to hold together, and neither is visible from the
-//! other side, which is why both are pinned here:
+//! other side, which is why both are driven here:
 //!
 //!   * the hook has to *find* the pushed tree, and it cannot do that from
 //!     `$0` (shared hooks directory) or by walking up from `.git` (in a
 //!     worktree that is a file holding a `gitdir:` pointer, not a directory).
-//!     Only `git rev-parse` knows.
 //!   * `run-tests.sh` has to *accept* it. It did not have a parameter for it
 //!     at all, so passing one from the hook was not enough on its own.
 //!
-//! These are text and behaviour guards on the harness rather than on library
-//! output, in the same shape as `counterpart_pinning` and
-//! `feature_rename_docs_present`: there is no libvips analogue for "the local
-//! gate is honest", and the failure mode is silent by construction.
+//! Everything about the hook here is measured by running it. The guards that
+//! stood here before asserted `hook.contains("git rev-parse --show-toplevel")`
+//! and `hook.contains("unset GIT_DIR")`, and both of those stay green when the
+//! line they name is deleted and the comment above it is left behind, which is
+//! libviprs/libviprs#695. So instead: install the hooks with the real
+//! installer, push at them from a linked worktree with a ref-update on stdin,
+//! and read the trees off what the suite was handed.
 
 use std::process::Command;
 
 mod common;
-use common::hooks::{generated_pre_push, read, repo_root};
+use common::hooks::{Workspace, repo_root, reported};
 
-/// #684: the hook must ask git which tree is being pushed. `$0` points into
-/// the hooks directory, which a main checkout shares with every worktree
-/// hanging off it, so anything resolved from it names the main checkout.
+/// #684, end to end and per push shape. `run-tests.sh` falls back to the
+/// siblings of wherever the script itself sits, and for a worktree push that
+/// script is inside the worktree, whose neighbours are other lanes rather than
+/// the workspace, so both slots have to be named on every push and not just
+/// the one being pushed.
 #[test]
-fn pre_push_hook_resolves_the_pushed_tree_from_git() {
-    let hook = generated_pre_push();
+fn the_gate_is_handed_the_tree_being_pushed_and_its_sibling() {
+    let ws = Workspace::new();
 
-    assert!(
-        hook.contains("git rev-parse --show-toplevel"),
-        "the pre-push hook must take the tree under test from \
-         `git rev-parse --show-toplevel`, which is the working tree whose \
-         commits are going out (#684)"
+    let core_lane = ws.worktree("libviprs", "core-lane");
+    let harness_lane = ws.worktree("libviprs-tests", "harness-lane");
+
+    let cases: &[(&str, Option<&std::path::Path>, &str, &str)] = &[
+        (
+            "libviprs",
+            None,
+            "libviprs",
+            "a core push from the main checkout gates on the main checkout",
+        ),
+        (
+            "libviprs",
+            Some(&core_lane),
+            "lanes/core-lane",
+            "a core push from a lane worktree must gate on the lane, not on \
+             the main checkout whose hooks directory ran the hook",
+        ),
+        (
+            "libviprs-tests",
+            None,
+            "libviprs-tests",
+            "a harness push from the main checkout gates on the main checkout",
+        ),
+        (
+            "libviprs-tests",
+            Some(&harness_lane),
+            "lanes/harness-lane",
+            "a harness push from a lane worktree must gate on the lane",
+        ),
+    ];
+
+    for (repo, from, expected_rel, why) in cases {
+        let tree = from
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| ws.repo(repo));
+
+        let before = common::hooks::git(&tree, &["rev-parse", "HEAD"])
+            .trim()
+            .to_string();
+        // Something no skip list can call inert, so the gate reaches the suite.
+        let after = ws.commit_in(
+            &tree,
+            "a change the suite can see",
+            &[("src/lib.rs", "// changed\n")],
+        );
+
+        let out = ws
+            .push(repo)
+            .from(&tree)
+            .range(&before, &after)
+            .with_git_env()
+            .run();
+
+        let expected = ws.root.join(expected_rel);
+        let (pushed_slot, sibling_slot, sibling_rel) = match *repo {
+            "libviprs" => ("LIBVIPRS_DIR", "LIBVIPRS_TESTS_DIR", "libviprs-tests"),
+            _ => ("LIBVIPRS_TESTS_DIR", "LIBVIPRS_DIR", "libviprs"),
+        };
+
+        assert_eq!(
+            reported(&out, pushed_slot),
+            expected.display().to_string(),
+            "{pushed_slot} named the wrong tree, because {why}. The hook said:\n{out}"
+        );
+        assert_eq!(
+            reported(&out, sibling_slot),
+            ws.root.join(sibling_rel).display().to_string(),
+            "{sibling_slot} was not pinned to the workspace sibling on a {repo} \
+             push, so run-tests.sh is left to infer it from wherever the script \
+             it picked happens to sit (#684). The hook said:\n{out}"
+        );
+    }
+}
+
+/// A push that changes the harness has to gate through the harness it is
+/// changing, not through the copy in the main checkout. Finding the tree is
+/// only half of #684; running the pushed tree's script is the other half.
+#[test]
+fn a_harness_push_runs_the_suite_script_it_is_pushing() {
+    let ws = Workspace::new();
+    let lane = ws.worktree("libviprs-tests", "harness-lane");
+
+    let before = common::hooks::git(&lane, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    let after = ws.commit_in(
+        &lane,
+        "a harness change",
+        &[("tests/something.rs", "// changed\n")],
     );
-    assert!(
-        hook.contains("git rev-parse --git-common-dir"),
-        "the pre-push hook must find the repo's main checkout through \
-         `git rev-parse --git-common-dir`; a linked worktree's `.git` is a \
-         file holding a `gitdir:` pointer, so walking up from it does not \
-         give a repository root (#684)"
-    );
-    assert!(
-        !hook.contains(r#"$(dirname "$0")/../.."#),
-        "the pre-push hook still derives a repository from its own path. \
-         Every worktree of a repo runs the same hook file out of the main \
-         checkout's hooks directory, so that always names the main checkout \
-         and never the branch being pushed (#684)"
+
+    let out = ws
+        .push("libviprs-tests")
+        .from(&lane)
+        .range(&before, &after)
+        .with_git_env()
+        .run();
+
+    assert_eq!(
+        reported(&out, "SCRIPT"),
+        lane.join("tools/run-tests.sh").display().to_string(),
+        "the gate ran a run-tests.sh from outside the tree being pushed, so a \
+         change to the suite is gated by the suite it is replacing (#684). \
+         The hook said:\n{out}"
     );
 }
 
-/// #684: finding the tree is only half of it. The hook has to hand it over,
-/// and `run-tests.sh` has to have somewhere to put it.
+/// git hands every hook a `GIT_DIR`, and in a worktree it points at that
+/// worktree's admin directory. It beats both `git -C` and the working
+/// directory, so a `git` call made downstream answers for the repository doing
+/// the pushing whatever directory it was aimed at. The first run of the fixed
+/// hook reported the pushing branch's HEAD as the revision of an unrelated
+/// tree, which is #684 wearing a different hat: a banner that names the wrong
+/// commit is no better than a gate that builds the wrong one.
 #[test]
-fn pre_push_hook_hands_the_tree_to_run_tests() {
-    let hook = generated_pre_push();
+fn the_gate_drops_the_git_environment_it_inherited() {
+    let ws = Workspace::new();
+    let lane = ws.worktree("libviprs-tests", "harness-lane");
 
-    for slot in ["LIBVIPRS_DIR", "LIBVIPRS_TESTS_DIR"] {
-        assert!(
-            hook.contains(&format!("export {slot}=")),
-            "the pre-push hook must export {slot} so run-tests.sh builds the \
-             pushed tree; without it the script falls back to the sibling \
-             checkout, which is the whole of #684"
-        );
-    }
+    let before = common::hooks::git(&lane, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    let after = ws.commit_in(&lane, "a harness change", &[("tests/x.rs", "// c\n")]);
 
-    let script = read("tools/run-tests.sh");
-    for slot in ["LIBVIPRS_DIR", "LIBVIPRS_TESTS_DIR"] {
-        assert!(
-            script.contains(slot),
-            "tools/run-tests.sh must read {slot}, or the hook exporting it \
-             has no effect (#684)"
+    let out = ws
+        .push("libviprs-tests")
+        .from(&lane)
+        .range(&before, &after)
+        .with_git_env()
+        .run();
+
+    for leaked in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_PREFIX",
+        "GIT_QUARANTINE_PATH",
+    ] {
+        assert_eq!(
+            reported(&out, leaked),
+            "unset",
+            "the gate handed {leaked} through to the suite. git exports it into \
+             hooks and it wins over `git -C`, so everything the suite asks git \
+             answers for the pushing repository rather than for the tree it was \
+             handed (#684). The hook said:\n{out}"
         );
     }
 }
 
-/// The behavioural half: hand `run-tests.sh` a tree and it must say, before
-/// it builds anything, that it is going to build that tree. `--plan` exists
-/// so this is answerable without Docker, and so a human can ask the same
-/// question from a worktree in under a second.
+/// The behavioural half on the `run-tests.sh` side: hand it a tree and it must
+/// say, before it builds anything, that it is going to build that tree.
+/// `--plan` exists so this is answerable without Docker, and so a human can
+/// ask the same question from a worktree in under a second.
 #[test]
 fn run_tests_plan_reports_the_tree_it_was_handed() {
     let core = tempfile::tempdir().expect("temp dir for a stand-in core crate");
@@ -176,13 +282,9 @@ fn run_tests_still_defaults_to_the_sibling_layout() {
     );
 }
 
-/// git hands every hook a `GIT_DIR`, and in a worktree it points at that
-/// worktree's admin directory. It beats both `git -C` and the working
-/// directory, so a `git` call made from inside the gate answers for the
-/// repository doing the pushing whatever directory it was aimed at. The first
-/// run of the fixed hook reported the pushing branch's HEAD as the revision of
-/// an unrelated tree, which is #684 wearing a different hat: a banner that
-/// names the wrong commit is no better than a gate that builds the wrong one.
+/// The same leak as `the_gate_drops_the_git_environment_it_inherited`, from
+/// the other side: even with a `GIT_DIR` set, `run-tests.sh` must describe the
+/// tree it was handed rather than the repository that exported it.
 #[test]
 fn run_tests_does_not_report_the_pushing_repo_as_another_tree() {
     let core = tempfile::tempdir().expect("temp dir for a stand-in core crate");
@@ -235,40 +337,5 @@ fn run_tests_does_not_report_the_pushing_repo_as_another_tree() {
         "run-tests.sh described a directory that is not a git checkout as though \
          it were one, which means it answered from the inherited GIT_DIR rather \
          than from the tree it was handed. Line was: {line}"
-    );
-}
-
-/// The same leak, from the hook's side: it has to drop the git environment
-/// before handing over, or every `git` call the suite makes inherits it.
-#[test]
-fn pre_push_hook_clears_the_inherited_git_environment() {
-    let hook = generated_pre_push();
-    assert!(
-        hook.contains("unset GIT_DIR"),
-        "the pre-push hook must unset GIT_DIR before running the suite; git \
-         exports it into hooks and it wins over `git -C`, so anything the \
-         suite asks git answers for the pushing repository (#684)"
-    );
-}
-
-/// Both slots get named, not just the one being pushed. run-tests.sh falls
-/// back to the siblings of wherever the script sits, and for a libviprs-tests
-/// push that script is inside the worktree, whose neighbours are other lanes.
-#[test]
-fn pre_push_hook_pins_both_trees_not_just_the_pushed_one() {
-    let hook = generated_pre_push();
-    let libviprs_arm = hook
-        .split("libviprs-tests)")
-        .next()
-        .expect("the case statement has a libviprs arm");
-    assert!(
-        libviprs_arm.contains("LIBVIPRS_TESTS_DIR=\"$WORKSPACE_ROOT/libviprs-tests\""),
-        "a libviprs push must also pin the test tree to the workspace sibling, \
-         rather than leaving run-tests.sh to infer it (#684)"
-    );
-    assert!(
-        hook.contains("LIBVIPRS_DIR=\"$WORKSPACE_ROOT/libviprs\""),
-        "a libviprs-tests push must also pin the core tree to the workspace \
-         sibling, rather than leaving run-tests.sh to infer it (#684)"
     );
 }

@@ -9,14 +9,43 @@
 //! exactly — including the skip-guard / `VIPRS_REQUIRE_CLI` discipline.
 //!
 //! **Every resample op is oracle class BOUNDED-TOL** (the premultiply / rounding
-//! campaign #406-418): the core computes the reduce / interpolate masks in `f64`
-//! per output position while vips quantises the sub-pixel offset into fixed-point
-//! tables, so the two agree to ≤1 LSB. The MEASURED per-case max-abs-diff (see
-//! PROVENANCE.md) is 0 or 1 for every case **except** `affine … --interpolate
-//! bicubic`, which measures **2 LSB**: the core evaluates exact f64 Catmull-Rom
-//! coefficients while vips's `VipsInterpolateBicubic` uses a coarser fixed-point
-//! table, a genuine core-vs-vips rounding difference (not a CLI bug) compared at
-//! tol 2 with a documented open question.
+//! campaign #406-418), and since libviprs#668 the reason is a narrower one than
+//! this header used to give. The core no longer evaluates the reduce and
+//! bicubic kernels at the true sub-pixel offset. `table_offset` rounds the
+//! offset onto the same 65-entry grid `vips_reduceh` and
+//! `vips_interpolate_bicubic_interpolate` round onto, so the offset is not a
+//! source of divergence on either side any more.
+//!
+//! Two smaller things are left, and both have an issue of their own. On the
+//! integer carriers vips quantises the coefficients themselves, `matrixs` in
+//! reduce and `matrixi` in bicubic, where the core stays in f64
+//! (libviprs#704). And `bicubic_float` sums four rows and then the columns
+//! while the core runs one 16-term sum, which reassociates the same products
+//! and moves the last bit (libviprs#705). Together they are worth ≤1 LSB on a
+//! uchar carrier, and they are what the nine cells measuring 1 are made of.
+//!
+//! **What this header said before, and why it mattered.** It said the core
+//! computed the masks in `f64` per output position "so the two agree to ≤1
+//! LSB", and `AFFINE_BICUBIC_TOL = 2.0` said the same thing again about the
+//! interpolator. That is the divergence libviprs#668 turned out to be, written
+//! down as a design decision in two places across two repos, and it is a fair
+//! part of why the bug lasted. Both are gone.
+//!
+//! **What is pinned, and what deliberately is not** (measured in
+//! libviprs#723). After libviprs#702 thirteen of the 22 comparison cells
+//! measure 0 and nine measure 1. Six mutations of the resampling offset, from
+//! reverting it outright to coarsening the grid four times over, move exactly
+//! two cells: `resize --vscale 0.75` and `affine … --interpolate bicubic`.
+//! Those two are pinned at what they measure, 0 and 1. The other twelve zeroes
+//! stay at ≤1, because no mutation of the offset separates 0 from 1 on them, so
+//! pinning them would buy no falsifiability and cost a vips-version tripwire.
+//!
+//! **The reduce half of libviprs#668 has no guard here at all**, and no
+//! tolerance can give it one. `resize --vscale 0.75` is the right op at the
+//! right factor and it reads 0 before the fix, after it, and with the fix
+//! reverted: on a float `.v` the two cores differ, on the committed PNG they
+//! are byte-identical, so the difference rounds away below an LSB. That wants a
+//! float-carrier cell and a new committed reference, which is libviprs#724.
 //!
 //! Inputs are DISCRIMINATING (an identity / no-op op would FAIL): `grad.png` is a
 //! 2-D gradient varying in BOTH axes (so `shrinkv`/`reducev`/`rot` are
@@ -49,14 +78,17 @@ use common::cli::{cli_available, cli_fixture, decode_compare, run_viprs, run_vip
 
 use tempfile::TempDir;
 
-/// BOUNDED-TOL ≤1 LSB (CLI_CONTRACT.md §5): the core's f64 masks vs vips's
-/// fixed-point quantisation agree to within one least-significant bit.
+/// BOUNDED-TOL ≤1 LSB (CLI_CONTRACT.md §5): what is left of the core-vs-vips
+/// difference once both sides round the sub-pixel offset onto the same grid.
+/// The residual is the coefficient tables on the integer carriers
+/// (libviprs#704) plus the bicubic accumulation order (libviprs#705).
 const BT1: f64 = 1.0;
 
-/// The one measured exception: `affine … --interpolate bicubic` lands 2 LSB from
-/// vips because the core uses exact f64 Catmull-Rom coefficients while vips uses a
-/// coarser fixed-point table (see the module header + PROVENANCE open question).
-const AFFINE_BICUBIC_TOL: f64 = 2.0;
+/// Bit-exact. Only `resize --vscale 0.75` is held here, and only because it is
+/// the one cell besides `affine … bicubic` that a wrong resampling offset moves
+/// (libviprs#723). Twelve more cells measure 0, and they stay at [`BT1`]
+/// because no mutation of the offset separates 0 from 1 on them.
+const EXACT: f64 = 0.0;
 
 /// Skip-guard: `true` (with a printed reason) when the CLI sibling is absent.
 /// Under `$VIPRS_REQUIRE_CLI=1` an absent sibling PANICS inside [`cli_available`]
@@ -221,17 +253,22 @@ fn resize_half_matches_vips_bounded_tol() {
 }
 
 #[test]
-fn resize_vscale_matches_vips_bounded_tol() {
+fn resize_vscale_matches_vips_exactly() {
     if skip_if_no_cli("resize_vscale") {
         return;
     }
     let out = op("resize_vscale.png");
-    // --vscale gives the two axes DIFFERENT scales (a non-square resize).
+    // --vscale gives the two axes DIFFERENT scales (a non-square resize), and
+    // 0.75 is the only NON-DYADIC factor in this file: 32x32 to 16x24, vertical
+    // residual shrink 4/3, an offset that lands off the 1/64 grid at every
+    // output row. MEASURED 0. It is pinned at 0 rather than at BT1 because a
+    // resampling offset rounded onto the wrong grid moves it to 1
+    // (libviprs#723), so ≤1 here absorbs the one regression it exists to catch.
     run_viprs_ok(&["resize", &fx(RGB), &out, "0.5", "--vscale", "0.75"]);
     decode_compare(
         &PathBuf::from(&out),
         &cli_fixture("resample/resize_vscale_expected.png"),
-        BT1,
+        EXACT,
     );
 }
 
@@ -267,8 +304,8 @@ fn resize_nearest_matches_vips_bounded_tol() {
 }
 
 // ---------------------------------------------------------------------------
-// affine — S1 matrix transform. Bilinear (default) is ≤1 LSB; bicubic measures
-// 2 LSB (an HONEST core-vs-vips divergence, compared at tol 2 — see header).
+// affine — S1 matrix transform. Both interpolators measure 1 LSB. Bicubic used
+// to measure 2, and that 2 was libviprs#668 (see header).
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -287,14 +324,17 @@ fn affine_bilinear_matches_vips_bounded_tol() {
 }
 
 #[test]
-fn affine_bicubic_matches_vips_at_two_lsb() {
+fn affine_bicubic_matches_vips_bounded_tol() {
     if skip_if_no_cli("affine_bicubic") {
         return;
     }
     let out = op("affine_bicubic.png");
-    // --interpolate bicubic is the ONE resample case that exceeds 1 LSB (measured
-    // 2): exact f64 Catmull-Rom (core) vs vips's fixed-point coefficient table.
-    // Honest, non-rigged — compared at the measured tol 2, NOT hidden.
+    // This used to be the ONE resample case that exceeded 1 LSB, at a measured
+    // 2, and the reason given for it was the divergence libviprs#668 turned out
+    // to be. It MEASURES 1 once the core rounds the bicubic offset onto vips's
+    // grid, and 2 again if that is reverted, so BT1 is what makes this cell able
+    // to tell the two apart. It NEEDS core libviprs#702: against a core without
+    // it this is red, which is the point.
     run_viprs_ok(&[
         "affine",
         &fx(RGB),
@@ -306,7 +346,7 @@ fn affine_bicubic_matches_vips_at_two_lsb() {
     decode_compare(
         &PathBuf::from(&out),
         &cli_fixture("resample/affine_bicubic_expected.png"),
-        AFFINE_BICUBIC_TOL,
+        BT1,
     );
 }
 
