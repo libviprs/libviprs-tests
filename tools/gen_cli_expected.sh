@@ -2144,10 +2144,14 @@ echo "==> [provenance] appending draw section to $FIX_ROOT/PROVENANCE.md"
 # LSB (the bicubic Catmull-Rom coefficients quantise more coarsely in vips — a
 # genuine, honest core-vs-vips divergence, NOT a CLI bug; see the open question).
 #
-# Carriers: every reference is an integer uchar raster (1-band grad, or sRGB
-# 3-band rgb), so all references round-trip losslessly through PNG. `mapim`'s
-# index is a FLOAT 2-band `.v` coordinate image (committed input, exact). vips
-# PNG inputs only for `thumbnail` (no jpeg shrink-on-load divergence).
+# Carriers: most references are an integer uchar raster (1-band grad, or sRGB
+# 3-band rgb), so they round-trip losslessly through PNG. `mapim`'s index is a
+# FLOAT 2-band `.v` coordinate image (committed input, exact). vips PNG inputs
+# only for `thumbnail` (no jpeg shrink-on-load divergence). ONE reference is a
+# float `.v`: `resize --vscale 0.75` on the `hf` carrier, because that is the
+# only place the reduce half of libviprs#668 survives the trip into a byte
+# (libviprs#723 measured every uchar cell blind to it, libviprs#724 added this
+# one).
 #
 # Inputs are DISCRIMINATING (an identity / no-op op would FAIL): `grad` is a 2-D
 # gradient varying in BOTH axes (so shrinkv / reducev / rot are non-vacuous), and
@@ -2182,6 +2186,22 @@ echo "==> [resample input] 32x32 grad (2-D gradient) + rgb (2-D sRGB) + index.v 
 "$VIPS" linear "$TMP/rxyz.v" "$TMP/ridxf.v" 0.5 0
 "$VIPS" cast "$TMP/ridxf.v" "$RESAMPLE/index.v" float
 
+# hf.v: a 32x32 FLOAT 1-band carrier holding `(i * 37 + 11) mod 251` at
+# `i = y * 32 + x` — 251 distinct values in 0..250, every one exactly
+# representable in f32, and high-frequency in BOTH axes so a fraction-of-a-pixel
+# shift in the resampling offset shows up as whole units rather than averaging
+# out. It is the same sequence the core's own #668 unit fixture uses. All eight
+# steps are pure coordinate arithmetic, so this regenerates byte for byte.
+echo "==> [resample input] 32x32 hf.v (float high-frequency carrier, libviprs#724)"
+"$VIPS" xyz "$TMP/hxyz.v" 32 32
+"$VIPS" extract_band "$TMP/hxyz.v" "$TMP/hx.v" 0
+"$VIPS" extract_band "$TMP/hxyz.v" "$TMP/hy.v" 1
+"$VIPS" linear "$TMP/hy.v" "$TMP/hy32.v" 32 0
+"$VIPS" add "$TMP/hx.v" "$TMP/hy32.v" "$TMP/hi.v"
+"$VIPS" linear "$TMP/hi.v" "$TMP/hlin.v" 37 11
+"$VIPS" remainder_const "$TMP/hlin.v" "$TMP/hrem.v" 251
+"$VIPS" cast "$TMP/hrem.v" "$RESAMPLE/hf.v" float
+
 # --- References — one vips run per differential case -------------------------
 echo "==> [shrink] grad 2 2 + shrinkh/shrinkv 2 (S1 box shrink, ≤1 LSB)"
 "$VIPS" shrink  "$RESAMPLE/grad.png" "$RESAMPLE/shrink_expected.png"  2 2
@@ -2199,6 +2219,13 @@ echo "==> [resize] rgb 0.5 + --vscale + upscale (affine path) + --kernel nearest
 "$VIPS" resize "$RESAMPLE/rgb.png"  "$RESAMPLE/resize_vscale_expected.png"  0.5 --vscale 0.75
 "$VIPS" resize "$RESAMPLE/grad.png" "$RESAMPLE/resize_up_expected.png"      2.0
 "$VIPS" resize "$RESAMPLE/rgb.png"  "$RESAMPLE/resize_nearest_expected.png" 0.5 --kernel nearest
+# The SAME 0.5 --vscale 0.75 op on the FLOAT carrier. On the uchar twin above,
+# the reduce half of libviprs#668 is worth less than half an LSB and rounds away
+# — that cell reads 0 before the fix, after it, and with it reverted. Unrounded
+# the same mutation is worth 0.697 of a unit on data spanning 0..250, so this is
+# the one reference in the family that can tell a correct core from a reverted
+# one (libviprs#723, libviprs#724).
+"$VIPS" resize "$RESAMPLE/hf.v" "$RESAMPLE/resize_vscale_float_expected.v" 0.5 --vscale 0.75
 
 echo "==> [affine] rgb 1.5x bilinear (≤1 LSB) + bicubic (2 LSB — noted divergence)"
 "$VIPS" affine "$RESAMPLE/rgb.png" "$RESAMPLE/affine_bilinear_expected.png" "1.5 0 0 1.5"
@@ -3416,12 +3443,26 @@ These fixtures are the committed vips oracle references the resample
 CLI-differential suite (\`tests/cli_resample_diff.rs\`) decode-compares \`viprs\`
 output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
 
-- **Oracle**: \`$VIPS_VERSION\`
+- **Oracle**: \`$VIPS_VERSION\` for every fixture a full run of this script wrote.
+- **The committed set is not one run (libviprs#724).** Everything under
+  \`resample/\` was generated on vips 8.18.4 except \`hf.v\` and
+  \`resize_vscale_float_expected.v\`, which are vips 8.18.6, and that mix is
+  measured rather than tolerated: re-running this generator on 8.18.6 and
+  byte-comparing reproduces 24 of the 25 8.18.4 fixtures EXACTLY, and the 25th
+  (\`index.v\`) differs in ONE byte — the \`4\` of the \`8.18.4\` in the XML
+  namespace URL vips stamps into its own \`.v\` trailer, at offset 8334. No pixel
+  in this directory moves across the bump. (That one byte is also the positive
+  control for the other 24 zeroes: the comparison did find a difference where
+  there was one to find.) A full re-run collapses the mix onto \`$VIPS_VERSION\`
+  and turns this bullet into a note about what the fixtures used to be.
 - **Common inputs** (under \`resample/\`): \`grad.png\` (32×32 Gray8 2-D gradient
   \`x*85 + y*170\`, so shrinkv / reducev / rot are non-vacuous), \`rgb.png\` (32×32
   3-band sRGB with 2-D structure), \`index.v\` (32×32 FLOAT 2-band coordinate map
   sampling each output at HALF its source coordinate — a real 2× zoom with
-  fractional taps, so \`mapim\` moves data and interpolates).
+  fractional taps, so \`mapim\` moves data and interpolates), and \`hf.v\` (32×32
+  FLOAT 1-band holding \`(i*37 + 11) mod 251\` at \`i = y*32 + x\`: 251 distinct
+  values in 0..250, all exactly representable in f32, high-frequency in both
+  axes — the carrier the reduce half of libviprs#668 survives on).
 - **EVERY op is BOUNDED-TOL for NON-ALPHA inputs** (the premultiply / rounding
   campaign #406-418): the core computes reduce / interpolate masks in f64 per
   output position while vips quantises the sub-pixel offset into fixed-point
@@ -3448,6 +3489,7 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`resample/reducev_expected.png\` | ≤1 LSB (1) | \`vips reducev grad.png reducev_expected.png 2\` |
 | \`resample/resize_half_expected.png\` | ≤1 LSB (0) | \`vips resize rgb.png resize_half_expected.png 0.5\` |
 | \`resample/resize_vscale_expected.png\` | **EXACT (0)** | \`vips resize rgb.png resize_vscale_expected.png 0.5 --vscale 0.75\` |
+| \`resample/resize_vscale_float_expected.v\` | **EXACT (0, bitwise)** | \`vips resize hf.v resize_vscale_float_expected.v 0.5 --vscale 0.75\` (FLOAT carrier — the ONLY reference here that sees the reduce half of libviprs#668 unrounded: 0 on core \`main\`, 0.697464 with that half reverted, where the uchar row above reads 0 either way) |
 | \`resample/resize_up_expected.png\` | ≤1 LSB (1) | \`vips resize grad.png resize_up_expected.png 2.0\` (upscale → affine path) |
 | \`resample/resize_nearest_expected.png\` | ≤1 LSB (0) | \`vips resize rgb.png resize_nearest_expected.png 0.5 --kernel nearest\` |
 | \`resample/affine_bilinear_expected.png\` | ≤1 LSB (1) | \`vips affine rgb.png affine_bilinear_expected.png "1.5 0 0 1.5"\` (default bilinear) |

@@ -32,25 +32,33 @@
 //! part of why the bug lasted. Both are gone.
 //!
 //! **What is pinned, and what deliberately is not** (measured in
-//! libviprs#723). After libviprs#702 thirteen of the 22 comparison cells
+//! libviprs#723). After libviprs#702 thirteen of the 22 uchar comparison cells
 //! measure 0 and nine measure 1. Six mutations of the resampling offset, from
 //! reverting it outright to coarsening the grid four times over, move exactly
-//! two cells: `resize --vscale 0.75` and `affine … --interpolate bicubic`.
+//! two of them: `resize --vscale 0.75` and `affine … --interpolate bicubic`.
 //! Those two are pinned at what they measure, 0 and 1. The other twelve zeroes
 //! stay at ≤1, because no mutation of the offset separates 0 from 1 on them, so
 //! pinning them would buy no falsifiability and cost a vips-version tripwire.
 //!
-//! **The reduce half of libviprs#668 has no guard here at all**, and no
-//! tolerance can give it one. `resize --vscale 0.75` is the right op at the
-//! right factor and it reads 0 before the fix, after it, and with the fix
-//! reverted: on a float `.v` the two cores differ, on the committed PNG they
-//! are byte-identical, so the difference rounds away below an LSB. That wants a
-//! float-carrier cell and a new committed reference, which is libviprs#724.
+//! **The 23rd comparison cell is the reduce half of libviprs#668**
+//! (libviprs#724). No uchar cell can see that half and no tolerance can give
+//! one sight: on the committed PNG the two binaries are byte-identical, because
+//! the divergence is under half an LSB before it is rounded into a byte. So
+//! `resize_vscale_float_matches_vips_exactly` runs the same
+//! `resize 0.5 --vscale 0.75` on the float `hf.v` carrier against a committed
+//! float `.v` reference, and there the same mutation is worth 0.697 of a unit
+//! on data spanning 0..250. The two halves of #668 now separate cleanly:
+//! reverting the `reduce_axis` call site reddens that cell and nothing else,
+//! reverting the bicubic call sites reddens `affine … bicubic` and nothing
+//! else, and reverting both reddens both.
 //!
 //! Inputs are DISCRIMINATING (an identity / no-op op would FAIL): `grad.png` is a
 //! 2-D gradient varying in BOTH axes (so `shrinkv`/`reducev`/`rot` are
-//! non-vacuous), and `index.v` maps every output to HALF its source coordinate (a
-//! real 2× zoom, so `mapim` moves data rather than reproducing its input). The
+//! non-vacuous), `index.v` maps every output to HALF its source coordinate (a
+//! real 2× zoom, so `mapim` moves data rather than reproducing its input), and
+//! `hf.v` holds `(i*37 + 11) mod 251` at `i = y*32 + x`, 251 distinct values in
+//! 0..250 that are high-frequency in both axes so a fraction-of-a-pixel shift in
+//! the resampling offset shows up as whole units instead of averaging out. The
 //! `thumbnail --crop` case fits a NON-square 16×8 box so centre-crop actually
 //! removes pixels — its reference is distinct from the no-crop 16×16 fixtures, so
 //! a dropped / ignored `--crop` FAILS (a square box on a square source would crop
@@ -84,10 +92,12 @@ use tempfile::TempDir;
 /// (libviprs#704) plus the bicubic accumulation order (libviprs#705).
 const BT1: f64 = 1.0;
 
-/// Bit-exact. Only `resize --vscale 0.75` is held here, and only because it is
-/// the one cell besides `affine … bicubic` that a wrong resampling offset moves
-/// (libviprs#723). Twelve more cells measure 0, and they stay at [`BT1`]
-/// because no mutation of the offset separates 0 from 1 on them.
+/// Bit-exact. Two cells are held here, both `resize 0.5 --vscale 0.75`: the
+/// uchar one because it is the one uchar cell besides `affine … bicubic` that a
+/// wrong resampling offset moves at all (libviprs#723), and the float one
+/// because on that carrier the same op is bit-exact and a wrong offset is worth
+/// 0.697 of a unit (libviprs#724). Twelve more cells measure 0, and they stay at
+/// [`BT1`] because no mutation of the offset separates 0 from 1 on them.
 const EXACT: f64 = 0.0;
 
 /// Skip-guard: `true` (with a printed reason) when the CLI sibling is absent.
@@ -115,6 +125,7 @@ fn out_path(name: &str) -> PathBuf {
 const GRAD: &str = "resample/grad.png";
 const RGB: &str = "resample/rgb.png";
 const INDEX: &str = "resample/index.v";
+const HF: &str = "resample/hf.v";
 
 /// Convenience: the absolute string path of a committed fixture.
 fn fx(rel: &str) -> String {
@@ -268,6 +279,43 @@ fn resize_vscale_matches_vips_exactly() {
     decode_compare(
         &PathBuf::from(&out),
         &cli_fixture("resample/resize_vscale_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn resize_vscale_float_matches_vips_exactly() {
+    if skip_if_no_cli("resize_vscale_float") {
+        return;
+    }
+    let out = op("resize_vscale_float.v");
+    // The SAME op as `resize_vscale_matches_vips_exactly` on a FLOAT carrier,
+    // and the only cell in this file that can see the reduce half of
+    // libviprs#668. 32x32 to 16x24: horizontal 0.5 is dyadic and lands every
+    // offset on the 1/64 grid, the vertical residual shrink is 4/3 and misses
+    // it at nearly every output row, so `reduce_axis` is the whole difference
+    // between the two binaries here.
+    //
+    // On the uchar twin that difference is under half an LSB and rounds away,
+    // which is why the PNG cell reads 0 before libviprs#702, after it, and with
+    // it reverted (libviprs#723). Unrounded it is 0.697 of a unit on data
+    // spanning 0..250, four orders of magnitude above the f32 accumulation
+    // noise, so EXACT here is a cell that separates a correct core from a
+    // reverted one instead of one that measures nothing.
+    //
+    // EXACT on a float convolution is portable, not lucky. The reference is
+    // committed bytes, so vips does not run here and its own FP contraction is
+    // already baked in; the only thing that varies between the arm64 host this
+    // was measured on and the x86-64 `cli-differential` runner is the CORE, and
+    // that side cannot vary. Rust never contracts `a * b + c` into an FMA and
+    // LLVM will not reassociate a float sum without fast-math, so `reduce_axis`
+    // accumulates the same f64 products in the same order everywhere, and
+    // `src/resample.rs` has no `target_arch` / `target_feature` / `std::arch` in
+    // it. If this cell ever reddens, the core moved.
+    run_viprs_ok(&["resize", &fx(HF), &out, "0.5", "--vscale", "0.75"]);
+    decode_compare(
+        &PathBuf::from(&out),
+        &cli_fixture("resample/resize_vscale_float_expected.v"),
         EXACT,
     );
 }

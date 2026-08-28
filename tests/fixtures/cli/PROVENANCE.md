@@ -1127,12 +1127,25 @@ These fixtures are the committed vips oracle references the resample
 CLI-differential suite (`tests/cli_resample_diff.rs`) decode-compares `viprs`
 output against. Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
 
-- **Oracle**: `vips-8.18.4`
+- **Oracle**: `vips-8.18.4`, except `hf.v` and
+  `resize_vscale_float_expected.v`, which are `vips-8.18.6` — libviprs#724
+  needed a new float reference and the vips on the author host had moved.
+- **That mix is measured, not assumed.** Re-running this generator on 8.18.6 and
+  byte-comparing reproduces 24 of the 25 earlier resample fixtures exactly. The
+  25th is `index.v`, and it differs in ONE byte: the `4` of the `8.18.4` in the
+  XML namespace URL vips stamps into its own `.v` trailer, at offset 8334. No
+  pixel in this directory moves across the bump, so the two version strings name
+  the same oracle rather than two of them. (That one byte is also the positive
+  control for the other 24 zeroes: the comparison did find a difference where
+  there was one to find.)
 - **Common inputs** (under `resample/`): `grad.png` (32×32 Gray8 2-D gradient
   `x*85 + y*170`, so shrinkv / reducev / rot are non-vacuous), `rgb.png` (32×32
   3-band sRGB with 2-D structure), `index.v` (32×32 FLOAT 2-band coordinate map
   sampling each output at HALF its source coordinate — a real 2× zoom with
-  fractional taps, so `mapim` moves data and interpolates).
+  fractional taps, so `mapim` moves data and interpolates), and `hf.v` (32×32
+  FLOAT 1-band holding `(i*37 + 11) mod 251` at `i = y*32 + x`: 251 distinct
+  values in 0..250, all exactly representable in f32, high-frequency in both
+  axes — the carrier the reduce half of libviprs#668 survives on).
 - **EVERY op is BOUNDED-TOL for NON-ALPHA inputs** (the premultiply / rounding
   campaign #406-418): the core computes reduce / interpolate masks in f64 per
   output position while vips quantises the sub-pixel offset into fixed-point
@@ -1159,6 +1172,7 @@ References (paths relative to `tests/fixtures/cli/`):
 | `resample/reducev_expected.png` | ≤1 LSB (1) | `vips reducev grad.png reducev_expected.png 2` |
 | `resample/resize_half_expected.png` | ≤1 LSB (0) | `vips resize rgb.png resize_half_expected.png 0.5` |
 | `resample/resize_vscale_expected.png` | **EXACT (0)** | `vips resize rgb.png resize_vscale_expected.png 0.5 --vscale 0.75` |
+| `resample/resize_vscale_float_expected.v` | **EXACT (0, bitwise)** | `vips resize hf.v resize_vscale_float_expected.v 0.5 --vscale 0.75` (FLOAT carrier — the ONLY reference here that sees the reduce half of libviprs#668 unrounded: 0 on core `main`, 0.697464 with that half reverted, where the uchar row above reads 0 either way) |
 | `resample/resize_up_expected.png` | ≤1 LSB (1) | `vips resize grad.png resize_up_expected.png 2.0` (upscale → affine path) |
 | `resample/resize_nearest_expected.png` | ≤1 LSB (0) | `vips resize rgb.png resize_nearest_expected.png 0.5 --kernel nearest` |
 | `resample/affine_bilinear_expected.png` | ≤1 LSB (1) | `vips affine rgb.png affine_bilinear_expected.png "1.5 0 0 1.5"` (default bilinear) |
