@@ -1127,9 +1127,10 @@ These fixtures are the committed vips oracle references the resample
 CLI-differential suite (`tests/cli_resample_diff.rs`) decode-compares `viprs`
 output against. Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
 
-- **Oracle**: `vips-8.18.4`, except `hf.v` and
-  `resize_vscale_float_expected.v`, which are `vips-8.18.6` — libviprs#724
-  needed a new float reference and the vips on the author host had moved.
+- **Oracle**: `vips-8.18.4`, except the three float files `hf.v`,
+  `resize_vscale_float_expected.v` and `affine_bicubic_float_expected.v`, which
+  are `vips-8.18.6` — libviprs#724 and libviprs#780 needed new float references
+  and the vips on the author host had moved.
 - **That mix is measured, not assumed.** Re-running this generator on 8.18.6 and
   byte-comparing reproduces 24 of the 25 earlier resample fixtures exactly. The
   25th is `index.v`, and it differs in ONE byte: the `4` of the `8.18.4` in the
@@ -1153,7 +1154,7 @@ output against. Generated offline by `tools/gen_cli_expected.sh`, NEVER by CI.
   decision. Three quantisations have closed since: the sub-pixel offset grid
   (libviprs#668), `vips_bicubic_matrixi` on the `uchar` carrier
   (libviprs#704), and the `cubic_float<float>` row narrowing (libviprs#705).
-  Measured against core `ed958d5`, **17 of the 23 comparison cells read 0** and
+  Measured against core `ed958d5`, **18 of the 24 comparison cells read 0** and
   six read 1. Those six are two named divergences, both carrier effects that go
   to 0 on the identical content promoted to float: `BILINEAR_INT`'s 12-bit
   weights on the four bilinear cells, which the core deliberately does not adopt
@@ -1187,6 +1188,7 @@ References (paths relative to `tests/fixtures/cli/`):
 | `resample/resize_nearest_expected.png` | ≤1 LSB (0) | `vips resize rgb.png resize_nearest_expected.png 0.5 --kernel nearest` |
 | `resample/affine_bilinear_expected.png` | ≤1 LSB (1, libviprs#733) | `vips affine rgb.png affine_bilinear_expected.png "1.5 0 0 1.5"` (default bilinear) |
 | `resample/affine_bicubic_expected.png` | **EXACT (0)** | `vips affine rgb.png affine_bicubic_expected.png "1.5 0 0 1.5" --interpolate bicubic` (2 before libviprs#702 rounded the bicubic offset onto vips's grid, 1 before libviprs#704 ported `vips_bicubic_matrixi`, 0 now) |
+| `resample/affine_bicubic_float_expected.v` | **EXACT (0)** | `vips affine hf.v affine_bicubic_float_expected.v "1.5 0 0 1.5" --interpolate bicubic` (FLOAT carrier — the only reference here that reaches `cubic_float<float>`, so the only one that can see libviprs#705: 0 on core `ed958d5`, 1.5259e-05 with #705 reverted, 2.139557 with libviprs#702's bicubic call sites reverted) |
 | `resample/similarity_angle_expected.png` | ≤1 LSB (1, libviprs#733) | `vips similarity rgb.png similarity_angle_expected.png --angle 30` |
 | `resample/similarity_scale_expected.png` | ≤1 LSB (1, libviprs#733) | `vips similarity rgb.png similarity_scale_expected.png --scale 1.5` |
 | `resample/rotate_expected.png` | ≤1 LSB (1, libviprs#733) | `vips rotate rgb.png rotate_expected.png 30` |
