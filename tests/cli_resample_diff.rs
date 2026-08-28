@@ -300,6 +300,16 @@ fn resize_vscale_float_matches_vips_exactly() {
     // spanning 0..250, four orders of magnitude above the f32 accumulation
     // noise, so EXACT here is a cell that separates a correct core from a
     // reverted one instead of one that measures nothing.
+    //
+    // EXACT on a float convolution is portable, not lucky. The reference is
+    // committed bytes, so vips does not run here and its own FP contraction is
+    // already baked in; the only thing that varies between the arm64 host this
+    // was measured on and the x86-64 `cli-differential` runner is the CORE, and
+    // that side cannot vary. Rust never contracts `a * b + c` into an FMA and
+    // LLVM will not reassociate a float sum without fast-math, so `reduce_axis`
+    // accumulates the same f64 products in the same order everywhere, and
+    // `src/resample.rs` has no `target_arch` / `target_feature` / `std::arch` in
+    // it. If this cell ever reddens, the core moved.
     run_viprs_ok(&["resize", &fx(HF), &out, "0.5", "--vscale", "0.75"]);
     decode_compare(
         &PathBuf::from(&out),
