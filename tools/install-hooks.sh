@@ -13,7 +13,9 @@ set -euo pipefail
 #   pre-push    — Docker test suite via run-tests.sh (slow, on every push)
 #                 Runs against the working tree being pushed, which for a
 #                 linked worktree is not the main checkout the hooks
-#                 directory lives in (libviprs/libviprs#684).
+#                 directory lives in (libviprs/libviprs#684). Only where the
+#                 suite has a slot for the repo, which is libviprs and
+#                 libviprs-tests (libviprs/libviprs#691).
 #
 # Usage:  ./tools/install-hooks.sh          # from libviprs-tests/
 #         ./libviprs-tests/tools/install-hooks.sh  # from workspace root
@@ -76,6 +78,53 @@ cargo_steps_for_repo() {
         libviprs-tests)  printf '%s\n' "${LIBVIPRS_TESTS_CARGO_STEPS[@]}" ;;
         *)               printf '%s\n' "cargo clippy --all-targets -- -D warnings" ;;
     esac
+}
+
+# ---------------------------------------------------------------------------
+# Which repos get the pre-push gate
+# ---------------------------------------------------------------------------
+# The gate runs tools/run-tests.sh, whose image holds the core crate and this
+# harness and nothing else, so those two are the only repos where a green
+# verdict says anything about the commits going out. libviprs-cli used to get
+# the hook as well and paid a full image build plus a suite run for an answer
+# that could not fail on its own change, which is exactly the trade that
+# teaches people to reach for --no-verify (libviprs/libviprs#691).
+#
+# The cli is not left unguarded: the dedicated `cli-differential` CI job lays
+# it down at CLI_COUNTERPART_REV and runs with VIPRS_REQUIRE_CLI=1, so a silent
+# skip there is a hard panic (tests/common/cli.rs, CLI_CONTRACT.md §7). What
+# goes away is a local promise the suite could not keep.
+#
+# tests/install_hooks_pre_push_slots.rs runs this script against a stand-in
+# workspace and pins the answer per repo. It also asks run-tests.sh whether it
+# has grown a cli slot, so giving the suite one turns that guard red pointing
+# back here rather than leaving the two facts to drift.
+has_suite_slot() {
+    case "$1" in
+        libviprs|libviprs-tests) return 0 ;;
+        *)                       return 1 ;;
+    esac
+}
+
+# The comment line every hook this script writes carries. It is what tells our
+# own output apart from a hook somebody wrote by hand.
+INSTALLER_MARKER="Installed by libviprs-tests/tools/install-hooks.sh"
+
+# A repo that no longer gets the gate must not keep the copy an older version
+# of this script left in it. Nothing but this script writes to .git/hooks, so
+# "stop writing it" on its own leaves the misleading gate running in every
+# clone it already reached, for as long as that clone lives.
+drop_generated_pre_push() {
+    local hooks_dir="$1"
+    local pre_push="$hooks_dir/pre-push"
+
+    [ -f "$pre_push" ] || return 0
+    if grep -q "$INSTALLER_MARKER" "$pre_push"; then
+        rm -f "$pre_push"
+        echo "        removed the pre-push hook an older install left here"
+    else
+        echo "        left a pre-push hook this script did not write alone"
+    fi
 }
 
 write_pre_commit() {
@@ -158,7 +207,8 @@ RUN_TESTS="$WORKSPACE_ROOT/libviprs-tests/tools/run-tests.sh"
 
 # Hand the pushed tree to the suite in whichever slot it belongs. Without
 # this run-tests.sh falls back to the sibling checkouts, which is the whole
-# defect. libviprs-cli has no slot in this suite and keeps the old behaviour.
+# defect. There are two slots and this hook is only installed into the two
+# repos that have one (libviprs/libviprs#691).
 # Both slots get pinned, not just the one being pushed. run-tests.sh falls
 # back to the siblings of wherever the script itself sits, and the script the
 # line below may pick sits inside the worktree, whose neighbours are other
@@ -475,11 +525,20 @@ for REPO_DIR in "${REPOS[@]}"; do
             # pre-push (no `run-tests.sh` integration on this repo).
             write_pdfium_pre_commit "$HOOKS_DIR"
             echo "  done: $REPO_NAME (scoped pre-commit)"
+            drop_generated_pre_push "$HOOKS_DIR"
             ;;
         *)
+            # The pre-commit hook goes everywhere: it runs the repo's own
+            # `cargo fmt` and `cargo clippy` in the repo it is installed in, so
+            # for the cli it gates the cli.
             write_pre_commit "$HOOKS_DIR" "$REPO_NAME"
-            write_pre_push "$HOOKS_DIR"
-            echo "  done: $REPO_NAME (pre-commit + pre-push)"
+            if has_suite_slot "$REPO_NAME"; then
+                write_pre_push "$HOOKS_DIR"
+                echo "  done: $REPO_NAME (pre-commit + pre-push)"
+            else
+                echo "  done: $REPO_NAME (pre-commit only; the suite has no slot for it)"
+                drop_generated_pre_push "$HOOKS_DIR"
+            fi
             ;;
     esac
     installed=$((installed + 1))
