@@ -479,6 +479,7 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // bicubic, 2 LSB until libviprs#702 and 1 until libviprs#704, EXACT now).
     "resample/affine_bilinear_expected.png",
     "resample/affine_bicubic_expected.png",
+    "resample/affine_bicubic_float_expected.v",
     // similarity (--angle / --scale) / rotate.
     "resample/similarity_angle_expected.png",
     "resample/similarity_scale_expected.png",
