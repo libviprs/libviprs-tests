@@ -152,10 +152,38 @@ repos (libviprs, libviprs-cli, libviprs-tests):
 - `cargo fmt -- --check` — rejects unformatted code
 - `cargo clippy --all-targets -- -D warnings` — rejects lint warnings
 
-**Pre-push** (runs on every `git push`):
-- Runs the full Docker test suite via `run-tests.sh`
+**Pre-push** (runs on `git push`, when the push can reach the suite):
+- Runs the Docker test suite via `run-tests.sh`, against the working tree being
+  pushed. A linked worktree gates on its own branch, not on the main checkout
+  (libviprs/libviprs#684).
+- Skips the run when nothing in the push can reach a test. The list of paths
+  that count as inert is deliberately short and partly per-repo: `.github/` and
+  `.gitignore` are inert for a libviprs push and *not* for a libviprs-tests
+  one, whose guards read both. `README.md` and `CHANGELOG.md` are on neither
+  list, because the documentation guards read them out of both checkouts. The
+  hook names the path that made it run, or the paths that let it skip.
+- `LIBVIPRS_PREPUSH_ALL=1 git push` runs the suite whatever the paths say. Use
+  this rather than `--no-verify` when you do not trust a skip decision: it is
+  the difference between overriding the filter and turning the gate off.
+
+Before pushing, `./tools/run-tests.sh --plan` answers "which trees, which
+revisions, what budget" in a second without touching Docker.
+
+The container budget is three environment variables, all read by
+`run-tests.sh` (see its `--help`):
+
+| Variable | What it does |
+|---|---|
+| `RUN_TESTS_MEMORY` | Hard memory ceiling, default `4g`, clamped to what the Docker VM actually has. A ceiling above the VM total never binds, and the kill then lands outside the container where the daemon does not record it. |
+| `RUN_TESTS_BUILD_JOBS` | Concurrent `rustc` processes, default derived from the ceiling at ~1.5 GiB each. This is the first lever on an out-of-memory kill. |
+| `RUN_TESTS_TEST_THREADS` | `cargo test` thread pool, default cargo's own. The Dockerfile explains why the pdfium suites want the full pool. |
+
+A container killed for memory says so in those words and prints the budget it
+used; it is not a test failure, whatever test name printed last.
 
 To bypass in emergencies: `git commit --no-verify` or `git push --no-verify`.
+For a pre-push you think is skipping wrongly, reach for `LIBVIPRS_PREPUSH_ALL=1`
+first, because `--no-verify` is how the gate stopped protecting anything.
 
 ## Test Suites
 
