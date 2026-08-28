@@ -453,11 +453,13 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "draw/draw_image_golden.png",
     "draw/draw_rect_16bit_golden.v",
     // ---- resample family (cli_resample_diff.rs) ----
-    // Common inputs: a 2-D gradient (grad), a 2-D sRGB (rgb), and a float 2-band
-    // coordinate map (index.v, a 2× zoom) for mapim.
+    // Common inputs: a 2-D gradient (grad), a 2-D sRGB (rgb), a float 2-band
+    // coordinate map (index.v, a 2× zoom) for mapim, and a float 1-band
+    // high-frequency carrier (hf.v) for the unrounded resize cell.
     "resample/grad.png",
     "resample/rgb.png",
     "resample/index.v",
+    "resample/hf.v",
     // shrink / shrinkh / shrinkv (box shrink).
     "resample/shrink_expected.png",
     "resample/shrinkh_expected.png",
@@ -470,6 +472,7 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // resize (half, --vscale, upscale→affine path, --kernel nearest).
     "resample/resize_half_expected.png",
     "resample/resize_vscale_expected.png",
+    "resample/resize_vscale_float_expected.v",
     "resample/resize_up_expected.png",
     "resample/resize_nearest_expected.png",
     // affine (bilinear default ≤1 LSB; bicubic 2 LSB, noted divergence).
