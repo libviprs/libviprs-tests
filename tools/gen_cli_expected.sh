@@ -2135,14 +2135,18 @@ echo "==> [provenance] appending draw section to $FIX_ROOT/PROVENANCE.md"
 #
 # The same committed inputs feed BOTH this generator (to make the vips
 # references) and tests/cli_resample_diff.rs (which feeds them to `viprs`), so the
-# two sides compare like against like. EVERY resample op is oracle class
-# BOUNDED-TOL (the premultiply / rounding campaign #406-418): the core computes
-# the reduce / interpolate masks in f64 per output position while vips quantises
-# the sub-pixel offset into fixed-point tables, so the two agree to ≤1 LSB. The
-# MEASURED per-case max-abs-diff is recorded in the provenance table; all cases
-# land at 0 or 1 LSB EXCEPT `affine … --interpolate bicubic`, which measures 2
-# LSB (the bicubic Catmull-Rom coefficients quantise more coarsely in vips — a
-# genuine, honest core-vs-vips divergence, NOT a CLI bug; see the open question).
+# two sides compare like against like. MOST resample ops are EXACT against the
+# oracle, which is not what this comment said a landing ago. It said the core
+# computed the masks in f64 per output position while vips quantised the
+# sub-pixel offset into fixed-point tables, so the two agreed to <=1 LSB; three
+# quantisations have closed since — the offset grid (libviprs#668),
+# vips_bicubic_matrixi on the uchar carrier (libviprs#704) and the
+# cubic_float<float> row narrowing (libviprs#705). The MEASURED per-case
+# max-abs-diff is recorded in the provenance table: against core ed958d5, 17 of
+# the 23 comparison cells read 0 and six read 1. Those six are two named
+# divergences the core keeps or has not decided, BILINEAR_INT's 12-bit weights
+# (libviprs#733) and the matrixs reduce mask (libviprs#777), and both go to 0 on
+# the identical content promoted to float.
 #
 # Carriers: most references are an integer uchar raster (1-band grad, or sRGB
 # 3-band rgb), so they round-trip losslessly through PNG. `mapim`'s index is a
@@ -2208,7 +2212,7 @@ echo "==> [shrink] grad 2 2 + shrinkh/shrinkv 2 (S1 box shrink, ≤1 LSB)"
 "$VIPS" shrinkh "$RESAMPLE/grad.png" "$RESAMPLE/shrinkh_expected.png" 2
 "$VIPS" shrinkv "$RESAMPLE/grad.png" "$RESAMPLE/shrinkv_expected.png" 2
 
-echo "==> [reduce] rgb 2 2 lanczos3 (default) + cubic (enum) + reduceh/reducev grad 2 (≤1 LSB)"
+echo "==> [reduce] rgb 2 2 lanczos3 (default) + cubic (enum) + reduceh/reducev grad 2 (EXACT / 1 LSB, libviprs#777)"
 "$VIPS" reduce  "$RESAMPLE/rgb.png"  "$RESAMPLE/reduce_lanczos3_expected.png" 2 2
 "$VIPS" reduce  "$RESAMPLE/rgb.png"  "$RESAMPLE/reduce_cubic_expected.png"    2 2 --kernel cubic
 "$VIPS" reduceh "$RESAMPLE/grad.png" "$RESAMPLE/reduceh_expected.png" 2
@@ -2227,7 +2231,7 @@ echo "==> [resize] rgb 0.5 + --vscale + upscale (affine path) + --kernel nearest
 # one (libviprs#723, libviprs#724).
 "$VIPS" resize "$RESAMPLE/hf.v" "$RESAMPLE/resize_vscale_float_expected.v" 0.5 --vscale 0.75
 
-echo "==> [affine] rgb 1.5x bilinear (≤1 LSB) + bicubic (2 LSB — noted divergence)"
+echo "==> [affine] rgb 1.5x bilinear (1 LSB, libviprs#733) + bicubic (EXACT since libviprs#704)"
 "$VIPS" affine "$RESAMPLE/rgb.png" "$RESAMPLE/affine_bilinear_expected.png" "1.5 0 0 1.5"
 "$VIPS" affine "$RESAMPLE/rgb.png" "$RESAMPLE/affine_bicubic_expected.png"  "1.5 0 0 1.5" --interpolate bicubic
 
@@ -3463,10 +3467,20 @@ output against. Generated offline by \`tools/gen_cli_expected.sh\`, NEVER by CI.
   FLOAT 1-band holding \`(i*37 + 11) mod 251\` at \`i = y*32 + x\`: 251 distinct
   values in 0..250, all exactly representable in f32, high-frequency in both
   axes — the carrier the reduce half of libviprs#668 survives on).
-- **EVERY op is BOUNDED-TOL for NON-ALPHA inputs** (the premultiply / rounding
-  campaign #406-418): the core computes reduce / interpolate masks in f64 per
-  output position while vips quantises the sub-pixel offset into fixed-point
-  tables, so the two agree to ≤1 LSB. Non-alpha inputs are used deliberately:
+- **MOST ops are EXACT for NON-ALPHA inputs**, which is not what this bullet
+  said a landing ago. It said the core computed the masks in f64 per output
+  position "while vips quantises the sub-pixel offset into fixed-point tables,
+  so the two agree to ≤1 LSB" — that was the #668 bug written down as a design
+  decision. Three quantisations have closed since: the sub-pixel offset grid
+  (libviprs#668), \`vips_bicubic_matrixi\` on the \`uchar\` carrier
+  (libviprs#704), and the \`cubic_float<float>\` row narrowing (libviprs#705).
+  Measured against core \`ed958d5\`, **17 of the 23 comparison cells read 0** and
+  six read 1. Those six are two named divergences, both carrier effects that go
+  to 0 on the identical content promoted to float: \`BILINEAR_INT\`'s 12-bit
+  weights on the four bilinear cells, which the core deliberately does not adopt
+  (libviprs#733), and the \`matrixs\` fixed-point reduce mask on \`reduceh\` /
+  \`reducev\`, which is undecided (libviprs#777). Non-alpha inputs are used
+  deliberately:
   the core \`reduce\`/\`shrink\`/\`resize\` premultiply alpha before resampling (a
   documented, intentional divergence from bare \`vips_reduce\`/\`vips_shrink\`,
   which do not), so on an RGBA / GrayA input these ops diverge from vips
@@ -3485,32 +3499,36 @@ References (paths relative to \`tests/fixtures/cli/\`):
 | \`resample/shrinkv_expected.png\` | ≤1 LSB (0) | \`vips shrinkv grad.png shrinkv_expected.png 2\` |
 | \`resample/reduce_lanczos3_expected.png\` | ≤1 LSB (0) | \`vips reduce rgb.png reduce_lanczos3_expected.png 2 2\` (default lanczos3) |
 | \`resample/reduce_cubic_expected.png\` | ≤1 LSB (0) | \`vips reduce rgb.png reduce_cubic_expected.png 2 2 --kernel cubic\` |
-| \`resample/reduceh_expected.png\` | ≤1 LSB (1) | \`vips reduceh grad.png reduceh_expected.png 2\` |
-| \`resample/reducev_expected.png\` | ≤1 LSB (1) | \`vips reducev grad.png reducev_expected.png 2\` |
+| \`resample/reduceh_expected.png\` | ≤1 LSB (1, libviprs#777) | \`vips reduceh grad.png reduceh_expected.png 2\` |
+| \`resample/reducev_expected.png\` | ≤1 LSB (1, libviprs#777) | \`vips reducev grad.png reducev_expected.png 2\` |
 | \`resample/resize_half_expected.png\` | ≤1 LSB (0) | \`vips resize rgb.png resize_half_expected.png 0.5\` |
 | \`resample/resize_vscale_expected.png\` | **EXACT (0)** | \`vips resize rgb.png resize_vscale_expected.png 0.5 --vscale 0.75\` |
 | \`resample/resize_vscale_float_expected.v\` | **EXACT (0, bitwise)** | \`vips resize hf.v resize_vscale_float_expected.v 0.5 --vscale 0.75\` (FLOAT carrier — the ONLY reference here that sees the reduce half of libviprs#668 unrounded: 0 on core \`main\`, 0.697464 with that half reverted, where the uchar row above reads 0 either way) |
-| \`resample/resize_up_expected.png\` | ≤1 LSB (1) | \`vips resize grad.png resize_up_expected.png 2.0\` (upscale → affine path) |
+| \`resample/resize_up_expected.png\` | **EXACT (0)** | \`vips resize grad.png resize_up_expected.png 2.0\` (upscale → affine path) |
 | \`resample/resize_nearest_expected.png\` | ≤1 LSB (0) | \`vips resize rgb.png resize_nearest_expected.png 0.5 --kernel nearest\` |
-| \`resample/affine_bilinear_expected.png\` | ≤1 LSB (1) | \`vips affine rgb.png affine_bilinear_expected.png "1.5 0 0 1.5"\` (default bilinear) |
-| \`resample/affine_bicubic_expected.png\` | ≤1 LSB (1) | \`vips affine rgb.png affine_bicubic_expected.png "1.5 0 0 1.5" --interpolate bicubic\` (was 2 before libviprs#702 rounded the bicubic offset onto vips's grid) |
-| \`resample/similarity_angle_expected.png\` | ≤1 LSB (1) | \`vips similarity rgb.png similarity_angle_expected.png --angle 30\` |
-| \`resample/similarity_scale_expected.png\` | ≤1 LSB (1) | \`vips similarity rgb.png similarity_scale_expected.png --scale 1.5\` |
-| \`resample/rotate_expected.png\` | ≤1 LSB (1) | \`vips rotate rgb.png rotate_expected.png 30\` |
+| \`resample/affine_bilinear_expected.png\` | ≤1 LSB (1, libviprs#733) | \`vips affine rgb.png affine_bilinear_expected.png "1.5 0 0 1.5"\` (default bilinear) |
+| \`resample/affine_bicubic_expected.png\` | **EXACT (0)** | \`vips affine rgb.png affine_bicubic_expected.png "1.5 0 0 1.5" --interpolate bicubic\` (2 before libviprs#702 rounded the bicubic offset onto vips's grid, 1 before libviprs#704 ported \`vips_bicubic_matrixi\`, 0 now) |
+| \`resample/similarity_angle_expected.png\` | ≤1 LSB (1, libviprs#733) | \`vips similarity rgb.png similarity_angle_expected.png --angle 30\` |
+| \`resample/similarity_scale_expected.png\` | ≤1 LSB (1, libviprs#733) | \`vips similarity rgb.png similarity_scale_expected.png --scale 1.5\` |
+| \`resample/rotate_expected.png\` | ≤1 LSB (1, libviprs#733) | \`vips rotate rgb.png rotate_expected.png 30\` |
 | \`resample/mapim_bilinear_expected.png\` | ≤1 LSB (0) | \`vips mapim rgb.png mapim_bilinear_expected.png index.v\` (S2; index is a 2nd input) |
-| \`resample/mapim_bicubic_expected.png\` | ≤1 LSB (1) | \`vips mapim rgb.png mapim_bicubic_expected.png index.v --interpolate bicubic\` |
+| \`resample/mapim_bicubic_expected.png\` | **EXACT (0)** | \`vips mapim rgb.png mapim_bicubic_expected.png index.v --interpolate bicubic\` |
 | \`resample/thumbnail_expected.png\` | ≤1 LSB (0) | \`vips thumbnail rgb.png thumbnail_expected.png 16\` (FILENAME input) |
 | \`resample/thumbnail_crop_expected.png\` | ≤1 LSB (0) | \`vips thumbnail rgb.png thumbnail_crop_expected.png 16 --height 8 --crop centre\` (NON-square target — centre-crop removes pixels, 16×8, distinct from the no-crop fixtures) |
 | \`resample/thumbnail_linear_expected.png\` | ≤1 LSB (0) | \`vips thumbnail rgb.png thumbnail_linear_expected.png 16 --linear\` (linear-light reduce path) |
 | \`resample/thumbnail_image_expected.png\` | ≤1 LSB (0) | \`vips thumbnail_image rgb.png thumbnail_image_expected.png 16\` |
 
-**Open question**: \`affine … --interpolate bicubic\` measures **2 LSB** (not the
-≤1 LSB the rest of the family hits). The core evaluates exact f64 Catmull-Rom
-coefficients while vips's \`VipsInterpolateBicubic\` uses a coarser fixed-point
-coefficient table, so some interior samples land 2 apart. This is a genuine,
-measured core-vs-vips rounding difference (not a CLI bug); the differential
-compares that one case at tol 2. A follow-up could tighten the core bicubic
-coefficient path toward vips's table if exact bicubic parity is ever required.
+**What the open question here used to say**, and what closed it.
+\`affine … --interpolate bicubic\` measured **2 LSB**, and the reason given was
+that the core evaluated exact f64 Catmull-Rom coefficients while vips's
+\`VipsInterpolateBicubic\` read a coarser fixed-point table. Both halves of that
+are now closed, in two landings. libviprs#702 rounded the bicubic offset onto
+vips's 1/64 grid and took the case from 2 to 1; libviprs#704 ported
+\`vips_bicubic_matrixi\`, the 12-bit fixed-point coefficients
+\`bicubic_unsigned_int_tab\` reads on a \`uchar\` carrier, and took it from 1 to
+**0**. It is pinned EXACT, and it reads 1 with libviprs#704 reverted, 3 with
+libviprs#702's bicubic call sites reverted and 7 with the offset grid coarsened
+to 1/32, so the pin separates a correct core from three different wrong ones.
 | \`aritha/avg_expected.txt\` | EXACT (S3, rational mean → rel-eps) | \`vips avg agray.png\` |
 | \`aritha/deviate_expected.txt\` | BOUNDED-TOL (S3, rel-eps) | \`vips deviate agray.png\` |
 | \`aritha/min_expected.txt\` | EXACT (S3, integer) | \`vips min agray.png\` |

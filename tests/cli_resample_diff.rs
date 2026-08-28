@@ -8,21 +8,29 @@
 //! and committed. This cell copies the bands / morphology reference cells
 //! exactly — including the skip-guard / `VIPRS_REQUIRE_CLI` discipline.
 //!
-//! **Every resample op is oracle class BOUNDED-TOL** (the premultiply / rounding
-//! campaign #406-418), and since libviprs#668 the reason is a narrower one than
-//! this header used to give. The core no longer evaluates the reduce and
-//! bicubic kernels at the true sub-pixel offset. `table_offset` rounds the
-//! offset onto the same 65-entry grid `vips_reduceh` and
-//! `vips_interpolate_bicubic_interpolate` round onto, so the offset is not a
-//! source of divergence on either side any more.
+//! **Most resample ops are now bit-exact against the oracle**, which is not what
+//! this header said a landing ago. Three quantisations closed in sequence:
+//! `table_offset` rounds the sub-pixel offset onto libvips' 65-entry grid at
+//! both the reduce and the bicubic call sites (libviprs#668), the `uchar`
+//! bicubic reads `vips_bicubic_matrixi` as 12-bit fixed point the way
+//! `bicubic_unsigned_int_tab` does (libviprs#704), and the float bicubic
+//! narrows each row sum through `cubic_float<float>` the way vips does
+//! (libviprs#705). Measured against core `ed958d5`, **seventeen of the 23
+//! comparison cells here read 0** and six read 1.
 //!
-//! Two smaller things are left, and both have an issue of their own. On the
-//! integer carriers vips quantises the coefficients themselves, `matrixs` in
-//! reduce and `matrixi` in bicubic, where the core stays in f64
-//! (libviprs#704). And `bicubic_float` sums four rows and then the columns
-//! while the core runs one 16-term sum, which reassociates the same products
-//! and moves the last bit (libviprs#705). Together they are worth ≤1 LSB on a
-//! uchar carrier, and they are what the nine cells measuring 1 are made of.
+//! **The six that read 1 are two named divergences, not slack**, and both are
+//! carrier effects that go to 0 on the identical content promoted to float:
+//!
+//! * `affine` bilinear, both `similarity` cells and `rotate` carry
+//!   libviprs#733. vips sends an integer carrier to `BILINEAR_INT`, whose four
+//!   weights are truncated to 12-bit fixed point; the core keeps f64 because
+//!   adopting the quantisation would introduce 6.28 LSB of new error on a
+//!   16-bit carrier where there is currently none. That is a decision with a
+//!   measurement behind it, recorded in `src/resample.rs`.
+//! * `reduceh` and `reducev` carry libviprs#777, the `matrixs` fixed-point copy
+//!   of the reduce mask vips uses on the integer carriers. That one is
+//!   undecided rather than decided, and it is the last quantisation in the
+//!   family with no answer yet.
 //!
 //! **What this header said before, and why it mattered.** It said the core
 //! computed the masks in `f64` per output position "so the two agree to ≤1
@@ -31,14 +39,37 @@
 //! down as a design decision in two places across two repos, and it is a fair
 //! part of why the bug lasted. Both are gone.
 //!
-//! **What is pinned, and what deliberately is not** (measured in
-//! libviprs#723). After libviprs#702 thirteen of the 22 uchar comparison cells
-//! measure 0 and nine measure 1. Six mutations of the resampling offset, from
-//! reverting it outright to coarsening the grid four times over, move exactly
-//! two of them: `resize --vscale 0.75` and `affine … --interpolate bicubic`.
-//! Those two are pinned at what they measure, 0 and 1. The other twelve zeroes
-//! stay at ≤1, because no mutation of the offset separates 0 from 1 on them, so
-//! pinning them would buy no falsifiability and cost a vips-version tripwire.
+//! **What is pinned, and what deliberately is not.** A cell earns [`EXACT`] by
+//! being separated from 1 by a mutation of the thing it guards, never by
+//! happening to measure 0, because a pin that no mutation moves buys no
+//! falsifiability and costs a vips-version tripwire (libviprs#723). Eight
+//! mutations of a scratch core at `ed958d5`, and the only rows that move:
+//!
+//! | cell | tol | `ed958d5` | r1 | r2 | r3 | r4 | r5 | r6 | m704 | m705 |
+//! |---|---|---|---|---|---|---|---|---|---|---|
+//! | `resize 0.5 --vscale 0.75`, uchar | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1 | 0 | 0 |
+//! | `resize 0.5 --vscale 0.75`, float | 0 | 0 | .697 | .697 | 0 | 2.09 | 0 | 2.10 | 0 | 0 |
+//! | `resize 2.0` | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **1** | 0 |
+//! | `affine … bicubic` | 0 | 0 | 3 | 0 | 3 | 7 | 0 | 7 | **1** | 0 |
+//! | `mapim … bicubic` | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **1** | 0 |
+//!
+//! r1 reverts libviprs#668 outright, r2 its `reduce_axis` call site only, r3 its
+//! bicubic call sites only, r4 and r6 coarsen the 1/64 offset grid to 1/32 and
+//! 1/16, r5 truncates where `table_offset` floors, m704 stops the `uchar`
+//! bicubic taking the fixed-point arm, m705 stops the float rows narrowing.
+//! Every other cell reads the same in all nine columns, so the twelve remaining
+//! zeroes stay at [`BT1`] and the six ones stay there too.
+//!
+//! **m705 moves nothing here**, which is a hole rather than a result: #705 only
+//! fires on the float arm of the bicubic interpolator, every bicubic cell in
+//! this file is `uchar`, and the one float cell goes through `reduce_axis`.
+//! libviprs#780 is that hole.
+//!
+//! **r5 moves nothing either, and that one is fine.** floor and truncate differ
+//! only on a negative source coordinate, which these ops never produce; the
+//! core's own `resize_quantises_a_negative_source_coordinate_the_way_vips_shifted_space_does`
+//! fails at 0.1227 under r5, so the arm has a guard, just not one a CLI
+//! differential could carry.
 //!
 //! **The 23rd comparison cell is the reduce half of libviprs#668**
 //! (libviprs#724). No uchar cell can see that half and no tolerance can give
@@ -86,18 +117,42 @@ use common::cli::{cli_available, cli_fixture, decode_compare, run_viprs, run_vip
 
 use tempfile::TempDir;
 
-/// BOUNDED-TOL ≤1 LSB (CLI_CONTRACT.md §5): what is left of the core-vs-vips
-/// difference once both sides round the sub-pixel offset onto the same grid.
-/// The residual is the coefficient tables on the integer carriers
-/// (libviprs#704) plus the bicubic accumulation order (libviprs#705).
+/// BOUNDED-TOL ≤1 LSB (CLI_CONTRACT.md §5). Six cells are held here and every
+/// one of them is a carrier effect that goes to 0 on the identical content
+/// promoted to float, so this is not slack, it is two named divergences:
+///
+/// * `affine` bilinear, `similarity --angle`, `similarity --scale` and `rotate`
+///   carry libviprs#733. `SWITCH_INTERPOLATE` sends a `uchar` carrier to
+///   `BILINEAR_INT`, whose four weights are truncated to 12-bit fixed point,
+///   and the core deliberately keeps `f64` there: adopting the quantisation
+///   would introduce a mean error of 6.28 LSB on a 16-bit carrier where there
+///   is currently none. That decision is recorded in `src/resample.rs`, so this
+///   1 is permanent until that changes.
+/// * `reduceh` and `reducev` carry libviprs#777, the `matrixs` fixed-point copy
+///   of the reduce mask that vips uses on the integer carriers and the core
+///   does not. That one is undecided rather than decided.
+///
+/// It is NOT a general slack: everything else in this file measures 0 and is
+/// pinned at [`EXACT`].
 const BT1: f64 = 1.0;
 
-/// Bit-exact. Two cells are held here, both `resize 0.5 --vscale 0.75`: the
-/// uchar one because it is the one uchar cell besides `affine … bicubic` that a
-/// wrong resampling offset moves at all (libviprs#723), and the float one
-/// because on that carrier the same op is bit-exact and a wrong offset is worth
-/// 0.697 of a unit (libviprs#724). Twelve more cells measure 0, and they stay at
-/// [`BT1`] because no mutation of the offset separates 0 from 1 on them.
+/// Bit-exact. Five cells are held here, and the test for admitting one is not
+/// "it measures 0" but "a mutation of the thing it guards separates 0 from 1 on
+/// it" (libviprs#723). Seventeen cells measure 0 against core `ed958d5`; these
+/// five are the ones that earn the pin:
+///
+/// * `resize 0.5 --vscale 0.75` on `rgb.png`, which a resampling offset rounded
+///   onto the wrong grid moves to 1 (libviprs#723).
+/// * the same op on the float `hf.v`, where reverting libviprs#668's reduce
+///   half is worth 0.697 of a unit (libviprs#724).
+/// * `resize 2.0`, `affine … bicubic` and `mapim … bicubic`, which all read 1
+///   again with libviprs#704 reverted. They measured 1 themselves until that
+///   landed, so [`BT1`] on them now absorbs exactly the fix they exist to guard
+///   (libviprs#753).
+///
+/// The other twelve zeroes stay at [`BT1`], because no mutation in the table in
+/// this module's header separates 0 from 1 on them: pinning them would buy no
+/// falsifiability and cost a vips-version tripwire.
 const EXACT: f64 = 0.0;
 
 /// Skip-guard: `true` (with a printed reason) when the CLI sibling is absent.
@@ -223,6 +278,10 @@ fn reduceh_matches_vips_bounded_tol() {
         return;
     }
     let out = op("reduceh.png");
+    // MEASURED 1, and it is a carrier effect: the same content promoted to float
+    // reads 0. vips reduces an integer carrier through the `matrixs` fixed-point
+    // copy of the mask where the core stays in f64 (libviprs#777), which is the
+    // last quantisation in this family still undecided.
     run_viprs_ok(&["reduceh", &fx(GRAD), &out, "2"]);
     decode_compare(
         &PathBuf::from(&out),
@@ -237,6 +296,7 @@ fn reducev_matches_vips_bounded_tol() {
         return;
     }
     let out = op("reducev.png");
+    // MEASURED 1, same `matrixs` divergence as `reduceh` (libviprs#777).
     run_viprs_ok(&["reducev", &fx(GRAD), &out, "2"]);
     decode_compare(
         &PathBuf::from(&out),
@@ -321,18 +381,21 @@ fn resize_vscale_float_matches_vips_exactly() {
 }
 
 #[test]
-fn resize_up_matches_vips_bounded_tol() {
+fn resize_up_matches_vips_exactly() {
     if skip_if_no_cli("resize_up") {
         return;
     }
     let out = op("resize_up.png");
     // An UPSCALE exercises the affine enlargement path (distinct from the reduce
-    // downscale path the other resize cases take).
+    // downscale path the other resize cases take), and on a `uchar` carrier that
+    // path is the fixed-point bicubic. MEASURED 0 since libviprs#704, 1 before
+    // it and 1 again with it reverted, so EXACT is what makes this cell able to
+    // tell the two apart and BT1 was absorbing it (libviprs#753).
     run_viprs_ok(&["resize", &fx(GRAD), &out, "2.0"]);
     decode_compare(
         &PathBuf::from(&out),
         &cli_fixture("resample/resize_up_expected.png"),
-        BT1,
+        EXACT,
     );
 }
 
@@ -363,6 +426,12 @@ fn affine_bilinear_matches_vips_bounded_tol() {
     }
     let out = op("affine_bilinear.png");
     // No --interpolate: viprs default bilinear == vips's affine interpolator default.
+    // MEASURED 1, and it is a carrier effect: the same content promoted to float
+    // reads 0. `SWITCH_INTERPOLATE` sends a `uchar` carrier to `BILINEAR_INT`,
+    // whose four weights are truncated to 12-bit fixed point, and the core keeps
+    // f64 there on purpose (libviprs#733 measures adopting it at 6.28 LSB of new
+    // error on a 16-bit carrier). So this 1 is a decision, not slack, and it is
+    // the same 1 the two `similarity` cells and `rotate` carry.
     run_viprs_ok(&["affine", &fx(RGB), &out, "1.5 0 0 1.5"]);
     decode_compare(
         &PathBuf::from(&out),
@@ -372,17 +441,23 @@ fn affine_bilinear_matches_vips_bounded_tol() {
 }
 
 #[test]
-fn affine_bicubic_matches_vips_bounded_tol() {
+fn affine_bicubic_matches_vips_exactly() {
     if skip_if_no_cli("affine_bicubic") {
         return;
     }
     let out = op("affine_bicubic.png");
     // This used to be the ONE resample case that exceeded 1 LSB, at a measured
     // 2, and the reason given for it was the divergence libviprs#668 turned out
-    // to be. It MEASURES 1 once the core rounds the bicubic offset onto vips's
-    // grid, and 2 again if that is reverted, so BT1 is what makes this cell able
-    // to tell the two apart. It NEEDS core libviprs#702: against a core without
-    // it this is red, which is the point.
+    // to be. Two landings closed it. libviprs#702 rounded the bicubic offset
+    // onto vips's 1/64 grid and took it from 2 to 1; libviprs#704 ported
+    // `vips_bicubic_matrixi`, the 12-bit fixed-point coefficients
+    // `bicubic_unsigned_int_tab` reads on a `uchar` carrier, and took it from 1
+    // to 0.
+    //
+    // So EXACT here is three assertions in one, each with a mutation behind it:
+    // 1 with libviprs#704 reverted, 3 with libviprs#702's bicubic call sites
+    // reverted, 7 with the offset grid coarsened to 1/32. BT1 would pass the
+    // first of those, which is why it moved (libviprs#753).
     run_viprs_ok(&[
         "affine",
         &fx(RGB),
@@ -394,7 +469,7 @@ fn affine_bicubic_matches_vips_bounded_tol() {
     decode_compare(
         &PathBuf::from(&out),
         &cli_fixture("resample/affine_bicubic_expected.png"),
-        BT1,
+        EXACT,
     );
 }
 
@@ -408,6 +483,7 @@ fn similarity_angle_matches_vips_bounded_tol() {
         return;
     }
     let out = op("similarity_angle.png");
+    // MEASURED 1, the `BILINEAR_INT` divergence (libviprs#733).
     run_viprs_ok(&["similarity", &fx(RGB), &out, "--angle", "30"]);
     decode_compare(
         &PathBuf::from(&out),
@@ -422,6 +498,7 @@ fn similarity_scale_matches_vips_bounded_tol() {
         return;
     }
     let out = op("similarity_scale.png");
+    // MEASURED 1, the `BILINEAR_INT` divergence (libviprs#733).
     run_viprs_ok(&["similarity", &fx(RGB), &out, "--scale", "1.5"]);
     decode_compare(
         &PathBuf::from(&out),
@@ -436,6 +513,7 @@ fn rotate_matches_vips_bounded_tol() {
         return;
     }
     let out = op("rotate.png");
+    // MEASURED 1, the `BILINEAR_INT` divergence (libviprs#733).
     run_viprs_ok(&["rotate", &fx(RGB), &out, "30"]);
     decode_compare(
         &PathBuf::from(&out),
@@ -463,11 +541,15 @@ fn mapim_bilinear_matches_vips_bounded_tol() {
 }
 
 #[test]
-fn mapim_bicubic_matches_vips_bounded_tol() {
+fn mapim_bicubic_matches_vips_exactly() {
     if skip_if_no_cli("mapim_bicubic") {
         return;
     }
     let out = op("mapim_bicubic.png");
+    // MEASURED 0 since libviprs#704, and 1 with it reverted. `index.v` is an
+    // exact 2x zoom so every offset lands on the 1/64 grid and no mutation of
+    // the OFFSET moves this cell at all; the fixed-point coefficients are the
+    // only thing it can see, and BT1 could not see them (libviprs#753).
     run_viprs_ok(&[
         "mapim",
         &fx(RGB),
@@ -479,7 +561,7 @@ fn mapim_bicubic_matches_vips_bounded_tol() {
     decode_compare(
         &PathBuf::from(&out),
         &cli_fixture("resample/mapim_bicubic_expected.png"),
-        BT1,
+        EXACT,
     );
 }
 
