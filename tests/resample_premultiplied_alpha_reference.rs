@@ -183,13 +183,7 @@ fn mixed_axis_resize_matches_vips() {
     let src = load_rgba8(
         &fixtures_dir().join("resample_premultiplied_alpha_reference_input/split_rgba.png"),
     );
-    let out = src.resize_with(
-        2.0,
-        ResizeOptions {
-            vscale: Some(0.5),
-            ..ResizeOptions::default()
-        },
-    );
+    let out = src.resize_with(2.0, ResizeOptions::default().with_vscale(Some(0.5)));
     assert_matches_reference(
         &out,
         "resample_premultiplied_alpha_reference_expected/split_resize_h2_v05_expected.png",

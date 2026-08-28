@@ -112,10 +112,7 @@ fn resize_nearest_preserves_exact_alpha_pixels() {
     // reduces the fractional residual through `reduce_axis`; the residual pass
     // must not corrupt the exact pick either.
     let src = semi_transparent_raster(8, 8);
-    let opts = ResizeOptions {
-        kernel: ReduceKernel::Nearest,
-        ..ResizeOptions::default()
-    };
+    let opts = ResizeOptions::default().with_kernel(ReduceKernel::Nearest);
     let out = src.resize_with(0.4, opts);
     assert_exact_pick(&out, "resize 0.4 nearest");
 }
