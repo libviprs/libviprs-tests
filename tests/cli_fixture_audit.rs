@@ -475,8 +475,8 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "resample/resize_vscale_float_expected.v",
     "resample/resize_up_expected.png",
     "resample/resize_nearest_expected.png",
-    // affine (bilinear default; bicubic, which measured 2 LSB until libviprs#702
-    // rounded its offset onto vips's grid and now measures 1).
+    // affine (bilinear, held at 1 LSB by libviprs#733's BILINEAR_INT weights;
+    // bicubic, 2 LSB until libviprs#702 and 1 until libviprs#704, EXACT now).
     "resample/affine_bilinear_expected.png",
     "resample/affine_bicubic_expected.png",
     // similarity (--angle / --scale) / rotate.
