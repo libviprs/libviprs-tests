@@ -151,7 +151,14 @@ into the two the suite can see:
 
 **Pre-commit** (runs on every `git commit`):
 - `cargo fmt -- --check` — rejects unformatted code
-- `cargo clippy --all-targets -- -D warnings` — rejects lint warnings
+- Every `cargo clippy` pass that repo's `ci.yml` runs, feature matrix
+  expanded, so a feature-gated regression cannot pass locally and fail
+  remotely. For this repo that is the default cell plus `object-store-sink`,
+  `packfile`, `tracing` and `jxl`, then `./tools/run_ported_cells.sh --clippy`.
+- The lockstep is enforced rather than asked for:
+  `tests/install_hooks_mirror_ci.rs` runs the generated hook with a recording
+  stand-in for `cargo` and compares what it invokes against the workflow
+  (libviprs/libviprs#715).
 
 **Pre-push** (libviprs and libviprs-tests only; runs on `git push`, when the
 push can reach the suite):

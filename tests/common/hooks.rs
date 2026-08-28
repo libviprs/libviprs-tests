@@ -97,7 +97,10 @@ impl Workspace {
         let dir = tempfile::tempdir().expect("temp dir for a stand-in workspace");
         let root = dir.path().canonicalize().expect("canonical temp path");
 
-        for repo in ["libviprs", "libviprs-tests"] {
+        // libviprs-cli gets no pre-push hook (libviprs/libviprs#691) but it
+        // does get a pre-commit one, and #715's guard runs that, so it is here
+        // too. Nothing pushes from it.
+        for repo in ["libviprs", "libviprs-cli", "libviprs-tests"] {
             let repo_root = root.join(repo);
             std::fs::create_dir_all(&repo_root).expect("create the stand-in repo");
             git(&repo_root, &["init", "-q", "-b", "main"]);
