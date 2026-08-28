@@ -49,14 +49,17 @@ use common::cli::{cli_available, cli_fixture, decode_compare, run_viprs, run_vip
 
 use tempfile::TempDir;
 
-/// BOUNDED-TOL ≤1 LSB (CLI_CONTRACT.md §5): the core's f64 masks vs vips's
-/// fixed-point quantisation agree to within one least-significant bit.
+/// BOUNDED-TOL ≤1 LSB (CLI_CONTRACT.md §5): what is left of the core-vs-vips
+/// difference once both sides round the sub-pixel offset onto the same grid.
+/// The residual is the coefficient tables on the integer carriers
+/// (libviprs#704) plus the bicubic accumulation order (libviprs#705).
 const BT1: f64 = 1.0;
 
-/// The one measured exception: `affine … --interpolate bicubic` lands 2 LSB from
-/// vips because the core uses exact f64 Catmull-Rom coefficients while vips uses a
-/// coarser fixed-point table (see the module header + PROVENANCE open question).
-const AFFINE_BICUBIC_TOL: f64 = 2.0;
+/// Bit-exact. Only `resize --vscale 0.75` is held here, and only because it is
+/// the one cell besides `affine … bicubic` that a wrong resampling offset moves
+/// (libviprs#723). Twelve more cells measure 0, and they stay at [`BT1`]
+/// because no mutation of the offset separates 0 from 1 on them.
+const EXACT: f64 = 0.0;
 
 /// Skip-guard: `true` (with a printed reason) when the CLI sibling is absent.
 /// Under `$VIPRS_REQUIRE_CLI=1` an absent sibling PANICS inside [`cli_available`]
@@ -221,17 +224,22 @@ fn resize_half_matches_vips_bounded_tol() {
 }
 
 #[test]
-fn resize_vscale_matches_vips_bounded_tol() {
+fn resize_vscale_matches_vips_exactly() {
     if skip_if_no_cli("resize_vscale") {
         return;
     }
     let out = op("resize_vscale.png");
-    // --vscale gives the two axes DIFFERENT scales (a non-square resize).
+    // --vscale gives the two axes DIFFERENT scales (a non-square resize), and
+    // 0.75 is the only NON-DYADIC factor in this file: 32x32 to 16x24, vertical
+    // residual shrink 4/3, an offset that lands off the 1/64 grid at every
+    // output row. MEASURED 0. It is pinned at 0 rather than at BT1 because a
+    // resampling offset rounded onto the wrong grid moves it to 1
+    // (libviprs#723), so ≤1 here absorbs the one regression it exists to catch.
     run_viprs_ok(&["resize", &fx(RGB), &out, "0.5", "--vscale", "0.75"]);
     decode_compare(
         &PathBuf::from(&out),
         &cli_fixture("resample/resize_vscale_expected.png"),
-        BT1,
+        EXACT,
     );
 }
 
@@ -267,8 +275,8 @@ fn resize_nearest_matches_vips_bounded_tol() {
 }
 
 // ---------------------------------------------------------------------------
-// affine — S1 matrix transform. Bilinear (default) is ≤1 LSB; bicubic measures
-// 2 LSB (an HONEST core-vs-vips divergence, compared at tol 2 — see header).
+// affine — S1 matrix transform. Both interpolators measure 1 LSB. Bicubic used
+// to measure 2, and that 2 was libviprs#668 (see header).
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -287,14 +295,17 @@ fn affine_bilinear_matches_vips_bounded_tol() {
 }
 
 #[test]
-fn affine_bicubic_matches_vips_at_two_lsb() {
+fn affine_bicubic_matches_vips_bounded_tol() {
     if skip_if_no_cli("affine_bicubic") {
         return;
     }
     let out = op("affine_bicubic.png");
-    // --interpolate bicubic is the ONE resample case that exceeds 1 LSB (measured
-    // 2): exact f64 Catmull-Rom (core) vs vips's fixed-point coefficient table.
-    // Honest, non-rigged — compared at the measured tol 2, NOT hidden.
+    // This used to be the ONE resample case that exceeded 1 LSB, at a measured
+    // 2, and the reason given for it was the divergence libviprs#668 turned out
+    // to be. It MEASURES 1 once the core rounds the bicubic offset onto vips's
+    // grid, and 2 again if that is reverted, so BT1 is what makes this cell able
+    // to tell the two apart. It NEEDS core libviprs#702: against a core without
+    // it this is red, which is the point.
     run_viprs_ok(&[
         "affine",
         &fx(RGB),
@@ -306,7 +317,7 @@ fn affine_bicubic_matches_vips_at_two_lsb() {
     decode_compare(
         &PathBuf::from(&out),
         &cli_fixture("resample/affine_bicubic_expected.png"),
-        AFFINE_BICUBIC_TOL,
+        BT1,
     );
 }
 
