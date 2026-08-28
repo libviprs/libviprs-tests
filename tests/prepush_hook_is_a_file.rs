@@ -21,14 +21,18 @@
 use std::path::Path;
 
 mod common;
-use common::hooks::{PRE_PUSH_HOOK, Workspace, git, repo_root};
+use common::hooks::{PRE_PUSH_HOOK, Workspace, git, make_executable, repo_root};
 
-/// A line the hook prints so a push can say which copy of it ran.
-fn marked(hook: &Path, marker: &str) {
-    let body = std::fs::read_to_string(hook).expect("read the checked-in hook");
+/// Write the real hook to `dest` with one extra line saying which copy of it
+/// ran. Always built from this repo's pristine copy, so marking a file never
+/// inherits a marker from whatever it is overwriting.
+fn marked(dest: &Path, marker: &str) {
+    let body = std::fs::read_to_string(repo_root().join(PRE_PUSH_HOOK))
+        .expect("read this repo's checked-in hook");
     let (shebang, rest) = body.split_once('\n').expect("the hook has a shebang");
-    std::fs::write(hook, format!("{shebang}\necho \"{marker}\"\n{rest}"))
-        .expect("mark the checked-in hook");
+    std::fs::write(dest, format!("{shebang}\necho \"{marker}\"\n{rest}"))
+        .expect("write a marked hook");
+    make_executable(dest);
 }
 
 /// Commit something the skip list cannot call inert, and hand back the range.
