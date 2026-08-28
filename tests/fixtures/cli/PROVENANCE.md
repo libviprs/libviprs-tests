@@ -1158,11 +1158,11 @@ References (paths relative to `tests/fixtures/cli/`):
 | `resample/reduceh_expected.png` | ≤1 LSB (1) | `vips reduceh grad.png reduceh_expected.png 2` |
 | `resample/reducev_expected.png` | ≤1 LSB (1) | `vips reducev grad.png reducev_expected.png 2` |
 | `resample/resize_half_expected.png` | ≤1 LSB (0) | `vips resize rgb.png resize_half_expected.png 0.5` |
-| `resample/resize_vscale_expected.png` | ≤1 LSB (0) | `vips resize rgb.png resize_vscale_expected.png 0.5 --vscale 0.75` |
+| `resample/resize_vscale_expected.png` | **EXACT (0)** | `vips resize rgb.png resize_vscale_expected.png 0.5 --vscale 0.75` |
 | `resample/resize_up_expected.png` | ≤1 LSB (1) | `vips resize grad.png resize_up_expected.png 2.0` (upscale → affine path) |
 | `resample/resize_nearest_expected.png` | ≤1 LSB (0) | `vips resize rgb.png resize_nearest_expected.png 0.5 --kernel nearest` |
 | `resample/affine_bilinear_expected.png` | ≤1 LSB (1) | `vips affine rgb.png affine_bilinear_expected.png "1.5 0 0 1.5"` (default bilinear) |
-| `resample/affine_bicubic_expected.png` | **2 LSB (2)** | `vips affine rgb.png affine_bicubic_expected.png "1.5 0 0 1.5" --interpolate bicubic` (bicubic quantises to 2 LSB — noted divergence) |
+| `resample/affine_bicubic_expected.png` | ≤1 LSB (1) | `vips affine rgb.png affine_bicubic_expected.png "1.5 0 0 1.5" --interpolate bicubic` (was 2 before libviprs#702 rounded the bicubic offset onto vips's grid) |
 | `resample/similarity_angle_expected.png` | ≤1 LSB (1) | `vips similarity rgb.png similarity_angle_expected.png --angle 30` |
 | `resample/similarity_scale_expected.png` | ≤1 LSB (1) | `vips similarity rgb.png similarity_scale_expected.png --scale 1.5` |
 | `resample/rotate_expected.png` | ≤1 LSB (1) | `vips rotate rgb.png rotate_expected.png 30` |
@@ -1170,7 +1170,7 @@ References (paths relative to `tests/fixtures/cli/`):
 | `resample/mapim_bicubic_expected.png` | ≤1 LSB (1) | `vips mapim rgb.png mapim_bicubic_expected.png index.v --interpolate bicubic` |
 | `resample/thumbnail_expected.png` | ≤1 LSB (0) | `vips thumbnail rgb.png thumbnail_expected.png 16` (FILENAME input) |
 | `resample/thumbnail_crop_expected.png` | ≤1 LSB (0) | `vips thumbnail rgb.png thumbnail_crop_expected.png 16 --height 8 --crop centre` (NON-square target — centre-crop removes pixels, 16×8, distinct from the no-crop fixtures) |
-| `resample/thumbnail_linear_expected.png` | ≤1 LSB (1) | `vips thumbnail rgb.png thumbnail_linear_expected.png 16 --linear` (linear-light reduce path) |
+| `resample/thumbnail_linear_expected.png` | ≤1 LSB (0) | `vips thumbnail rgb.png thumbnail_linear_expected.png 16 --linear` (linear-light reduce path) |
 | `resample/thumbnail_image_expected.png` | ≤1 LSB (0) | `vips thumbnail_image rgb.png thumbnail_image_expected.png 16` |
 
 **Open question**: `affine … --interpolate bicubic` measures **2 LSB** (not the

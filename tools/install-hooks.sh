@@ -11,6 +11,9 @@ set -euo pipefail
 #                 Check & Lint. Update the per-repo cargo command lists below
 #                 when a repo's CI matrix changes, and re-run this script.
 #   pre-push    — Docker test suite via run-tests.sh (slow, on every push)
+#                 The hook itself is a tracked file, tools/hooks/pre-push;
+#                 what lands in .git/hooks is a shim that runs it
+#                 (libviprs/libviprs#695).
 #                 Runs against the working tree being pushed, which for a
 #                 linked worktree is not the main checkout the hooks
 #                 directory lives in (libviprs/libviprs#684). Only where the
@@ -35,19 +38,34 @@ REPOS=(
 )
 
 # ---------------------------------------------------------------------------
-# Per-repo cargo lint/check commands. Keep these in lockstep with the
-# `cargo` lines under the Check & Lint / lint-and-build jobs in each repo's
-# `.github/workflows/ci.yml`. They run in order; the first failure aborts.
+# Per-repo cargo lint commands, in lockstep with the `cargo clippy` and
+# `cargo fmt` lines in each repo's `.github/workflows/ci.yml`, feature matrix
+# expanded. They run in order; the first failure aborts.
+#
+# `tests/install_hooks_mirror_ci.rs` enforces the lockstep by running the
+# generated hook with a recording stand-in for `cargo` and comparing what it
+# invokes against those workflow lines, so a list that drifts fails there
+# naming the passes it lost. It used to be a comment asking a human to keep
+# them in step, and the core's list sat at two of five passes for as long as
+# that was true (libviprs/libviprs#715).
 #
 # `cargo clippy` already runs `cargo check`'s work, so we don't repeat the
 # explicit `cargo check --all-targets` lines that CI also has — clippy
-# covers them.
+# covers them. The core's `cargo build --features s3` is also out: it is there
+# to prove a deprecated alias still resolves, which the manifest settles
+# without a whole extra build on every commit.
 # ---------------------------------------------------------------------------
 
-# libviprs has both default-features and `--features pdfium` clippy passes.
+# libviprs lints the default cell and four feature-gated ones. Each of the
+# latter is in CI because the default pass compiles none of that code:
+# object-store-sink (#382), svg (#502) and jxl (#500) are all non-default and
+# all have `#[cfg(test)] mod tests` the default job never sees.
 LIBVIPRS_CARGO_STEPS=(
     "cargo clippy --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features pdfium -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features object-store-sink -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features svg -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features jxl -- -D warnings -W clippy::incompatible_msrv -W deprecated"
 )
 
 # libviprs-cli has no `pdfium` feature; one clippy pass.
@@ -56,18 +74,22 @@ LIBVIPRS_CLI_CARGO_STEPS=(
 )
 
 # libviprs-tests CI is plainer — no incompatible_msrv / deprecated lints.
-# These mirror the ci.yml jobs one-for-one so the enforced local mirror
-# compiles and lints every feature cell, not just the default one. Without
-# the per-feature passes a regression in the s3 / packfile / tracing gated
-# modules ships green locally because the default harness never compiles that
-# code (the failure #55 targets). The ported step is scoped through
+# These mirror the ci.yml `feature-cells` matrix one-for-one so the enforced
+# local mirror compiles and lints every feature cell, not just the default
+# one. Without the per-feature passes a regression in the object-store-sink /
+# packfile / tracing / jxl gated modules ships green locally because the
+# default harness never compiles that code (the failure #55 targets). `s3`
+# stood here in place of `object-store-sink` for a while, which is the same
+# feature under a deprecated alias, so the `jxl` cell was the one going
+# unlinted (libviprs/libviprs#715). The ported step is scoped through
 # tools/run_ported_cells.sh because the three deferred codec cells do not
 # compile yet (issue #77), so `--all-targets` cannot carry that feature.
 LIBVIPRS_TESTS_CARGO_STEPS=(
     "cargo clippy --all-targets -- -D warnings"
-    "cargo clippy --all-targets --features s3 -- -D warnings"
+    "cargo clippy --all-targets --features object-store-sink -- -D warnings"
     "cargo clippy --all-targets --features packfile -- -D warnings"
     "cargo clippy --all-targets --features tracing -- -D warnings"
+    "cargo clippy --all-targets --features jxl -- -D warnings"
     "./tools/run_ported_cells.sh --clippy"
 )
 
@@ -175,195 +197,60 @@ HOOK
     chmod +x "$pre_commit"
 }
 
-write_pre_push() {
+# The pre-push hook is not generated. It is a real file at tools/hooks/pre-push
+# and this writes a shim that runs it, so a linter can see it, the guards can
+# execute it, and a pull into this checkout updates the hook in every repo
+# pointing at it instead of needing a redeploy per fix
+# (libviprs/libviprs#695).
+PRE_PUSH_HOOK="$SCRIPT_DIR/hooks/pre-push"
+
+install_pre_push() {
     local hooks_dir="$1"
     local pre_push="$hooks_dir/pre-push"
-    cat > "$pre_push" << 'HOOK'
-#!/usr/bin/env bash
-set -euo pipefail
 
-# Pre-push hook: run Docker test suite before pushing.
-# Installed by libviprs-tests/tools/install-hooks.sh
-# To skip (emergency only): git push --no-verify
-
-# A repo's main checkout and all of its linked worktrees share one hooks
-# directory, and git invokes the hook with $0 inside that shared directory.
-# Anything resolved from $0 is therefore the main checkout, whichever tree is
-# actually being pushed, which is how every lane worktree on epic #520 gated
-# against `main` instead of against its own branch (libviprs/libviprs#684).
-# A worktree's .git is a file holding a gitdir: pointer rather than a
-# directory, so walking up from it does not work either. Ask git, which runs
-# hooks from the top of the working tree whose commits are going out.
-TREE="$(git rev-parse --show-toplevel)"
-
-# --git-common-dir is the *main* checkout's .git for a linked worktree, and a
-# path relative to here for the main checkout itself, so resolve it from the
-# tree rather than assuming it is absolute. Its parent tells us which repo
-# this is, and where the sibling libviprs-tests checkout lives.
-MAIN_CHECKOUT="$(cd "$TREE" && cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd)"
-REPO_NAME="$(basename "$MAIN_CHECKOUT")"
-WORKSPACE_ROOT="$(cd "$MAIN_CHECKOUT/.." && pwd)"
-RUN_TESTS="$WORKSPACE_ROOT/libviprs-tests/tools/run-tests.sh"
-
-# Hand the pushed tree to the suite in whichever slot it belongs. Without
-# this run-tests.sh falls back to the sibling checkouts, which is the whole
-# defect. There are two slots and this hook is only installed into the two
-# repos that have one (libviprs/libviprs#691).
-# Both slots get pinned, not just the one being pushed. run-tests.sh falls
-# back to the siblings of wherever the script itself sits, and the script the
-# line below may pick sits inside the worktree, whose neighbours are other
-# lanes rather than the workspace. Naming both leaves nothing to infer.
-case "$REPO_NAME" in
-    libviprs)
-        export LIBVIPRS_DIR="$TREE"
-        export LIBVIPRS_TESTS_DIR="$WORKSPACE_ROOT/libviprs-tests"
-        ;;
-    libviprs-tests)
-        export LIBVIPRS_TESTS_DIR="$TREE"
-        export LIBVIPRS_DIR="$WORKSPACE_ROOT/libviprs"
-        # A push that changes the harness gates on the harness it changes,
-        # not on the copy sitting in the main checkout.
-        if [ -x "$TREE/tools/run-tests.sh" ]; then
-            RUN_TESTS="$TREE/tools/run-tests.sh"
-        fi
-        ;;
-esac
-
-if [ ! -f "$RUN_TESTS" ]; then
-    echo "Warning: run-tests.sh not found at $RUN_TESTS"
-    echo "Skipping pre-push tests. Install libviprs-tests as a sibling directory."
-    exit 0
-fi
-
-# ---------------------------------------------------------------------------
-# Is there anything in this push the suite could see?
-# ---------------------------------------------------------------------------
-# A full image build and suite run for a two-file workflow edit is what taught
-# everyone to reach for --no-verify, and a hook nobody runs protects nothing
-# (libviprs/libviprs#683). So skip, but only where the answer is knowable:
-# paths that no test in either repo reads. That list is deliberately short.
-#
-# README.md and CHANGELOG.md are NOT on it. This suite's documentation guards
-# read both, and they read them out of the *core* checkout as well as its own
-# (tests/feature_rename_docs_present.rs), so a docs-only push to either repo
-# can genuinely fail. Two entries are per-repo for the same reason: .github/
-# and .gitignore are inert for a libviprs push and read by a libviprs-tests
-# one, whose pinning guards read .github/workflows/*.yml (tests/common/
-# workflows.rs, tests/counterpart_pinning.rs) and whose provenance guard reads
-# .gitignore for the native-binary patterns (tests/pdfium_provenance.rs, issue
-# #56). A .gitignore-only push is exactly the push that can drop those
-# patterns, so it is the last one that should skip the guard on them.
-#
-# tests/prepush_gate_cost_controls.rs runs every tracked path in both repos
-# through this function for real and pins the set that comes back inert, so
-# adding an entry here fails there with the files it would newly exempt.
-#
-# Set LIBVIPRS_PREPUSH_ALL=1 to run the suite whatever the paths say.
-
-inert_path() {
-    case "$1" in
-        .github/*|.gitignore)
-            [ "$REPO_NAME" != "libviprs-tests" ]
-            ;;
-        docs/*|.gitattributes|.editorconfig|LICENSE|LICENSE-*)
-            true
-            ;;
-        *)
-            false
-            ;;
-    esac
-}
-
-REF_UPDATES="$(cat)"
-CHANGED=""
-SKIP_SUITE=false
-
-if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
-    UNKNOWN=false
-    while read -r _local_ref local_oid _remote_ref remote_oid; do
-        if [ -z "${local_oid:-}" ]; then
-            continue
-        fi
-        # An all-zero local oid is a ref deletion: no content goes out.
-        case "$local_oid" in
-            *[!0]*) : ;;
-            *)      continue ;;
-        esac
-
-        BASE=""
-        case "${remote_oid:-}" in
-            *[!0]*)
-                if git cat-file -e "${remote_oid}^{commit}" 2>/dev/null; then
-                    BASE="$remote_oid"
-                fi
-                ;;
-        esac
-        if [ -z "$BASE" ]; then
-            # New branch. Compare against whatever the remote's default branch
-            # already has, and give up rather than guess if that is not here.
-            UPSTREAM="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
-            if [ -z "$UPSTREAM" ]; then
-                UPSTREAM="origin/main"
-            fi
-            BASE="$(git merge-base "$local_oid" "$UPSTREAM" 2>/dev/null || true)"
-        fi
-        if [ -z "$BASE" ]; then
-            UNKNOWN=true
-            break
-        fi
-
-        # Unguarded this is a `set -e` exit: a git failure here would abort
-        # the push with nothing printed. A range we cannot diff is a range we
-        # cannot judge, which is the same answer as a base we could not find.
-        if ! REF_PATHS="$(git diff --name-only "$BASE" "$local_oid" --)"; then
-            UNKNOWN=true
-            break
-        fi
-        CHANGED="$CHANGED
-$REF_PATHS"
-    done <<REFS
-$REF_UPDATES
-REFS
-
-    if [ "$UNKNOWN" = false ]; then
-        SKIP_SUITE=true
-        while IFS= read -r changed_path; do
-            if [ -z "$changed_path" ]; then
-                continue
-            fi
-            if inert_path "$changed_path"; then
-                continue
-            fi
-            SKIP_SUITE=false
-            echo "Pre-push: $changed_path can reach the suite, running it."
-            break
-        done <<PATHS
-$CHANGED
-PATHS
+    if [ ! -x "$PRE_PUSH_HOOK" ]; then
+        echo "Error: no executable pre-push hook at $PRE_PUSH_HOOK." >&2
+        echo "It is tracked in this repo; check the checkout is complete and" >&2
+        echo "that the executable bit survived." >&2
+        exit 1
     fi
+
+    # Unquoted marker: the installed path is baked in here, once, at install
+    # time. Nothing else in this chunk expands.
+    cat > "$pre_push" << HOOK
+#!/usr/bin/env bash
+# Pre-push shim. Installed by libviprs-tests/tools/install-hooks.sh
+# To skip (emergency only): git push --no-verify
+#
+# No behaviour lives here on purpose. The hook is checked in at
+# libviprs-tests/tools/hooks/pre-push (libviprs/libviprs#695); this only points
+# at it, so a pull updates every repo at once and no clone can quietly run a
+# vintage nobody can name.
+HOOK_PATH="$PRE_PUSH_HOOK"
+HOOK
+
+    cat >> "$pre_push" << 'HOOK'
+
+# A harness push runs the hook it is pushing, the same way it gates on the
+# suite it is pushing (libviprs/libviprs#684). Only libviprs-tests carries this
+# file, so for every other repo the test below is simply false.
+TREE="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$TREE" ] && [ -x "$TREE/tools/hooks/pre-push" ]; then
+    HOOK_PATH="$TREE/tools/hooks/pre-push"
 fi
 
-if [ "$SKIP_SUITE" = true ]; then
-    echo "Pre-push: nothing in this push reaches the test suite, skipping it."
-    printf '%s\n' "$CHANGED" | sed '/^$/d; s/^/  /'
-    echo "  (LIBVIPRS_PREPUSH_ALL=1 runs it anyway)"
-    exit 0
-fi
-
-# git hands every hook a GIT_DIR (and, in a worktree, one pointing at the
-# per-worktree admin directory), and it wins over -C and over the working
-# directory for every git command anything below runs. Leaving it set made the
-# suite report this push's HEAD as the revision of trees it had never looked
-# at. The paths above are already resolved, so drop it here.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_QUARANTINE_PATH
-
-echo "Running pre-push test suite on $TREE..."
-if ! "$RUN_TESTS"; then
-    echo ""
-    echo "Pre-push tests failed. Push aborted."
-    echo "Fix the failures or use: git push --no-verify"
+# Installing by reference has one failure mode copying does not: the file can
+# go away, and git skips a hook it cannot execute without printing anything. A
+# gate that disappears in silence is the failure #683 and #684 were both about,
+# so refuse the push and say where to look.
+if [ ! -x "$HOOK_PATH" ]; then
+    echo "pre-push: no executable hook at $HOOK_PATH" >&2
+    echo "Re-run libviprs-tests/tools/install-hooks.sh, or restore that checkout." >&2
+    echo "To push without a gate: git push --no-verify" >&2
     exit 1
 fi
+
+exec "$HOOK_PATH" "$@"
 HOOK
     chmod +x "$pre_push"
 }
@@ -533,7 +420,7 @@ for REPO_DIR in "${REPOS[@]}"; do
             # for the cli it gates the cli.
             write_pre_commit "$HOOKS_DIR" "$REPO_NAME"
             if has_suite_slot "$REPO_NAME"; then
-                write_pre_push "$HOOKS_DIR"
+                install_pre_push "$HOOKS_DIR"
                 echo "  done: $REPO_NAME (pre-commit + pre-push)"
             else
                 echo "  done: $REPO_NAME (pre-commit only; the suite has no slot for it)"
