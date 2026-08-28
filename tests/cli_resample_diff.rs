@@ -92,10 +92,12 @@ use tempfile::TempDir;
 /// (libviprs#704) plus the bicubic accumulation order (libviprs#705).
 const BT1: f64 = 1.0;
 
-/// Bit-exact. Only `resize --vscale 0.75` is held here, and only because it is
-/// the one cell besides `affine … bicubic` that a wrong resampling offset moves
-/// (libviprs#723). Twelve more cells measure 0, and they stay at [`BT1`]
-/// because no mutation of the offset separates 0 from 1 on them.
+/// Bit-exact. Two cells are held here, both `resize 0.5 --vscale 0.75`: the
+/// uchar one because it is the one uchar cell besides `affine … bicubic` that a
+/// wrong resampling offset moves at all (libviprs#723), and the float one
+/// because on that carrier the same op is bit-exact and a wrong offset is worth
+/// 0.697 of a unit (libviprs#724). Twelve more cells measure 0, and they stay at
+/// [`BT1`] because no mutation of the offset separates 0 from 1 on them.
 const EXACT: f64 = 0.0;
 
 /// Skip-guard: `true` (with a printed reason) when the CLI sibling is absent.
