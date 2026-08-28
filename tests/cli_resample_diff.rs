@@ -9,14 +9,43 @@
 //! exactly — including the skip-guard / `VIPRS_REQUIRE_CLI` discipline.
 //!
 //! **Every resample op is oracle class BOUNDED-TOL** (the premultiply / rounding
-//! campaign #406-418): the core computes the reduce / interpolate masks in `f64`
-//! per output position while vips quantises the sub-pixel offset into fixed-point
-//! tables, so the two agree to ≤1 LSB. The MEASURED per-case max-abs-diff (see
-//! PROVENANCE.md) is 0 or 1 for every case **except** `affine … --interpolate
-//! bicubic`, which measures **2 LSB**: the core evaluates exact f64 Catmull-Rom
-//! coefficients while vips's `VipsInterpolateBicubic` uses a coarser fixed-point
-//! table, a genuine core-vs-vips rounding difference (not a CLI bug) compared at
-//! tol 2 with a documented open question.
+//! campaign #406-418), and since libviprs#668 the reason is a narrower one than
+//! this header used to give. The core no longer evaluates the reduce and
+//! bicubic kernels at the true sub-pixel offset. `table_offset` rounds the
+//! offset onto the same 65-entry grid `vips_reduceh` and
+//! `vips_interpolate_bicubic_interpolate` round onto, so the offset is not a
+//! source of divergence on either side any more.
+//!
+//! Two smaller things are left, and both have an issue of their own. On the
+//! integer carriers vips quantises the coefficients themselves, `matrixs` in
+//! reduce and `matrixi` in bicubic, where the core stays in f64
+//! (libviprs#704). And `bicubic_float` sums four rows and then the columns
+//! while the core runs one 16-term sum, which reassociates the same products
+//! and moves the last bit (libviprs#705). Together they are worth ≤1 LSB on a
+//! uchar carrier, and they are what the nine cells measuring 1 are made of.
+//!
+//! **What this header said before, and why it mattered.** It said the core
+//! computed the masks in `f64` per output position "so the two agree to ≤1
+//! LSB", and `AFFINE_BICUBIC_TOL = 2.0` said the same thing again about the
+//! interpolator. That is the divergence libviprs#668 turned out to be, written
+//! down as a design decision in two places across two repos, and it is a fair
+//! part of why the bug lasted. Both are gone.
+//!
+//! **What is pinned, and what deliberately is not** (measured in
+//! libviprs#723). After libviprs#702 thirteen of the 22 comparison cells
+//! measure 0 and nine measure 1. Six mutations of the resampling offset, from
+//! reverting it outright to coarsening the grid four times over, move exactly
+//! two cells: `resize --vscale 0.75` and `affine … --interpolate bicubic`.
+//! Those two are pinned at what they measure, 0 and 1. The other twelve zeroes
+//! stay at ≤1, because no mutation of the offset separates 0 from 1 on them, so
+//! pinning them would buy no falsifiability and cost a vips-version tripwire.
+//!
+//! **The reduce half of libviprs#668 has no guard here at all**, and no
+//! tolerance can give it one. `resize --vscale 0.75` is the right op at the
+//! right factor and it reads 0 before the fix, after it, and with the fix
+//! reverted: on a float `.v` the two cores differ, on the committed PNG they
+//! are byte-identical, so the difference rounds away below an LSB. That wants a
+//! float-carrier cell and a new committed reference, which is libviprs#724.
 //!
 //! Inputs are DISCRIMINATING (an identity / no-op op would FAIL): `grad.png` is a
 //! 2-D gradient varying in BOTH axes (so `shrinkv`/`reducev`/`rot` are
