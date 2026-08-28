@@ -115,6 +115,7 @@ fn out_path(name: &str) -> PathBuf {
 const GRAD: &str = "resample/grad.png";
 const RGB: &str = "resample/rgb.png";
 const INDEX: &str = "resample/index.v";
+const HF: &str = "resample/hf.v";
 
 /// Convenience: the absolute string path of a committed fixture.
 fn fx(rel: &str) -> String {
@@ -268,6 +269,33 @@ fn resize_vscale_matches_vips_exactly() {
     decode_compare(
         &PathBuf::from(&out),
         &cli_fixture("resample/resize_vscale_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn resize_vscale_float_matches_vips_exactly() {
+    if skip_if_no_cli("resize_vscale_float") {
+        return;
+    }
+    let out = op("resize_vscale_float.v");
+    // The SAME op as `resize_vscale_matches_vips_exactly` on a FLOAT carrier,
+    // and the only cell in this file that can see the reduce half of
+    // libviprs#668. 32x32 to 16x24: horizontal 0.5 is dyadic and lands every
+    // offset on the 1/64 grid, the vertical residual shrink is 4/3 and misses
+    // it at nearly every output row, so `reduce_axis` is the whole difference
+    // between the two binaries here.
+    //
+    // On the uchar twin that difference is under half an LSB and rounds away,
+    // which is why the PNG cell reads 0 before libviprs#702, after it, and with
+    // it reverted (libviprs#723). Unrounded it is 0.697 of a unit on data
+    // spanning 0..250, four orders of magnitude above the f32 accumulation
+    // noise, so EXACT here is a cell that separates a correct core from a
+    // reverted one instead of one that measures nothing.
+    run_viprs_ok(&["resize", &fx(HF), &out, "0.5", "--vscale", "0.75"]);
+    decode_compare(
+        &PathBuf::from(&out),
+        &cli_fixture("resample/resize_vscale_float_expected.v"),
         EXACT,
     );
 }
