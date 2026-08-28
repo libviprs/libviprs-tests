@@ -118,10 +118,15 @@ CONTAINER_NAME="libviprs-tests-run"
 #   workspace/
 #     libviprs/          (core library)
 #     libviprs-tests/    (integration tests + Dockerfile)
+#
+# Every path here is resolved with `pwd -P`, so the banner, the staged build
+# context and anything comparing against them all name the same directory even
+# when the workspace is reached through a symlink. A logical `pwd` would print
+# the link and the physical path would be what actually got staged.
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SELF_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+SELF_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 
 LIBVIPRS_DIR="${LIBVIPRS_ARG:-${LIBVIPRS_DIR:-$WORKSPACE_ROOT/libviprs}}"
 # The test tree defaults to the checkout this script is part of, not to the
@@ -148,8 +153,8 @@ if [ ! -d "$TESTS_DIR" ]; then
     exit 1
 fi
 
-LIBVIPRS_DIR="$(cd "$LIBVIPRS_DIR" && pwd)"
-TESTS_DIR="$(cd "$TESTS_DIR" && pwd)"
+LIBVIPRS_DIR="$(cd "$LIBVIPRS_DIR" && pwd -P)"
+TESTS_DIR="$(cd "$TESTS_DIR" && pwd -P)"
 
 if [ ! -f "$TESTS_DIR/Dockerfile" ]; then
     echo "Error: Dockerfile not found at $TESTS_DIR/Dockerfile"

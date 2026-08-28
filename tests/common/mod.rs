@@ -6,8 +6,9 @@
 //! Cargo treats `tests/common/mod.rs` (directory module) specially — it
 //! isn't compiled as its own integration target.
 //!
-//! The canonical-fixture loader sits in [`fixtures`], and [`workflows`]
-//! resolves the CI workflow files the pinning guards read. Below them: PDF /
+//! The canonical-fixture loader sits in [`fixtures`], [`workflows`]
+//! resolves the CI workflow files the pinning guards read, and [`hooks`]
+//! reads the hook text `tools/install-hooks.sh` generates. Below them: PDF /
 //! pdfium-specific shared helpers for the streaming-mode integration
 //! tests. The pdfium helpers are gated behind the `pdfium` feature so
 //! the module compiles cleanly with the default feature set.
@@ -21,6 +22,7 @@
 pub mod cli;
 pub mod dzsave_expected;
 pub mod fixtures;
+pub mod hooks;
 pub mod workflows;
 
 #[cfg(feature = "pdfium")]

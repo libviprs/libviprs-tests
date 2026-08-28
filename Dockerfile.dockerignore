@@ -1,17 +1,20 @@
 # BuildKit .dockerignore for the run-tests.sh Docker mirror.
 #
-# The mirror builds with the WORKSPACE ROOT (the parent of libviprs/ and
-# libviprs-tests/) as the build context and `-f libviprs-tests/Dockerfile`
-# (see tools/run-tests.sh). Docker therefore reads its ignore rules from the
-# context root's `.dockerignore`, NOT from `libviprs-tests/.dockerignore`.
-# BuildKit checks for a `<dockerfile>.dockerignore` next to the `-f` Dockerfile
-# first and prefers it, so this file (living in the libviprs-tests repo, in
-# scope) is the authoritative ignore set for the mirror build. It fully
-# replaces the context-root file, so it must carry every exclusion, not just
-# the native-library additions.
+# The mirror stages the two trees under test into a scratch context and builds
+# with that as the build context and `-f <tests tree>/Dockerfile` (see
+# tools/run-tests.sh, "Build context"). The `-f` Dockerfile therefore sits
+# outside the context it is building. BuildKit looks for a
+# `<dockerfile>.dockerignore` next to the `-f` Dockerfile first and prefers it
+# over a `.dockerignore` at the context root, and it does that whether or not
+# the two live in the same directory, so this file (living in the
+# libviprs-tests repo, beside the Dockerfile it belongs to) is the
+# authoritative ignore set for the mirror build. It fully replaces any
+# context-root file, so it must carry every exclusion, not just the
+# native-library additions.
 #
-# Patterns are relative to the build context (the workspace root); `**/` makes
-# them match under both libviprs/ and libviprs-tests/.
+# Patterns are relative to the build context, which holds exactly two entries,
+# `libviprs/` and `libviprs-tests/`, staged there by run-tests.sh. `**/` makes
+# them match under both.
 **/target/
 **/.git/
 **/.DS_Store

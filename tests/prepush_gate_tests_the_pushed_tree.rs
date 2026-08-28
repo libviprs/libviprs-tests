@@ -24,38 +24,10 @@
 //! `feature_rename_docs_present`: there is no libvips analogue for "the local
 //! gate is honest", and the failure mode is silent by construction.
 
-use std::path::PathBuf;
 use std::process::Command;
 
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn read(rel: &str) -> String {
-    let path = repo_root().join(rel);
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
-}
-
-/// The pre-push hook body exactly as `install-hooks.sh` writes it: the
-/// heredoc between `<< 'HOOK'` and the closing `HOOK`. Reading the generated
-/// text rather than the generator keeps the assertions below pointed at what
-/// actually lands in `.git/hooks/pre-push`.
-fn generated_pre_push() -> String {
-    let script = read("tools/install-hooks.sh");
-    let start = script
-        .find("cat > \"$pre_push\" << 'HOOK'\n")
-        .map(|i| i + "cat > \"$pre_push\" << 'HOOK'\n".len())
-        .expect(
-            "tools/install-hooks.sh no longer writes the pre-push hook from a \
-             `cat > \"$pre_push\" << 'HOOK'` heredoc; update this guard to \
-             follow it rather than deleting it",
-        );
-    let rest = &script[start..];
-    let end = rest
-        .find("\nHOOK\n")
-        .expect("unterminated pre-push heredoc in tools/install-hooks.sh");
-    rest[..end].to_string()
-}
+mod common;
+use common::hooks::{generated_pre_push, read, repo_root};
 
 /// #684: the hook must ask git which tree is being pushed. `$0` points into
 /// the hooks directory, which a main checkout shares with every worktree
@@ -188,7 +160,10 @@ fn run_tests_still_defaults_to_the_sibling_layout() {
     let plan = String::from_utf8_lossy(&out.stdout);
 
     // `libviprs = { path = "../libviprs" }` in this crate's manifest means the
-    // sibling is present whenever this test can run at all.
+    // sibling is present whenever this test can run at all. Both sides are
+    // physical paths: `canonicalize` here, `pwd -P` in the script. A logical
+    // `pwd` over there would print the symlink a workspace was reached through
+    // and this would go red on a layout that works perfectly well.
     let sibling = repo_root()
         .join("../libviprs")
         .canonicalize()
