@@ -208,6 +208,10 @@ impl Workspace {
                 "commit.gpgsign=false",
                 "commit",
                 "-q",
+                // These guards are about the pre-push hook. The pre-commit
+                // hook the installer also writes runs `cargo fmt` in the repo
+                // it is installed in, and a stand-in repo is not a crate.
+                "--no-verify",
                 "--allow-empty",
                 "-m",
                 message,

@@ -131,3 +131,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt -- --check
       - run: cargo clippy --all-targets -- -D warnings
+      # The pre-push hook is a real file rather than a heredoc inside
+      # install-hooks.sh (libviprs/libviprs#695), so it gets linted like the
+      # rest of the shell. shellcheck ships on the ubuntu-latest image.
+      - run: shellcheck tools/*.sh tools/hooks/pre-push
