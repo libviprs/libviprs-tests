@@ -38,19 +38,34 @@ REPOS=(
 )
 
 # ---------------------------------------------------------------------------
-# Per-repo cargo lint/check commands. Keep these in lockstep with the
-# `cargo` lines under the Check & Lint / lint-and-build jobs in each repo's
-# `.github/workflows/ci.yml`. They run in order; the first failure aborts.
+# Per-repo cargo lint commands, in lockstep with the `cargo clippy` and
+# `cargo fmt` lines in each repo's `.github/workflows/ci.yml`, feature matrix
+# expanded. They run in order; the first failure aborts.
+#
+# `tests/install_hooks_mirror_ci.rs` enforces the lockstep by running the
+# generated hook with a recording stand-in for `cargo` and comparing what it
+# invokes against those workflow lines, so a list that drifts fails there
+# naming the passes it lost. It used to be a comment asking a human to keep
+# them in step, and the core's list sat at two of five passes for as long as
+# that was true (libviprs/libviprs#715).
 #
 # `cargo clippy` already runs `cargo check`'s work, so we don't repeat the
 # explicit `cargo check --all-targets` lines that CI also has — clippy
-# covers them.
+# covers them. The core's `cargo build --features s3` is also out: it is there
+# to prove a deprecated alias still resolves, which the manifest settles
+# without a whole extra build on every commit.
 # ---------------------------------------------------------------------------
 
-# libviprs has both default-features and `--features pdfium` clippy passes.
+# libviprs lints the default cell and four feature-gated ones. Each of the
+# latter is in CI because the default pass compiles none of that code:
+# object-store-sink (#382), svg (#502) and jxl (#500) are all non-default and
+# all have `#[cfg(test)] mod tests` the default job never sees.
 LIBVIPRS_CARGO_STEPS=(
     "cargo clippy --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features pdfium -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features object-store-sink -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features svg -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features jxl -- -D warnings -W clippy::incompatible_msrv -W deprecated"
 )
 
 # libviprs-cli has no `pdfium` feature; one clippy pass.
@@ -59,18 +74,22 @@ LIBVIPRS_CLI_CARGO_STEPS=(
 )
 
 # libviprs-tests CI is plainer — no incompatible_msrv / deprecated lints.
-# These mirror the ci.yml jobs one-for-one so the enforced local mirror
-# compiles and lints every feature cell, not just the default one. Without
-# the per-feature passes a regression in the s3 / packfile / tracing gated
-# modules ships green locally because the default harness never compiles that
-# code (the failure #55 targets). The ported step is scoped through
+# These mirror the ci.yml `feature-cells` matrix one-for-one so the enforced
+# local mirror compiles and lints every feature cell, not just the default
+# one. Without the per-feature passes a regression in the object-store-sink /
+# packfile / tracing / jxl gated modules ships green locally because the
+# default harness never compiles that code (the failure #55 targets). `s3`
+# stood here in place of `object-store-sink` for a while, which is the same
+# feature under a deprecated alias, so the `jxl` cell was the one going
+# unlinted (libviprs/libviprs#715). The ported step is scoped through
 # tools/run_ported_cells.sh because the three deferred codec cells do not
 # compile yet (issue #77), so `--all-targets` cannot carry that feature.
 LIBVIPRS_TESTS_CARGO_STEPS=(
     "cargo clippy --all-targets -- -D warnings"
-    "cargo clippy --all-targets --features s3 -- -D warnings"
+    "cargo clippy --all-targets --features object-store-sink -- -D warnings"
     "cargo clippy --all-targets --features packfile -- -D warnings"
     "cargo clippy --all-targets --features tracing -- -D warnings"
+    "cargo clippy --all-targets --features jxl -- -D warnings"
     "./tools/run_ported_cells.sh --clippy"
 )
 
