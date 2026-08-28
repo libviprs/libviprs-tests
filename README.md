@@ -140,8 +140,9 @@ docker run --rm libviprs-tests cargo test --features pdfium -- --ignored pdfium_
 
 ## Git Hooks
 
-`install-hooks.sh` installs pre-commit and pre-push hooks into all three
-repos (libviprs, libviprs-cli, libviprs-tests):
+`install-hooks.sh` installs the pre-commit hook into all four repos
+(libviprs, libviprs-cli, libviprs-tests, pdfium-render) and the pre-push hook
+into the two the suite can see:
 
 ```bash
 # From libviprs-tests/
@@ -152,10 +153,19 @@ repos (libviprs, libviprs-cli, libviprs-tests):
 - `cargo fmt -- --check` — rejects unformatted code
 - `cargo clippy --all-targets -- -D warnings` — rejects lint warnings
 
-**Pre-push** (runs on `git push`, when the push can reach the suite):
+**Pre-push** (libviprs and libviprs-tests only; runs on `git push`, when the
+push can reach the suite):
 - Runs the Docker test suite via `run-tests.sh`, against the working tree being
   pushed. A linked worktree gates on its own branch, not on the main checkout
   (libviprs/libviprs#684).
+- libviprs-cli does not get it. `run-tests.sh` wires two trees and the
+  `Dockerfile` copies two, so a cli push would build an image the cli is not in
+  and come back with a verdict independent of the commits going out
+  (libviprs/libviprs#691). The cli's differential coverage runs in the
+  `cli-differential` CI job, which lays the cli down at `CLI_COUNTERPART_REV`
+  and sets `VIPRS_REQUIRE_CLI=1` so a silent skip is a hard failure. Running
+  `install-hooks.sh` also clears a pre-push hook an older copy of it left in
+  the cli, so the misleading gate goes away in clones that already have it.
 - Skips the run when nothing in the push can reach a test. The list of paths
   that count as inert is deliberately short and partly per-repo: `.github/` and
   `.gitignore` are inert for a libviprs push and *not* for a libviprs-tests
