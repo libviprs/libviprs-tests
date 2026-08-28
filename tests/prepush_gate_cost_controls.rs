@@ -11,11 +11,11 @@
 //!
 //! The failure mode of the whole change is the gate quietly ceasing to run, so
 //! these guards are built to fail when that happens rather than to describe it.
-//! Two of them lift `inert_path()` out of the generated hook and *execute* it:
-//! one runs every tracked path in both repos through it and pins the set that
-//! comes back inert, the other installs the whole hook in a throwaway workspace
-//! and drives real pushes past it. An earlier pair of text guards here could
-//! not fail for the reason they claimed: a reviewer flipped `inert_path`'s
+//! Two of them lift `inert_path()` out of the hook and *execute* it: one runs
+//! every tracked path in both repos through it and pins the set that comes
+//! back inert, the other installs the whole hook in a throwaway workspace and
+//! drives real pushes past it. An earlier pair of text guards here could not
+//! fail for the reason they claimed: a reviewer flipped `inert_path`'s
 //! fallthrough to `true`, disabling the gate for every push in every repo, and
 //! both stayed green.
 
@@ -25,22 +25,22 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 mod common;
-use common::hooks::{generated_pre_push, read, repo_root};
+use common::hooks::{RAN_MARKER, STUB_RUN_TESTS, Workspace, pre_push_hook, read, repo_root};
 
 // ---------------------------------------------------------------------------
 // Running the hook's own `inert_path()`
 // ---------------------------------------------------------------------------
 
-/// The `inert_path()` shell function, lifted verbatim out of the generated
-/// hook and wrapped in a driver that prints the inert ones from a list of
-/// paths on stdin.
+/// The `inert_path()` shell function, lifted verbatim out of the hook and
+/// wrapped in a driver that prints the inert ones from a list of paths on
+/// stdin.
 ///
 /// Lifting the real text is the point. A guard that re-implements the case
 /// statement in Rust tests the re-implementation, and a guard that greps the
 /// text tests the grep; both were tried here and both waved through six
 /// poisoned entries and a flipped fallthrough.
 fn inert_path_driver() -> String {
-    let hook = generated_pre_push();
+    let hook = pre_push_hook();
     let start = hook.find("inert_path() {").expect(
         "the pre-push hook must decide what it may skip in one place, a shell \
          function called inert_path()",
@@ -286,170 +286,6 @@ fn the_skip_list_never_exempts_what_the_suite_reads() {
 // Driving the whole hook
 // ---------------------------------------------------------------------------
 
-/// What the stub `run-tests.sh` prints when the hook decides to run the suite.
-const RAN_MARKER: &str = "STUB-RAN-THE-SUITE";
-
-/// A throwaway workspace holding the two repos the hook expects as siblings,
-/// with the generated pre-push hook installed in both and a stub in place of
-/// `run-tests.sh`, so a decision can be observed without Docker.
-///
-/// The evidence that this change works was six rows of skip/run decisions
-/// produced by hand. For a change whose failure mode is the gate silently
-/// ceasing to run, by hand and uncommitted is the wrong place for it.
-struct Workspace {
-    _dir: tempfile::TempDir,
-    root: PathBuf,
-}
-
-impl Workspace {
-    fn new() -> Workspace {
-        let dir = tempfile::tempdir().expect("temp dir for a stand-in workspace");
-        let root = dir.path().canonicalize().expect("canonical temp path");
-        let hook_body = generated_pre_push();
-
-        for repo in ["libviprs", "libviprs-tests"] {
-            let repo_root = root.join(repo);
-            std::fs::create_dir_all(repo_root.join("tools")).expect("create the stand-in repo");
-            git(&repo_root, &["init", "-q"]);
-
-            let hook = repo_root.join(".git/hooks/pre-push");
-            std::fs::create_dir_all(hook.parent().expect("hooks dir")).expect("create hooks dir");
-            std::fs::write(&hook, &hook_body).expect("install the generated pre-push hook");
-            make_executable(&hook);
-        }
-
-        // The hook points a libviprs push at the sibling harness's script and a
-        // libviprs-tests push at the pushed tree's own copy; in this workspace
-        // those are the same file, and it must exist or the hook bails out
-        // before it ever reaches the skip decision.
-        let stub = root.join("libviprs-tests/tools/run-tests.sh");
-        std::fs::write(&stub, format!("#!/bin/sh\necho \"{RAN_MARKER}\"\n"))
-            .expect("write the stub run-tests.sh");
-        make_executable(&stub);
-
-        Workspace { _dir: dir, root }
-    }
-
-    fn repo(&self, name: &str) -> PathBuf {
-        self.root.join(name)
-    }
-
-    /// Commit `files` in `repo` and return the commit's oid.
-    fn commit(&self, repo: &str, message: &str, files: &[(&str, &str)]) -> String {
-        let root = self.repo(repo);
-        for (rel, contents) in files {
-            let path = root.join(rel);
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).expect("create a directory for a stand-in file");
-            }
-            std::fs::write(&path, contents).expect("write a stand-in file");
-        }
-        git(&root, &["add", "-A"]);
-        git(
-            &root,
-            &[
-                "-c",
-                "user.name=prepush guard",
-                "-c",
-                "user.email=guard@example.invalid",
-                "-c",
-                "commit.gpgsign=false",
-                "commit",
-                "-q",
-                "--allow-empty",
-                "-m",
-                message,
-            ],
-        );
-        git(&root, &["rev-parse", "HEAD"]).trim().to_string()
-    }
-
-    /// Run the installed hook the way git does: from the top of the working
-    /// tree, with the ref updates on stdin.
-    fn push(&self, repo: &str, before: &str, after: &str, force_all: bool) -> String {
-        let root = self.repo(repo);
-        let mut cmd = Command::new("bash");
-        cmd.arg(root.join(".git/hooks/pre-push"))
-            .arg("origin")
-            .arg("git@example.invalid:libviprs/x.git")
-            .current_dir(&root)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        for leaked in [
-            "GIT_DIR",
-            "GIT_WORK_TREE",
-            "GIT_INDEX_FILE",
-            "GIT_PREFIX",
-            "LIBVIPRS_PREPUSH_ALL",
-        ] {
-            cmd.env_remove(leaked);
-        }
-        if force_all {
-            cmd.env("LIBVIPRS_PREPUSH_ALL", "1");
-        }
-
-        let mut child = cmd.spawn().expect("run the generated pre-push hook");
-        {
-            let stdin = child.stdin.as_mut().expect("hook stdin");
-            writeln!(stdin, "refs/heads/main {after} refs/heads/main {before}")
-                .expect("feed the ref update to the hook");
-        }
-        let out = child
-            .wait_with_output()
-            .expect("collect the hook's decision");
-        let text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        );
-        assert!(
-            out.status.success(),
-            "the pre-push hook exited {} on a {repo} push:\n{text}",
-            out.status
-        );
-        text
-    }
-}
-
-fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .output()
-        .unwrap_or_else(|e| {
-            panic!(
-                "these guards drive the real hook, which needs git on PATH: \
-                 `git {}` in {}: {e}",
-                args.join(" "),
-                dir.display()
-            )
-        });
-    assert!(
-        out.status.success(),
-        "git {} failed in {}: {}",
-        args.join(" "),
-        dir.display(),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).into_owned()
-}
-
-fn make_executable(path: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
-            .expect("make the stand-in script executable");
-    }
-    #[cfg(not(unix))]
-    let _ = path;
-}
-
 /// The skip list decides nothing on its own; the hook does. So install the
 /// hook, push at it, and read the answer off the run.
 ///
@@ -466,10 +302,7 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
         ("LICENSE", "stand-in licence\n"),
         ("docs/note.md", "stand-in note\n"),
         ("src/lib.rs", "// stand-in\n"),
-        (
-            "tools/run-tests.sh",
-            "#!/bin/sh\necho \"STUB-RAN-THE-SUITE\"\n",
-        ),
+        ("tools/run-tests.sh", STUB_RUN_TESTS),
     ];
 
     let cases: &[(&str, &str, &str, bool, &str)] = &[
@@ -499,7 +332,7 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
         (
             "libviprs-tests",
             "tools/run-tests.sh",
-            "#!/bin/sh\necho \"STUB-RAN-THE-SUITE\"\n# changed\n",
+            "#!/bin/sh\n# changed\necho \"STUB-RAN-THE-SUITE\"\n",
             true,
             "it is the suite",
         ),
@@ -529,7 +362,7 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
     for (repo, path, contents, should_run, why) in cases {
         let before = ws.commit(repo, "base", &base);
         let after = ws.commit(repo, "change", &[(path, contents)]);
-        let out = ws.push(repo, &before, &after, false);
+        let out = ws.push(repo).range(&before, &after).run();
 
         let ran = out.contains(RAN_MARKER);
         let skipped = out.contains("skipping it");
@@ -552,33 +385,19 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
 /// the next person who does not trust the filter goes back to `--no-verify`
 /// and takes the whole gate with them.
 ///
-/// Asserted twice over, because the bare name `LIBVIPRS_PREPUSH_ALL` appears
-/// three times in the hook and is expanded once: delete the one line that
-/// reads it, keep the comment, and a `contains("LIBVIPRS_PREPUSH_ALL")` guard
-/// stays green with the escape hatch gone.
+/// This used to assert `hook.contains("${LIBVIPRS_PREPUSH_ALL")` as well. The
+/// bare name appears three times in the hook and is expanded once, so that
+/// half was there to catch "delete the line that reads it, keep the comment",
+/// and it is worth exactly nothing next to running the push twice.
 #[test]
 fn the_skip_can_be_overridden() {
-    let hook = generated_pre_push();
-    assert!(
-        hook.contains("${LIBVIPRS_PREPUSH_ALL"),
-        "the pre-push hook mentions LIBVIPRS_PREPUSH_ALL but never expands it, \
-         so the escape hatch is documentation only. Without a real one the only \
-         way past a wrong skip decision is --no-verify, which is what #683 is \
-         about"
-    );
-
-    // And the same thing again through the hook itself, on a push it would
-    // otherwise skip.
     let ws = Workspace::new();
     let before = ws.commit(
         "libviprs-tests",
         "base",
         &[
             ("LICENSE", "stand-in licence\n"),
-            (
-                "tools/run-tests.sh",
-                "#!/bin/sh\necho \"STUB-RAN-THE-SUITE\"\n",
-            ),
+            ("tools/run-tests.sh", STUB_RUN_TESTS),
         ],
     );
     let after = ws.commit(
@@ -587,14 +406,18 @@ fn the_skip_can_be_overridden() {
         &[("LICENSE", "stand-in licence, revised\n")],
     );
 
-    let skipped = ws.push("libviprs-tests", &before, &after, false);
+    let skipped = ws.push("libviprs-tests").range(&before, &after).run();
     assert!(
         !skipped.contains(RAN_MARKER),
         "a LICENSE-only push should have been skipped, so the override below \
          proves nothing. The hook said:\n{skipped}"
     );
 
-    let forced = ws.push("libviprs-tests", &before, &after, true);
+    let forced = ws
+        .push("libviprs-tests")
+        .range(&before, &after)
+        .force_all()
+        .run();
     assert!(
         forced.contains(RAN_MARKER),
         "LIBVIPRS_PREPUSH_ALL=1 must run the suite on a push the list would \
