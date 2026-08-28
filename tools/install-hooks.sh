@@ -185,6 +185,121 @@ if [ ! -f "$RUN_TESTS" ]; then
     exit 0
 fi
 
+# ---------------------------------------------------------------------------
+# Is there anything in this push the suite could see?
+# ---------------------------------------------------------------------------
+# A full image build and suite run for a two-file workflow edit is what taught
+# everyone to reach for --no-verify, and a hook nobody runs protects nothing
+# (libviprs/libviprs#683). So skip, but only where the answer is knowable:
+# paths that no test in either repo reads. That list is deliberately short.
+#
+# README.md and CHANGELOG.md are NOT on it. This suite's documentation guards
+# read both, and they read them out of the *core* checkout as well as its own
+# (tests/feature_rename_docs_present.rs), so a docs-only push to either repo
+# can genuinely fail. Two entries are per-repo for the same reason: .github/
+# and .gitignore are inert for a libviprs push and read by a libviprs-tests
+# one, whose pinning guards read .github/workflows/*.yml (tests/common/
+# workflows.rs, tests/counterpart_pinning.rs) and whose provenance guard reads
+# .gitignore for the native-binary patterns (tests/pdfium_provenance.rs, issue
+# #56). A .gitignore-only push is exactly the push that can drop those
+# patterns, so it is the last one that should skip the guard on them.
+#
+# tests/prepush_gate_cost_controls.rs runs every tracked path in both repos
+# through this function for real and pins the set that comes back inert, so
+# adding an entry here fails there with the files it would newly exempt.
+#
+# Set LIBVIPRS_PREPUSH_ALL=1 to run the suite whatever the paths say.
+
+inert_path() {
+    case "$1" in
+        .github/*|.gitignore)
+            [ "$REPO_NAME" != "libviprs-tests" ]
+            ;;
+        docs/*|.gitattributes|.editorconfig|LICENSE|LICENSE-*)
+            true
+            ;;
+        *)
+            false
+            ;;
+    esac
+}
+
+REF_UPDATES="$(cat)"
+CHANGED=""
+SKIP_SUITE=false
+
+if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
+    UNKNOWN=false
+    while read -r _local_ref local_oid _remote_ref remote_oid; do
+        if [ -z "${local_oid:-}" ]; then
+            continue
+        fi
+        # An all-zero local oid is a ref deletion: no content goes out.
+        case "$local_oid" in
+            *[!0]*) : ;;
+            *)      continue ;;
+        esac
+
+        BASE=""
+        case "${remote_oid:-}" in
+            *[!0]*)
+                if git cat-file -e "${remote_oid}^{commit}" 2>/dev/null; then
+                    BASE="$remote_oid"
+                fi
+                ;;
+        esac
+        if [ -z "$BASE" ]; then
+            # New branch. Compare against whatever the remote's default branch
+            # already has, and give up rather than guess if that is not here.
+            UPSTREAM="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+            if [ -z "$UPSTREAM" ]; then
+                UPSTREAM="origin/main"
+            fi
+            BASE="$(git merge-base "$local_oid" "$UPSTREAM" 2>/dev/null || true)"
+        fi
+        if [ -z "$BASE" ]; then
+            UNKNOWN=true
+            break
+        fi
+
+        # Unguarded this is a `set -e` exit: a git failure here would abort
+        # the push with nothing printed. A range we cannot diff is a range we
+        # cannot judge, which is the same answer as a base we could not find.
+        if ! REF_PATHS="$(git diff --name-only "$BASE" "$local_oid" --)"; then
+            UNKNOWN=true
+            break
+        fi
+        CHANGED="$CHANGED
+$REF_PATHS"
+    done <<REFS
+$REF_UPDATES
+REFS
+
+    if [ "$UNKNOWN" = false ]; then
+        SKIP_SUITE=true
+        while IFS= read -r changed_path; do
+            if [ -z "$changed_path" ]; then
+                continue
+            fi
+            if inert_path "$changed_path"; then
+                continue
+            fi
+            SKIP_SUITE=false
+            echo "Pre-push: $changed_path can reach the suite, running it."
+            break
+        done <<PATHS
+$CHANGED
+PATHS
+    fi
+fi
+
+if [ "$SKIP_SUITE" = true ]; then
+    echo "Pre-push: nothing in this push reaches the test suite, skipping it."
+    printf '%s\n' "$CHANGED" | sed '/^$/d; s/^/  /'
+    echo "  (LIBVIPRS_PREPUSH_ALL=1 runs it anyway)"
+    exit 0
+fi
+
 # git hands every hook a GIT_DIR (and, in a worktree, one pointing at the
 # per-worktree admin directory), and it wins over -C and over the working
 # directory for every git command anything below runs. Leaving it set made the
