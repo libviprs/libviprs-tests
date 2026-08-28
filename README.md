@@ -155,6 +155,12 @@ into the two the suite can see:
 
 **Pre-push** (libviprs and libviprs-tests only; runs on `git push`, when the
 push can reach the suite):
+- The hook is `tools/hooks/pre-push`, a tracked file. What lands in
+  `.git/hooks/pre-push` is a shim that runs it, so a `git pull` here updates
+  the hook in every repo at once and no clone is left running a vintage nobody
+  can name (libviprs/libviprs#695). Re-run `install-hooks.sh` only when the
+  workspace layout moves. A harness push runs the hook out of the tree it is
+  pushing, so a change to the hook is gated by the changed hook.
 - Runs the Docker test suite via `run-tests.sh`, against the working tree being
   pushed. A linked worktree gates on its own branch, not on the main checkout
   (libviprs/libviprs#684).
@@ -302,6 +308,7 @@ libviprs-tests/
 ├── Dockerfile
 ├── README.md
 ├── tools/
+│   ├── hooks/pre-push
 │   ├── install-hooks.sh
 │   └── run-tests.sh
 ├── .github/
