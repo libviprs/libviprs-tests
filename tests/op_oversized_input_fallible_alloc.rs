@@ -45,6 +45,8 @@
 //! and committed under
 //! `tests/fixtures/op_oversized_input_fallible_alloc_expected/`.
 
+use core::num::NonZeroU16;
+
 use libviprs::{PixelFormat, Raster};
 
 /// Directory holding the committed `project` input fixture and its offline
@@ -63,10 +65,18 @@ fn load_gray8(name: &str) -> Raster {
     Raster::new(w, h, PixelFormat::Gray8, img.into_raw()).expect("fixture raster is well-formed")
 }
 
-/// Read a native-endian `u16` sample stream out of a raster buffer.
-fn samples_u16(data: &[u8]) -> Vec<u16> {
-    data.chunks_exact(2)
-        .map(|c| u16::from_ne_bytes([c[0], c[1]]))
+/// Read a native-endian `u32` sample stream out of a raster buffer.
+///
+/// `u32` and not `u16` since libviprs#532: `project` counts pixels, and
+/// libvips emits every counting op as `VIPS_FORMAT_UINT`, so a 300x300 image
+/// already overflows a 16-bit counter. The reference PNGs are 16-bit, which
+/// is still the right comparison for a fixture whose sums fit: they are
+/// widened rather than re-captured.
+fn samples_u32(data: &[u8]) -> Vec<u32> {
+    data.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_ne_bytes(*c))
         .collect()
 }
 
@@ -79,10 +89,16 @@ fn project_matches_libvips_project_reference() {
     let input = load_gray8("project_input.png");
     let (columns, rows) = input.project();
 
+    let one = NonZeroU16::new(1).expect("one band");
     assert_eq!(
         columns.format(),
-        PixelFormat::Gray16,
-        "project promotes column sums to a 16-bit container"
+        PixelFormat::Uint32(one),
+        "project emits the uint carrier, the way libvips emits every counting op"
+    );
+    assert_eq!(
+        rows.format(),
+        PixelFormat::Uint32(one),
+        "and the row sums take the same carrier as the column sums"
     );
     assert_eq!(
         (columns.width(), columns.height()),
@@ -102,14 +118,15 @@ fn project_matches_libvips_project_reference() {
         .expect("read project_rows_expected.png")
         .to_luma16();
 
+    let widen = |v: Vec<u16>| -> Vec<u32> { v.into_iter().map(u32::from).collect() };
     assert_eq!(
-        samples_u16(columns.data()),
-        expected_cols.into_raw(),
+        samples_u32(columns.data()),
+        widen(expected_cols.into_raw()),
         "project column sums must equal the libvips reference sample-for-sample"
     );
     assert_eq!(
-        samples_u16(rows.data()),
-        expected_rows.into_raw(),
+        samples_u32(rows.data()),
+        widen(expected_rows.into_raw()),
         "project row sums must equal the libvips reference sample-for-sample"
     );
 }
