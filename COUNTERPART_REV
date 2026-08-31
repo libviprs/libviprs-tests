@@ -129,8 +129,35 @@
 # feature, so the ported cell here has two arms. #160 carries that cell and is
 # merged.
 #
+# Bumped to c07c685, not to libviprs main (694fd4b) as it stood when this bump
+# was made. Main had drifted 568 commits past the old pin, and three of those
+# additions forced the move: `ResizeOptions::with_kernel` and `with_vscale`
+# (resample_nearest_alpha.rs, resample_premultiplied_alpha_reference.rs, both
+# already on this repo's main and red since 2026-08-28) and `PixelFormat::Uint32`
+# (needed by #184, fixing #183). c07c685 is the mainline commit immediately
+# before #899 (fix/532-counters) lands: it already carries all three, but not
+# yet #899's change of `project`'s output carrier from `Gray16` to `Uint32`.
+# Landing #899 would break op_oversized_input_fallible_alloc.rs's
+# project_matches_libvips_project_reference on this repo's current main, which
+# still asserts `Gray16`; #184 is exactly the fix for that (closes #183), so
+# #899 rides along with whichever bump lands #184 rather than this one.
+#
+# Getting this far already dragged in two unrelated but unavoidable feature
+# landings, both ancestors of every commit that carries `with_kernel`: #754
+# (Ultra HDR save turned real, so it now refuses non-float input with a typed
+# `InvalidParameter` instead of always answering `Unsupported`) and the MATLAB
+# `.mat` reader (`decode_file` now actually decodes `sample.mat` instead of
+# erroring). Both broke ported_foreign.rs cells that pinned the old deferred
+# stub contract: test_matload, test_uhdrsave, test_uhdrsave_roundtrip,
+# test_uhdrsave_roundtrip_hdr, and test_uhdrsave_gainmap_scale_factor now carry
+# `#[ignore]` with a reason instead, since un-deferring them for real needs
+# fixture-specific verification this bump isn't the place for.
+#
 # Verified against this exact counterpart with the two checkouts laid out as
-# siblings, the way the integration job lays them out: the ported cells compile
-# under `--features ported_tests`, and `cargo test` gives 748 passed, 0 failed,
-# 11 ignored.
-f62a56a4e0487523e2e051d3aac6b7b84e2bb885
+# siblings, the way the integration job lays them out: `cargo test` gives 774
+# passed, 0 failed, 11 ignored; the tracing and object-store-sink feature legs,
+# the pdfium feature legs (862 passed, 0 failed, 17 ignored, against a local
+# pdfium build), and `run_ported_cells.sh --clippy` / `--require-fixtures` are
+# all green; `cargo fmt --check`, the default and four feature-gated
+# `cargo clippy --all-targets -D warnings` passes, and `shellcheck` are clean.
+c07c685c17aedcd1dbf7d581f191d611b876a935
