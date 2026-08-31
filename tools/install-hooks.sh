@@ -179,9 +179,14 @@ set -euo pipefail
 # Installed by libviprs-tests/tools/install-hooks.sh.
 # To skip (emergency only): git commit --no-verify
 
-REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-echo "Running the CI job list locally (Check & Lint, MSRV, Docs)..."
-if ! "$REPO_DIR/tools/local-ci.py" --fast; then
+# A repo's main checkout and all of its linked worktrees share one hooks
+# directory, and git invokes the hook with $0 inside that shared directory
+# regardless of which worktree is actually being committed in, so deriving
+# REPO_DIR from $0 always resolves to the main checkout (libviprs/libviprs#684,
+# the same bug install_pre_push below already dodges). Ask git instead.
+REPO_DIR="$(git rev-parse --show-toplevel)"
+echo "Running the fast CI jobs locally (tools/local-ci.py --fast)..."
+if ! python3 "$REPO_DIR/tools/local-ci.py" --fast; then
     echo ""
     echo "Failed. These are the real CI commands, so CI will fail the same way."
     echo "Run everything including tests: tools/local-ci.py"
