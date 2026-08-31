@@ -33,8 +33,8 @@
 //! * `hough_line` / `hough_circle` — **GOLDEN-ONLY**: `hough_line`'s distance
 //!   binning is vips-exact (core issue #495 fixed the one-cell offset), and the
 //!   format/saturation gap this used to note is closed too: libviprs#532/#899
-//!   moved both hough ops onto the same `uint` carrier vips uses, so a peak of
-//!   >65535 collinear votes no longer saturates. `hough_circle` still diverges
+//!   moved both hough ops onto the same `uint` carrier vips uses, so a vote
+//!   count past 65535 no longer saturates. `hough_circle` still diverges
 //!   structurally (a different circle vote model — a single point yields a core
 //!   max of 1 vs a vips max of 4), which is a vote-model question, not a
 //!   carrier one. Neither has a full-width vips oracle, so the references are
