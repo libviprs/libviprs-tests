@@ -3334,7 +3334,9 @@ fn test_csv() {
     let data = vec![42u8; 10 * 10];
     let im = Raster::new(10, 10, PixelFormat::Gray8, data).unwrap();
 
-    let csv = im.csv_save();
+    let csv = im
+        .csv_save()
+        .expect("csv_save on a well-formed in-memory raster");
     assert!(!csv.is_empty());
 
     let im2 = Raster::csv_load(&csv).unwrap();
@@ -3378,7 +3380,9 @@ fn test_matrix() {
     let data = vec![42u8; 10 * 10];
     let im = Raster::new(10, 10, PixelFormat::Gray8, data).unwrap();
 
-    let mat = im.matrix_save();
+    let mat = im
+        .matrix_save()
+        .expect("matrix_save on a well-formed in-memory raster");
     assert!(!mat.is_empty());
 
     let im2 = Raster::matrix_load(&mat).unwrap();

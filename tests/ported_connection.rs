@@ -338,7 +338,7 @@ fn test_connection_matrix() {
     let colour = decode_file(&ref_image("sample.jpg")).unwrap();
     let mono = colour.extract_band(1);
 
-    let matrix_data = mono.matrix_save();
+    let matrix_data = mono.matrix_save().expect("matrix_save on a decoded raster");
     // matrix_load is fallible (Result<Raster, DecodeError>); unwrap the Ok.
     // Proof: matrix_load is a fallible Raster associated fn, not a bare Raster.
     let im2 = Raster::matrix_load(&matrix_data).unwrap();
@@ -413,7 +413,7 @@ fn test_connection_csv() {
     let colour = decode_file(&ref_image("sample.jpg")).unwrap();
     let mono = colour.extract_band(1);
 
-    let csv_data = mono.csv_save();
+    let csv_data = mono.csv_save().expect("csv_save on a decoded raster");
     // csv_load is fallible; unwrap the Ok. Proof: fallible Raster associated fn.
     let im2 = Raster::csv_load(&csv_data).unwrap();
 
