@@ -160,4 +160,15 @@
 # pdfium build), and `run_ported_cells.sh --clippy` / `--require-fixtures` are
 # all green; `cargo fmt --check`, the default and four feature-gated
 # `cargo clippy --all-targets -D warnings` passes, and `shellcheck` are clean.
-c07c685c17aedcd1dbf7d581f191d611b876a935
+#
+# Bumped to 694fd4b2, libviprs main as of this commit: the previous bump named
+# exactly this step and left it here on purpose. #899 (fix/532-counters, merge
+# 904a915) lands the other half of #532: `project` now answers `Uint32(1)`
+# instead of `Gray16`, which is what this PR (#184, closing #183) updates
+# `project_matches_libvips_project_reference` to expect. Seven commits sit
+# between #899 and this pin (fits BITPIX signed-carrier mapping, the signed
+# pixel carriers, a single PixelFormat -> ColorType mapping, test-derivation
+# and TOML-parser sharing infra, migration docs, and csvsave/matrixsave
+# routing) — none touch `project`, `PixelFormat`, or resample, and the full
+# suite is green against them.
+694fd4b2e046cc5bdc4dd334f68b5b489cd84a6a

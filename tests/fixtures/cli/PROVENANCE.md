@@ -624,16 +624,18 @@ and remain EXACT against vips.
 ## Hough (still GOLDEN-ONLY, for narrower reasons)
 
 Core issue #495 fixed `hough_line`'s distance binning, so its accumulator vote
-PATTERN now matches vips 8.18.4 bit-for-bit; what remains is an INHERENT
-format/saturation gap — the core accumulates into Gray16 (u16) while vips uses a
-uint accumulator, so at a peak of >65535 collinear votes the core saturates and
-vips does not (the core has no u32 carrier). `hough_circle` still diverges
-STRUCTURALLY: a single voting point yields a core per-cell max of **1** but a
-vips per-cell max of **4** (a different vote model, not a bounded tolerance).
-Neither has a full-width vips oracle, so the references `hough_line_golden.v` /
+PATTERN now matches vips 8.18.4 bit-for-bit. The format/saturation gap this
+section used to describe is CLOSED: libviprs#532/#899 moved the counting ops
+(including both hough ops) onto the `uint` carrier, the same one vips uses, so
+there is no more 16-bit ceiling for a peak of >65535 collinear votes to
+saturate against. `hough_circle` still diverges STRUCTURALLY: a single voting
+point yields a core per-cell max of **1** but a vips per-cell max of **4** (a
+different vote model, not a carrier or tolerance question). Neither has a
+full-width vips oracle, so the references `hough_line_golden.v` /
 `hough_circle_golden.v` are minted by `viprs` itself (deterministic) and the
-tests are regression pins. (`hough_line_golden.v` was re-minted from the fixed
-core after #495.)
+tests are regression pins. (Re-minted again for the `uint` carrier once
+COUNTERPART_REV moved past #899; the underlying values are unchanged, measured
+max-abs-diff 0 against the previous `ushort` pin — only the container widened.)
 # arithmetic part-B (arith-b lane) CLI-differential reference provenance
 
 Committed vips oracle references the arith-b CLI-differential suite
@@ -887,12 +889,12 @@ core result is bit-identical to the vips-double-cast-to-float reference); only t
 | `colour/icc_transform_expected.png` | BOUNDED-TOL (≤2 LSB) | `vips icc_transform rgb.png icc_transform_expected.png sRGB.icc --input-profile sRGB.icc --intent relative` |
 | reference | oracle class | command |
 |---|---|---|
-| `histogram/hist_find_expected.v` | EXACT | `vips hist_find gray.png rf.v` → `vips cast rf.v … ushort` |
-| `histogram/hist_find_band_expected.v` | EXACT | `vips hist_find rgb.png rfb.v --band 0` → cast ushort (band 0 = full 0..255 ramp; vips trims trailing-zero bins so a band with max < 255 would mismatch on width) |
-| `histogram/hist_find_band2_expected.v` | EXACT | `vips hist_find rgb.png rfb2.v --band 2` → cast ushort (band 2 = diagonal gradient, triangular histogram distinct from band 0 — pins band-index honouring; reaches 255 so no trailing-zero trim) |
-| `histogram/hist_find_indexed_expected.v` | EXACT | `vips hist_find_indexed gray.png index.png ri.v` → cast ushort |
-| `histogram/hist_find_ndim_expected.v` | EXACT | `vips hist_find_ndim rgb.png rn.v --bins 4` → cast ushort |
-| `histogram/hist_cum_expected.v` | EXACT | `vips hist_cum hist.v rc.v` → cast ushort |
+| `histogram/hist_find_expected.v` | EXACT | `vips hist_find gray.png hist_find_expected.v` (native `uint`, no downcast — libviprs#532/#899 moved `hist_find` onto the uint carrier; re-taken when COUNTERPART_REV bumped past #899) |
+| `histogram/hist_find_band_expected.v` | EXACT | `vips hist_find rgb.png hist_find_band_expected.v --band 0` (native `uint`; band 0 = full 0..255 ramp; vips trims trailing-zero bins so a band with max < 255 would mismatch on width) |
+| `histogram/hist_find_band2_expected.v` | EXACT | `vips hist_find rgb.png hist_find_band2_expected.v --band 2` (native `uint`; band 2 = diagonal gradient, triangular histogram distinct from band 0 — pins band-index honouring; reaches 255 so no trailing-zero trim) |
+| `histogram/hist_find_indexed_expected.v` | EXACT | `vips hist_find_indexed gray.png index.png ri.v` → `cast … float` (vips emits native `double`; the core has no f64 pixel format, so both sides narrow to f32 — was cast to `ushort` before libviprs#887) |
+| `histogram/hist_find_ndim_expected.v` | EXACT | `vips hist_find_ndim rgb.png hist_find_ndim_expected.v --bins 4` (native `uint`, no downcast) |
+| `histogram/hist_cum_expected.v` | EXACT | `vips hist_cum hist.v hist_cum_expected.v` (native `uint`, no downcast) |
 | `histogram/hist_norm_expected.v` | BOUNDED-TOL ≤1 LSB | `vips hist_norm histcum.v hist_norm_expected.v` (cumulative-norm rounding core-vs-vips ±1) |
 | `histogram/hist_equal_expected.png` | BOUNDED-TOL ≤1 LSB | `vips hist_equal gray.png hist_equal_expected.png` |
 | `histogram/maplut_expected.png` | EXACT | `vips maplut gray.png maplut_expected.png lut.v` |
@@ -1220,8 +1222,8 @@ to 1/32, so the pin separates a correct core from three different wrong ones.
 | `aritha/find_trim_bg_expected.txt` | EXACT (S3, 4 ints) | `vips find_trim content2.png --background 0` |
 | `aritha/stats_expected.v` | BOUNDED-TOL (matrix, meas. 0) | `vips stats agray.png st.v` → `extract_area … 0 0 6 2` → `cast … float` |
 | `aritha/measure_expected.v` | BOUNDED-TOL (matrix, meas. 0) | `vips measure agray.png ms.v 2 2` → `cast … float` |
-| `aritha/profile_cols_expected.v` / `_rows_` | EXACT | `vips profile pzero.png pcol.v prow.v` → `cast … ushort` |
-| `aritha/project_cols_expected.v` / `_rows_` | EXACT | `vips project agray.png qcol.v qrow.v` → `cast … ushort` |
+| `aritha/profile_cols_expected.v` / `_rows_` | EXACT | `vips profile pzero.png profile_cols_expected.v profile_rows_expected.v` (native `int`, no downcast — `profile` emits libvips `INT`, matching the core's `Int32` since libviprs#532/#899) |
+| `aritha/project_cols_expected.v` / `_rows_` | EXACT | `vips project agray.png project_cols_expected.v project_rows_expected.v` (native `uint`, no downcast — matching the core's `Uint32` since libviprs#532/#899) |
 | `aritha/linear_expected.v` | EXACT-AFTER-CAST (float, meas. 0) | `vips linear agray.png linear_expected.v 2 10` |
 | `aritha/linear_uchar_expected.png` | EXACT | `vips linear agray.png linear_uchar_expected.png 2 10 --uchar` |
 | `aritha/remainder_const_expected.png` | EXACT | `vips remainder_const agray.png remainder_const_expected.png 100` |
@@ -1231,7 +1233,7 @@ to 1/32, so the pin separates a correct core from three different wrong ones.
 | `aritha/round_ceil_expected.v` / `_floor_` | EXACT (float) | `vips round afloat.v … ceil\|floor` (no tie-break; matches vips exactly) |
 | `aritha/round_rint_expected.v` | EXACT (float) | `vips round afloat.v round_rint_expected.v rint` — core #494 rounds half TO EVEN, matching vips's C `rint` at exact half-integers (tol 0); the former GOLDEN-ONLY `round_rint_golden.v` pin is retired |
 | `aritha/clamp_expected.png` | EXACT | `vips clamp agray.png clamp_expected.png --min 50 --max 200` |
-| `aritha/hough_line_golden.v` | GOLDEN-ONLY (no full-width vips oracle) | `viprs hough_line point.png hough_line_golden.v` (binning now vips-exact per core #495, but Gray16-vs-uint saturation remains; re-minted from the fixed core) |
+| `aritha/hough_line_golden.v` | GOLDEN-ONLY (no full-width vips oracle) | `viprs hough_line point.png hough_line_golden.v` (binning vips-exact per core #495; native `uint` since #532/#899 closed the Gray16 saturation gap; re-minted, values unchanged, max-abs-diff 0 against the prior `ushort` pin) |
 | `aritha/hough_circle_golden.v` | GOLDEN-ONLY (no vips oracle) | `viprs hough_circle point.png hough_circle_golden.v 2 4` (core vote model diverges from vips) |
 
 The two hough references are viprs-generated regression pins, not vips oracles:

@@ -34,9 +34,9 @@
 //! What remains here is the part that needs no private hook: the
 //! vips-differential golden for `project` itself, proving the scratch rework
 //! left the numeric result untouched. libvips `project` on a `uchar` image sums
-//! each column and each row; the crate produces the same sums in a 16-bit
-//! container (saturating at `65535`, which the fixture stays well under). The
-//! reference was produced offline with vips-8.18.4:
+//! each column and each row; the crate produces the same sums in a 32-bit
+//! `Uint32` container (libviprs#532/#899), which the fixture's sums stay well
+//! under. The reference was produced offline with vips-8.18.4:
 //!   `vips rawload proj_raw.bin project_input.png 5 4 1`
 //!   `vips project project_input.png cols.v rows.v`
 //!   `vips cast cols.v cols_u.v ushort`
@@ -44,6 +44,8 @@
 //!   (and likewise for the rows output)
 //! and committed under
 //! `tests/fixtures/op_oversized_input_fallible_alloc_expected/`.
+
+use std::num::NonZeroU16;
 
 use libviprs::{PixelFormat, Raster};
 
@@ -63,10 +65,16 @@ fn load_gray8(name: &str) -> Raster {
     Raster::new(w, h, PixelFormat::Gray8, img.into_raw()).expect("fixture raster is well-formed")
 }
 
-/// Read a native-endian `u16` sample stream out of a raster buffer.
-fn samples_u16(data: &[u8]) -> Vec<u16> {
-    data.chunks_exact(2)
-        .map(|c| u16::from_ne_bytes([c[0], c[1]]))
+/// Read a native-endian `u32` sample stream out of a raster buffer.
+///
+/// `u32` and not `u16` since libviprs#532: `project` counts pixels, and
+/// libvips emits every counting op as `VIPS_FORMAT_UINT`, so a 300x300 image
+/// already overflows a 16-bit counter. The reference PNGs are 16-bit, which
+/// is still the right comparison for a fixture whose sums fit: they are
+/// widened rather than re-captured.
+fn samples_u32(data: &[u8]) -> Vec<u32> {
+    data.chunks_exact(4)
+        .map(|c| u32::from_ne_bytes(c.try_into().expect("chunks_exact(4) yields 4 bytes")))
         .collect()
 }
 
@@ -79,10 +87,16 @@ fn project_matches_libvips_project_reference() {
     let input = load_gray8("project_input.png");
     let (columns, rows) = input.project();
 
+    let one = NonZeroU16::MIN;
     assert_eq!(
         columns.format(),
-        PixelFormat::Gray16,
-        "project promotes column sums to a 16-bit container"
+        PixelFormat::Uint32(one),
+        "project emits the uint carrier, the way libvips emits every counting op"
+    );
+    assert_eq!(
+        rows.format(),
+        PixelFormat::Uint32(one),
+        "and the row sums take the same carrier as the column sums"
     );
     assert_eq!(
         (columns.width(), columns.height()),
@@ -102,14 +116,15 @@ fn project_matches_libvips_project_reference() {
         .expect("read project_rows_expected.png")
         .to_luma16();
 
+    let widen = |v: Vec<u16>| -> Vec<u32> { v.into_iter().map(u32::from).collect() };
     assert_eq!(
-        samples_u16(columns.data()),
-        expected_cols.into_raw(),
+        samples_u32(columns.data()),
+        widen(expected_cols.into_raw()),
         "project column sums must equal the libvips reference sample-for-sample"
     );
     assert_eq!(
-        samples_u16(rows.data()),
-        expected_rows.into_raw(),
+        samples_u32(rows.data()),
+        widen(expected_rows.into_raw()),
         "project row sums must equal the libvips reference sample-for-sample"
     );
 }
