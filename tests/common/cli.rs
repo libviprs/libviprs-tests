@@ -34,7 +34,7 @@ use std::process::{Command, Output};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use libviprs::Raster;
+use libviprs::{PixelFormat, Raster};
 
 /// Locate the `libviprs-cli` crate directory.
 ///
@@ -399,6 +399,39 @@ pub fn max_abs_diff_interior(a: &Raster, b: &Raster, margin: usize) -> f64 {
                             bd[bo + 3],
                         ])),
                     ),
+                    // The libvips UINT / INT carriers (issue #517): counting ops
+                    // (project/profile/hough) widened onto these once a 16-bit
+                    // counter overflowed (issue #532). Signedness comes from the
+                    // format, not the byte pattern: `profile` emits INT (signed),
+                    // `project`/`hough_*` emit UINT.
+                    (false, 4) if matches!(a.format(), PixelFormat::Int32(_)) => (
+                        f64::from(i32::from_ne_bytes([
+                            ad[ao],
+                            ad[ao + 1],
+                            ad[ao + 2],
+                            ad[ao + 3],
+                        ])),
+                        f64::from(i32::from_ne_bytes([
+                            bd[bo],
+                            bd[bo + 1],
+                            bd[bo + 2],
+                            bd[bo + 3],
+                        ])),
+                    ),
+                    (false, 4) => (
+                        f64::from(u32::from_ne_bytes([
+                            ad[ao],
+                            ad[ao + 1],
+                            ad[ao + 2],
+                            ad[ao + 3],
+                        ])),
+                        f64::from(u32::from_ne_bytes([
+                            bd[bo],
+                            bd[bo + 1],
+                            bd[bo + 2],
+                            bd[bo + 3],
+                        ])),
+                    ),
                     (f, n) => {
                         panic!("unsupported sample class (is_float={f}, bytes_per_channel={n})")
                     }
@@ -437,6 +470,35 @@ pub fn max_abs_diff(a: &Raster, b: &Raster) -> f64 {
                         ad[ao + 3],
                     ])),
                     f64::from(f32::from_ne_bytes([
+                        bd[bo],
+                        bd[bo + 1],
+                        bd[bo + 2],
+                        bd[bo + 3],
+                    ])),
+                ),
+                // See the matching arm in max_abs_diff_interior above.
+                (false, 4) if matches!(a.format(), PixelFormat::Int32(_)) => (
+                    f64::from(i32::from_ne_bytes([
+                        ad[ao],
+                        ad[ao + 1],
+                        ad[ao + 2],
+                        ad[ao + 3],
+                    ])),
+                    f64::from(i32::from_ne_bytes([
+                        bd[bo],
+                        bd[bo + 1],
+                        bd[bo + 2],
+                        bd[bo + 3],
+                    ])),
+                ),
+                (false, 4) => (
+                    f64::from(u32::from_ne_bytes([
+                        ad[ao],
+                        ad[ao + 1],
+                        ad[ao + 2],
+                        ad[ao + 3],
+                    ])),
+                    f64::from(u32::from_ne_bytes([
                         bd[bo],
                         bd[bo + 1],
                         bd[bo + 2],

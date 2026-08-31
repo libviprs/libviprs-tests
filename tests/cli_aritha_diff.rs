@@ -18,7 +18,9 @@
 //!   core has no f64 pixel format). `stats` drops vips's 4 position columns
 //!   (6..10 — a documented core subset), so the reference is cropped to 6
 //!   columns. Both measured max-abs-diff 0.
-//! * `profile` / `project` — 16-bit `.v` (vips INT/UINT cast to ushort).
+//! * `profile` / `project` — native vips INT / UINT `.v`, matching the core's
+//!   `Int32` / `Uint32` since libviprs#532/#899 (was cast down to `ushort`
+//!   before that; see PROVENANCE.md).
 //! * `linear` (float `.v` + `--uchar` PNG), `remainder_const` / `clamp` (PNG),
 //!   `math2_const pow` / `abs` / `sign` / `round ceil` / `round floor` (float
 //!   `.v`) — all measured 0. `sign`'s afloat now includes exactly 0.0, so the
@@ -29,14 +31,14 @@
 //!   `f64::round`, half away from zero, diverged by 1 at every x.5). The
 //!   reference is now a genuine vips oracle (`round_rint_expected.v`).
 //! * `hough_line` / `hough_circle` — **GOLDEN-ONLY**: `hough_line`'s distance
-//!   binning is now vips-exact (core issue #495 fixed the one-cell offset), but
-//!   an INHERENT format/saturation gap remains — the core accumulates into
-//!   Gray16 (u16) while vips uses a uint accumulator, so a peak of >65535
-//!   collinear votes saturates in the core (no u32 carrier). `hough_circle`
-//!   still diverges structurally (a different circle vote model — a single point
-//!   yields a core max of 1 vs a vips max of 4). Neither has a full-width vips
-//!   oracle, so the references are viprs-generated regression pins compared at
-//!   tol 0.
+//!   binning is vips-exact (core issue #495 fixed the one-cell offset), and the
+//!   format/saturation gap this used to note is closed too: libviprs#532/#899
+//!   moved both hough ops onto the same `uint` carrier vips uses, so a peak of
+//!   >65535 collinear votes no longer saturates. `hough_circle` still diverges
+//!   structurally (a different circle vote model — a single point yields a core
+//!   max of 1 vs a vips max of 4), which is a vote-model question, not a
+//!   carrier one. Neither has a full-width vips oracle, so the references are
+//!   viprs-generated regression pins compared at tol 0.
 //!
 //! If the `libviprs-cli` sibling is not checked out, every test SKIPS with a
 //! clear message rather than failing — the dedicated `cli-differential` CI job

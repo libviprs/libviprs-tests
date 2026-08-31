@@ -1579,23 +1579,23 @@ echo "==> [histogram input] hist.v / histcum.v / hist2.v (ushort) + lut.v (uchar
 # is the DIAGONAL gradient (distinct triangular histogram from band 0), so a bug
 # that ignored N and always read band 0 would fail here (band 0 and band 2 both
 # reach 255, so neither is trailing-zero-trimmed — both are genuine EXACT).
-echo "==> [hist_find] gray (all bands) + rgb --band 0 + rgb --band 2 (full 0..255 range) -> ushort .v (EXACT)"
-"$VIPS" hist_find "$HIST/gray.png" "$TMP/rf.v";  "$VIPS" cast "$TMP/rf.v"  "$HIST/hist_find_expected.v" ushort
-"$VIPS" hist_find "$HIST/rgb.png" "$TMP/rfb.v" --band 0
-"$VIPS" cast "$TMP/rfb.v" "$HIST/hist_find_band_expected.v" ushort
-"$VIPS" hist_find "$HIST/rgb.png" "$TMP/rfb2.v" --band 2
-"$VIPS" cast "$TMP/rfb2.v" "$HIST/hist_find_band2_expected.v" ushort
+echo "==> [hist_find] gray (all bands) + rgb --band 0 + rgb --band 2 (full 0..255 range) -> native uint .v (EXACT)"
+"$VIPS" hist_find "$HIST/gray.png" "$HIST/hist_find_expected.v"
+"$VIPS" hist_find "$HIST/rgb.png" "$HIST/hist_find_band_expected.v" --band 0
+"$VIPS" hist_find "$HIST/rgb.png" "$HIST/hist_find_band2_expected.v" --band 2
 
-echo "==> [hist_find_indexed] gray + index -> ushort .v (EXACT)"
+# vips emits DOUBLE for hist_find_indexed (whatever the input); the core has no
+# f64 pixel format (libviprs#887), so both sides narrow to float. Was cast to
+# ushort before #887.
+echo "==> [hist_find_indexed] gray + index -> float .v (EXACT)"
 "$VIPS" hist_find_indexed "$HIST/gray.png" "$HIST/index.png" "$TMP/ri.v"
-"$VIPS" cast "$TMP/ri.v" "$HIST/hist_find_indexed_expected.v" ushort
+"$VIPS" cast "$TMP/ri.v" "$HIST/hist_find_indexed_expected.v" float
 
-echo "==> [hist_find_ndim] rgb --bins 4 -> 4x4x4 ushort .v (EXACT)"
-"$VIPS" hist_find_ndim "$HIST/rgb.png" "$TMP/rn.v" --bins 4
-"$VIPS" cast "$TMP/rn.v" "$HIST/hist_find_ndim_expected.v" ushort
+echo "==> [hist_find_ndim] rgb --bins 4 -> 4x4x4 native uint .v (EXACT)"
+"$VIPS" hist_find_ndim "$HIST/rgb.png" "$HIST/hist_find_ndim_expected.v" --bins 4
 
-echo "==> [hist_cum] hist.v -> ushort .v (EXACT)"
-"$VIPS" hist_cum "$HIST/hist.v" "$TMP/rc.v"; "$VIPS" cast "$TMP/rc.v" "$HIST/hist_cum_expected.v" ushort
+echo "==> [hist_cum] hist.v -> native uint .v (EXACT)"
+"$VIPS" hist_cum "$HIST/hist.v" "$HIST/hist_cum_expected.v"
 
 # hist_norm is BOUNDED-TOL (≤1 LSB), NOT EXACT as OP_MAP.md provisionally listed:
 # normalising the CUMULATIVE histogram rounds `(v * (n-1) / max)` independently
@@ -1778,8 +1778,9 @@ echo "==> [composite2] translucent multiply/atop/saturate GOLDEN-ONLY viprs pins
 #    (f32). `stats` also drops vips's 4 position columns (6..10): the core
 #    computes only the first 6 (min/max/sum/sum2/mean/sd), a documented subset,
 #    so the reference is cropped to 6 columns. Both measured max-abs-diff 0.
-#  - profile/project — 16-bit; vips emits INT/UINT, cast to ushort (lossless for
-#    the small position/sum values) to match the core's ushort carrier. `.v`.
+#  - profile/project — native vips INT/UINT `.v`, no downcast: libviprs#532/#899
+#    moved the core onto the matching Int32/Uint32 carrier (was cast to ushort
+#    to match a 16-bit core carrier before that).
 #  - linear (float `.v` + `--uchar` PNG), remainder_const/clamp (PNG),
 #    math2_const pow / abs / sign / round ceil|floor (float `.v`) — all measured 0.
 #  - round rint — EXACT (tol 0): core issue #494 made the core round half TO EVEN,
@@ -1787,13 +1788,14 @@ echo "==> [composite2] translucent multiply/atop/saturate GOLDEN-ONLY viprs pins
 #    reaches x.5). Previously the core's `f64::round` (half away from zero)
 #    diverged by 1 at every x.5 and forced a GOLDEN-ONLY pin; the reference is now
 #    a genuine vips oracle (round_rint_expected.v). ceil/floor stay EXACT.
-#  - HOUGH — hough_line's distance binning is now vips-exact (core issue #495
-#    fixed the one-cell offset), but an INHERENT format/saturation gap remains:
-#    the core accumulates into Gray16 (u16) while vips uses a uint accumulator, so
-#    a peak of >65535 collinear votes saturates in the core (no u32 carrier).
+#  - HOUGH — hough_line's distance binning is vips-exact (core issue #495 fixed
+#    the one-cell offset), and the format/saturation gap this used to note is
+#    closed too: libviprs#532/#899 moved both hough ops onto the same uint
+#    carrier vips uses, so a peak of >65535 collinear votes no longer saturates.
 #    hough_circle still diverges structurally (a different circle vote model: a
-#    single point yields core max 1 vs vips max 4). Neither has a full-width vips
-#    oracle, so both stay GOLDEN-ONLY viprs regression pins.
+#    single point yields core max 1 vs vips max 4), a vote-model question, not a
+#    carrier one. Neither has a full-width vips oracle, so both stay GOLDEN-ONLY
+#    viprs regression pins.
 # ===========================================================================
 ARITHA="$FIX_ROOT/aritha"
 mkdir -p "$ARITHA"
@@ -2354,15 +2356,11 @@ echo "==> [measure] 2x2 patch means -> float .v"
 "$VIPS" measure "$ARITHA/agray.png" "$TMP/ms.v" 2 2
 "$VIPS" cast "$TMP/ms.v" "$ARITHA/measure_expected.v" float
 
-echo "==> [profile] first non-zero position per col/row -> ushort .v"
-"$VIPS" profile "$ARITHA/pzero.png" "$TMP/pcol.v" "$TMP/prow.v"
-"$VIPS" cast "$TMP/pcol.v" "$ARITHA/profile_cols_expected.v" ushort
-"$VIPS" cast "$TMP/prow.v" "$ARITHA/profile_rows_expected.v" ushort
+echo "==> [profile] first non-zero position per col/row -> native int .v (libviprs#532/#899)"
+"$VIPS" profile "$ARITHA/pzero.png" "$ARITHA/profile_cols_expected.v" "$ARITHA/profile_rows_expected.v"
 
-echo "==> [project] col/row sums -> ushort .v (sums < 65535)"
-"$VIPS" project "$ARITHA/agray.png" "$TMP/qcol.v" "$TMP/qrow.v"
-"$VIPS" cast "$TMP/qcol.v" "$ARITHA/project_cols_expected.v" ushort
-"$VIPS" cast "$TMP/qrow.v" "$ARITHA/project_rows_expected.v" ushort
+echo "==> [project] col/row sums -> native uint .v (libviprs#532/#899)"
+"$VIPS" project "$ARITHA/agray.png" "$ARITHA/project_cols_expected.v" "$ARITHA/project_rows_expected.v"
 
 echo "==> [linear] scalar a·in+b: float .v + --uchar PNG"
 "$VIPS" linear "$ARITHA/agray.png" "$ARITHA/linear_expected.v"      2 10
