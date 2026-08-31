@@ -17,15 +17,19 @@ use std::path::Path;
 use image::ImageEncoder;
 use libviprs::source::decode_bytes;
 use libviprs::{
-    EncodeError, EngineBuilder, EngineConfig, EngineKind, FsSink, JpegSubsample, Layout,
-    MagickLoadOptions, PixelFormat, PyramidPlanner, Raster, SaveError, SinkError, SvgOptions,
-    TiffCompression, TileFormat, decode_bytes_fail_on, decode_file, decode_file_fail_on,
-    decode_file_sequential, decode_file_with_shrink, decode_svg, decode_tiff_page,
-    extract_page_image, extract_page_image_dpi, extract_page_image_with_background,
-    extract_page_image_with_password, generate_pyramid_region, gif, jp2k, jxl, magickload,
-    magickload_with, pdf_info, pdf_info_with_password, thumbnail, thumbnail_crop, tiff_page_count,
-    webp,
+    EncodeError, EngineBuilder, EngineConfig, EngineKind, FsSink, Interpretation, JpegSubsample,
+    Layout, MagickLoadOptions, MetadataValue, PixelFormat, PyramidPlanner, Raster, SaveError,
+    SinkError, SvgOptions, TiffCompression, TileFormat, decode_bytes_fail_on, decode_file,
+    decode_file_fail_on, decode_file_sequential, decode_file_with_shrink, decode_svg,
+    decode_tiff_page, extract_page_image, extract_page_image_dpi,
+    extract_page_image_with_background, extract_page_image_with_password, generate_pyramid_region,
+    gif, jp2k, jxl, magickload, magickload_with, pdf_info, pdf_info_with_password, thumbnail,
+    thumbnail_crop, tiff_page_count, webp,
 };
+// test_matload's full-buffer check against the committed oracle digest
+// (see tests/fixtures/mat/PROVENANCE.md); sha2 is already a dev-dependency
+// used the same way by tests/phase3_checksum.rs.
+use sha2::{Digest, Sha256};
 
 mod common;
 use common::fixtures::canonical_raster_scaled;
@@ -3097,7 +3101,6 @@ fn test_openslideload() {
 }
 
 #[test]
-#[ignore = "libviprs now decodes .mat for real (feat(mat) landed with the COUNTERPART_REV bump), so decode_file no longer errors on sample.mat; this test still pins the pre-decoder 'always a typed error' contract and needs real dimension/format assertions instead"]
 /// MATLAB .mat file loading.
 ///
 /// ## Required API
@@ -3112,12 +3115,73 @@ fn test_openslideload() {
 /// 2. Verify dimensions.
 ///
 /// Reference: test_foreign.py
+///
+/// `sample.mat` holds one variable, `I`, a MATLAB `442x290x3 uint16` array.
+/// `mat2vips_get_header` reads `dims[0]` as height and `dims[1]` as width
+/// (the transpose), so it decodes as a `290x442` `Rgb16` raster. Dimensions,
+/// format, interpretation, the `mat-*` metadata `decode_mat` attaches, and
+/// five named pixels are asserted directly against an independent oracle
+/// (`scipy.io.loadmat`, no code shared with `libviprs::mat`); the full byte
+/// buffer is compared against a committed sha256 digest of the same oracle's
+/// output. See `tests/fixtures/mat/PROVENANCE.md` for exactly how that
+/// digest was produced and cross-checked.
 fn test_matload() {
-    // Deferred: the MATLAB .mat decoder is not wired, so decode_file returns a
-    // typed error rather than a raster. Pin that deferred contract.
-    assert!(
-        decode_file(&ref_image("sample.mat")).is_err(),
-        "deferred MATLAB .mat decode must return a typed error"
+    let raster = decode_file(&ref_image("sample.mat")).expect("sample.mat now decodes for real");
+
+    assert_eq!((raster.width(), raster.height()), (290, 442));
+    assert_eq!(raster.format(), PixelFormat::Rgb16);
+    assert_eq!(raster.interpretation(), Interpretation::Rgb16);
+
+    assert_eq!(
+        raster.get_field("mat-name").expect("mat-name set").as_str(),
+        "I"
+    );
+    assert_eq!(
+        raster
+            .get_field("mat-class")
+            .expect("mat-class set")
+            .as_str(),
+        "mxUINT16"
+    );
+
+    // Five pixels, hand-verified against `scipy.io.loadmat` (see
+    // tests/fixtures/mat/PROVENANCE.md): the four corners plus the centre,
+    // as (R, G, B) u16 triples. `u16_at` reads the same interleaved layout
+    // `deplanarise` in libviprs::mat writes.
+    let (w, h) = (raster.width(), raster.height());
+    let u16_at = |x: u32, y: u32| -> [u16; 3] {
+        let bpp = 3 * 2;
+        let stride = w as usize * bpp;
+        let start = y as usize * stride + x as usize * bpp;
+        let px = &raster.data()[start..start + bpp];
+        [
+            u16::from_ne_bytes([px[0], px[1]]),
+            u16::from_ne_bytes([px[2], px[3]]),
+            u16::from_ne_bytes([px[4], px[5]]),
+        ]
+    };
+    assert_eq!(u16_at(0, 0), [49210, 41207, 29445], "top-left");
+    assert_eq!(u16_at(w - 1, 0), [48742, 39891, 31222], "top-right");
+    assert_eq!(u16_at(0, h - 1), [45572, 41225, 35000], "bottom-left");
+    assert_eq!(u16_at(w - 1, h - 1), [28156, 23698, 15306], "bottom-right");
+    assert_eq!(u16_at(w / 2, h / 2), [16382, 19308, 28635], "centre");
+
+    // The full buffer, against the committed oracle digest (see
+    // tests/fixtures/mat/PROVENANCE.md and tools/gen_mat_expected.py).
+    const EXPECTED_SHA256: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/mat/sample_mat_expected.sha256"
+    ));
+    let expected = EXPECTED_SHA256
+        .trim()
+        .strip_prefix("sha256:")
+        .expect("fixture is a 'sha256:<hex>' line");
+    let mut hasher = Sha256::new();
+    hasher.update(raster.data());
+    let actual = format!("{:x}", hasher.finalize());
+    assert_eq!(
+        actual, expected,
+        "full-buffer decode does not match the scipy.io.loadmat oracle"
     );
 }
 
@@ -3577,7 +3641,6 @@ fn test_uhdrload() {
 }
 
 #[test]
-#[ignore = "encode_uhdr's real implementation (landed with the COUNTERPART_REV bump) requires 3-band f32 scRGB input and returns EncodeError::InvalidParameter for the Rgb8 raster this test passes directly; needs the scRGB conversion plus the real round-trip assertions from the doc comment above, not just a signature fix"]
 /// UHDR save to buffer and reload preserves dimensions, format, interpretation, gainmap-data.
 ///
 /// ## Required API
@@ -3600,19 +3663,36 @@ fn test_uhdrload() {
 /// 3. Verify gainmap-data is present.
 ///
 /// Reference: test_foreign.py::test_uhdrsave
+///
+/// `encode_uhdr` needs 3-band `f32` linear-light scRGB input (it computes a
+/// gain map from it), so `im` is converted before encoding, the same way
+/// `test_uhdrsave_roundtrip_hdr` and `test_uhdrsave_gainmap_scale_factor`
+/// already did before this test was un-ignored. There is no independent
+/// byte-level oracle for `encode_uhdr`'s output: libviprs's own module docs
+/// (`libviprs::uhdr`) are explicit that its container is not byte-compatible
+/// with `libuhdr`'s, because libuhdr's tone mapper picks the gain map and
+/// libviprs's encoder picks its own. What is checked here is exactly what
+/// libvips's own `test_uhdrsave` checks: the container the encoder just wrote
+/// reads back through the crate's real, public decode path with the geometry,
+/// format and interpretation preserved and a gain map attached.
 fn test_uhdrsave() {
     let im = decode_file(&ref_image("ultra-hdr.jpg")).unwrap();
-    // Deferred external codec: the encoder returns a typed
-    // EncodeError::Unsupported rather than bytes. Pin that contract.
-    let __err = im.encode_uhdr(75).unwrap_err();
+    let scrgb = im.colourspace("scrgb");
+    let bytes = scrgb
+        .encode_uhdr(75)
+        .expect("a 3-band f32 scRGB raster encodes as UHDR");
+    let back = decode_bytes(&bytes).expect("the written UHDR container decodes");
+
+    assert_eq!((back.width(), back.height()), (im.width(), im.height()));
+    assert_eq!(back.format(), PixelFormat::Rgb8);
+    assert_eq!(back.interpretation(), Interpretation::Srgb);
     assert!(
-        matches!(__err, EncodeError::Unsupported { .. }),
-        "deferred encoder must return typed Unsupported, got {__err:?}"
+        back.get_field("gainmap-data").is_some(),
+        "reloaded UHDR must carry gainmap-data"
     );
 }
 
 #[test]
-#[ignore = "encode_uhdr's real implementation (landed with the COUNTERPART_REV bump) requires 3-band f32 scRGB input and returns EncodeError::InvalidParameter for the Rgb8 raster this test passes directly; needs the scRGB conversion plus the real round-trip assertions from the doc comment above, not just a signature fix"]
 /// UHDR save/load roundtrip preserves HDR content (scRGB avg diff < 0.02).
 ///
 /// ## Required API
@@ -3630,19 +3710,32 @@ fn test_uhdrsave() {
 /// 3. avg diff < 0.02.
 ///
 /// Reference: test_foreign.py::test_uhdrsave_roundtrip
+///
+/// This is libvips's own test methodology, not an external oracle: even in
+/// the original Python suite, `test_uhdrsave_roundtrip` is a self-round-trip
+/// bound, not a comparison against a golden file. libviprs's own `uhdr`
+/// module doc measures this same bound against real libvips (`vips
+/// uhdr2scRGB`) on a written container: max and min matched exactly and the
+/// mean differed by 0.011%, attributed to the gain-map resampler (core
+/// issue #760) rather than to the encoder or decoder. `0.02` is comfortably
+/// above that measured residual.
 fn test_uhdrsave_roundtrip() {
     let im = decode_file(&ref_image("ultra-hdr.jpg")).unwrap();
-    // Deferred external codec: the encoder returns a typed
-    // EncodeError::Unsupported rather than bytes. Pin that contract.
-    let __err = im.encode_uhdr(75).unwrap_err();
+    let scrgb = im.colourspace("scrgb");
+    let bytes = scrgb
+        .encode_uhdr(75)
+        .expect("a 3-band f32 scRGB raster encodes as UHDR");
+    let back = decode_bytes(&bytes).expect("the written UHDR container decodes");
+    let back_scrgb = back.colourspace("scrgb");
+
+    let diff = scrgb.avg_diff(&back_scrgb);
     assert!(
-        matches!(__err, EncodeError::Unsupported { .. }),
-        "deferred encoder must return typed Unsupported, got {__err:?}"
+        diff < 0.02,
+        "scRGB round-trip avg diff should be < 0.02, got {diff}"
     );
 }
 
 #[test]
-#[ignore = "encode_uhdr now succeeds for real on this scRGB input (landed with the COUNTERPART_REV bump); this test still asserts the pre-real-encoder 'always Unsupported' contract via unwrap_err() and needs the real avg_diff assertions from the doc comment above instead"]
 /// UHDR roundtrip from scRGB input (avg diff < 0.05).
 ///
 /// ## Required API
@@ -3660,20 +3753,27 @@ fn test_uhdrsave_roundtrip() {
 /// 3. avg diff < 0.05.
 ///
 /// Reference: test_foreign.py::test_uhdrsave_roundtrip_hdr
+///
+/// Same bound as `test_uhdrsave_roundtrip` above and the same reasoning for
+/// it; this cell differs from that one only in the wider tolerance libvips's
+/// own ported test uses for this fixture.
 fn test_uhdrsave_roundtrip_hdr() {
     let im = decode_file(&ref_image("ultra-hdr.jpg")).unwrap();
     let scrgb = im.colourspace("scrgb");
-    // Deferred external codec: the encoder returns a typed
-    // EncodeError::Unsupported rather than bytes. Pin that contract.
-    let __err = scrgb.encode_uhdr(75).unwrap_err();
+    let bytes = scrgb
+        .encode_uhdr(75)
+        .expect("a 3-band f32 scRGB raster encodes as UHDR");
+    let back = decode_bytes(&bytes).expect("the written UHDR container decodes");
+    let back_scrgb = back.colourspace("scrgb");
+
+    let diff = scrgb.avg_diff(&back_scrgb);
     assert!(
-        matches!(__err, EncodeError::Unsupported { .. }),
-        "deferred encoder must return typed Unsupported, got {__err:?}"
+        diff < 0.05,
+        "scRGB round-trip avg diff should be < 0.05, got {diff}"
     );
 }
 
 #[test]
-#[ignore = "encode_uhdr now succeeds for real on this scRGB input (landed with the COUNTERPART_REV bump); this test still asserts the pre-real-encoder 'always Unsupported' contract via unwrap_err() and needs the real gainmap-scale-factor assertions from the doc comment above instead"]
 /// Gainmap-scale-factor defaults to 2 for scRGB, respects explicit 4.
 ///
 /// ## Required API
@@ -3696,17 +3796,36 @@ fn test_uhdrsave_roundtrip_hdr() {
 /// 3. Save with explicit scale_factor=4, reload, verify == 4.
 ///
 /// Reference: test_foreign.py::test_uhdrsave_gainmap_scale_factor
+///
+/// `gainmap-scale-factor` is read back off the reloaded container, not off
+/// the argument passed to the encoder: `libviprs::uhdr::from_container`
+/// recomputes it as `base_width / gain_map_width` (floored, minimum 1), so
+/// this also proves the encoder actually wrote a gain map at the requested
+/// size rather than merely accepting the argument.
 fn test_uhdrsave_gainmap_scale_factor() {
     let im = decode_file(&ref_image("ultra-hdr.jpg")).unwrap();
     let scrgb = im.colourspace("scrgb");
 
-    // Default: scale factor 2 for scRGB input
-    // Deferred external codec: the encoder returns a typed
-    // EncodeError::Unsupported rather than bytes. Pin that contract.
-    let __err = scrgb.encode_uhdr(75).unwrap_err();
-    assert!(
-        matches!(__err, EncodeError::Unsupported { .. }),
-        "deferred encoder must return typed Unsupported, got {__err:?}"
+    // Default: scale factor 2 for scRGB input.
+    let bytes = scrgb
+        .encode_uhdr(75)
+        .expect("a 3-band f32 scRGB raster encodes as UHDR");
+    let back = decode_bytes(&bytes).expect("the written UHDR container decodes");
+    assert_eq!(
+        back.get_field("gainmap-scale-factor"),
+        Some(MetadataValue::Int(2)),
+        "encode_uhdr's default gain-map scale factor is 2"
+    );
+
+    // Explicit scale_factor=4.
+    let bytes4 = scrgb
+        .encode_uhdr_gainmap_scale(75, 4)
+        .expect("scale factor 4 is inside the libvips 1..=128 range");
+    let back4 = decode_bytes(&bytes4).expect("the written UHDR container decodes");
+    assert_eq!(
+        back4.get_field("gainmap-scale-factor"),
+        Some(MetadataValue::Int(4)),
+        "an explicit gain-map scale factor of 4 must round-trip"
     );
 }
 
