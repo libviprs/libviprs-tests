@@ -37,4 +37,15 @@
 # (COUNTERPART_REV a055719), with the stale hough/rint/gamma doc comments and
 # OP_MAP.md rows refreshed. The bands/conversion/arithb/aritha differential
 # cells build and pass against this CLI + the fixed core.
-0988110bbd1d4fa9c4fc57279545bda088c246b4
+#
+# Bumped to libviprs-cli#47 @ 2235c11 (closes libviprs-cli#46), following
+# COUNTERPART_REV's move to c07c685: core's `libviprs#818` made every options
+# struct `#[non_exhaustive]` with `with_*` builders, and libviprs-cli's own
+# `src/ops/resample.rs:591` built `ResizeOptions` with a struct literal, which
+# stopped compiling the moment the core pin moved past `#818` — the
+# CLI-differential job cannot lay down a `viprs` binary at all without this,
+# regardless of which op family a given cell exercises. #47 confirmed it is the
+# only such construction site in the crate. Nothing about the command surface
+# or the reference fixtures changed, so every existing differential cell keeps
+# its previous classification.
+2235c1194f2e492fb5cbd9f30c22a32d566d4b31
