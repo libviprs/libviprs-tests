@@ -160,14 +160,53 @@ drop_generated_pre_push() {
 write_pre_commit() {
     local hooks_dir="$1"
     local repo_name="$2"
+    local repo_dir="${3:-}"
     local pre_commit="$hooks_dir/pre-commit"
+
+    # A repo that ships tools/local-ci.py gets a hook that runs THAT. It reads
+    # .github/workflows/ci.yml at run time and executes whatever is in there,
+    # inside a container carrying the toolchains the workflow asks for, so it
+    # cannot drift from CI. The hardcoded per-repo lists further up are the
+    # fallback for repos without one, and they are only ever a subset.
+    if [ -n "$repo_dir" ] && [ -f "$repo_dir/tools/local-ci.py" ]; then
+        cat > "$pre_commit" << 'LOCALCI'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-commit hook: runs the fast half of this repo's real CI job list, in
+# Docker, via tools/local-ci.py. That script derives its commands from
+# .github/workflows/ci.yml, so this hook and CI cannot disagree.
+# Installed by libviprs-tests/tools/install-hooks.sh.
+# To skip (emergency only): git commit --no-verify
+
+# A repo's main checkout and all of its linked worktrees share one hooks
+# directory, and git invokes the hook with $0 inside that shared directory
+# regardless of which worktree is actually being committed in, so deriving
+# REPO_DIR from $0 always resolves to the main checkout (libviprs/libviprs#684,
+# the same bug install_pre_push below already dodges). Ask git instead.
+REPO_DIR="$(git rev-parse --show-toplevel)"
+echo "Running the fast CI jobs locally (tools/local-ci.py --fast)..."
+if ! python3 "$REPO_DIR/tools/local-ci.py" --fast; then
+    echo ""
+    echo "Failed. These are the real CI commands, so CI will fail the same way."
+    echo "Run everything including tests: tools/local-ci.py"
+    echo "Skip this hook once:            git commit --no-verify"
+    exit 1
+fi
+echo "Passed. Tests and the integration job run on push,"
+echo "or now with: tools/local-ci.py"
+LOCALCI
+        chmod +x "$pre_commit"
+        return
+    fi
 
     {
         cat << 'HEAD'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Pre-commit hook: mirrors this repo's CI Check & Lint job exactly.
+# Pre-commit hook: a SUBSET of this repo's CI Check & Lint job, not all of
+# it. A repo with tools/local-ci.py gets the real thing instead.
 # Installed by libviprs-tests/tools/install-hooks.sh — to update, edit
 # the script and re-run it. To skip (emergency only):
 #   git commit --no-verify
@@ -425,8 +464,9 @@ for REPO_DIR in "${REPOS[@]}"; do
         *)
             # The pre-commit hook goes everywhere: it runs the repo's own
             # `cargo fmt` and `cargo clippy` in the repo it is installed in, so
-            # for the cli it gates the cli.
-            write_pre_commit "$HOOKS_DIR" "$REPO_NAME"
+            # for the cli it gates the cli. $REPO_DIR lets it detect a
+            # tools/local-ci.py in the target repo and defer to that instead.
+            write_pre_commit "$HOOKS_DIR" "$REPO_NAME" "$REPO_DIR"
             if has_suite_slot "$REPO_NAME"; then
                 install_pre_push "$HOOKS_DIR"
                 echo "  done: $REPO_NAME (pre-commit + pre-push)"
