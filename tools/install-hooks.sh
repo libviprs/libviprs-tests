@@ -56,16 +56,24 @@ REPOS=(
 # without a whole extra build on every commit.
 # ---------------------------------------------------------------------------
 
-# libviprs lints the default cell and four feature-gated ones. Each of the
+# libviprs lints the default cell and nine feature-gated ones. Each of the
 # latter is in CI because the default pass compiles none of that code:
 # object-store-sink (#382), svg (#502) and jxl (#500) are all non-default and
-# all have `#[cfg(test)] mod tests` the default job never sees.
+# all have `#[cfg(test)] mod tests` the default job never sees. jp2k, avif,
+# packfile, serde and tracing joined the matrix after this list did (caught by
+# tests/install_hooks_mirror_ci.rs going red on the COUNTERPART_REV bump that
+# picked up the newer ci.yml, libviprs-tests#185).
 LIBVIPRS_CARGO_STEPS=(
     "cargo clippy --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features pdfium -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features object-store-sink -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features svg -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features jxl -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features jp2k -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features avif -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features packfile -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features serde -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features tracing -- -D warnings -W clippy::incompatible_msrv -W deprecated"
 )
 
 # libviprs-cli has no `pdfium` feature; one clippy pass.
