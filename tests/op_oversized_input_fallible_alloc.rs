@@ -34,9 +34,9 @@
 //! What remains here is the part that needs no private hook: the
 //! vips-differential golden for `project` itself, proving the scratch rework
 //! left the numeric result untouched. libvips `project` on a `uchar` image sums
-//! each column and each row; the crate produces the same sums in a 16-bit
-//! container (saturating at `65535`, which the fixture stays well under). The
-//! reference was produced offline with vips-8.18.4:
+//! each column and each row; the crate produces the same sums in a 32-bit
+//! `Uint32` container (libviprs#532/#899), which the fixture's sums stay well
+//! under. The reference was produced offline with vips-8.18.4:
 //!   `vips rawload proj_raw.bin project_input.png 5 4 1`
 //!   `vips project project_input.png cols.v rows.v`
 //!   `vips cast cols.v cols_u.v ushort`
@@ -45,7 +45,7 @@
 //! and committed under
 //! `tests/fixtures/op_oversized_input_fallible_alloc_expected/`.
 
-use core::num::NonZeroU16;
+use std::num::NonZeroU16;
 
 use libviprs::{PixelFormat, Raster};
 
@@ -87,7 +87,7 @@ fn project_matches_libvips_project_reference() {
     let input = load_gray8("project_input.png");
     let (columns, rows) = input.project();
 
-    let one = NonZeroU16::new(1).expect("one band");
+    let one = NonZeroU16::MIN;
     assert_eq!(
         columns.format(),
         PixelFormat::Uint32(one),

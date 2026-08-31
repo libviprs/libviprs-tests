@@ -34,7 +34,8 @@ use std::process::{Command, Output};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use libviprs::{PixelFormat, Raster};
+use libviprs::Raster;
+use libviprs::pixel::SampleKind;
 
 /// Locate the `libviprs-cli` crate directory.
 ///
@@ -289,8 +290,8 @@ pub fn decode_compare(actual: &Path, expected: &Path, tol: f64) {
         e.format().channels(),
     );
     assert_eq!(
-        (a.format().is_float(), a.format().bytes_per_channel()),
-        (e.format().is_float(), e.format().bytes_per_channel()),
+        a.format().kind(),
+        e.format().kind(),
         "format-class mismatch: actual {:?} vs expected {:?}",
         a.format(),
         e.format(),
@@ -340,8 +341,8 @@ pub fn decode_compare_interior(actual: &Path, expected: &Path, margin: usize, to
         e.format(),
     );
     assert_eq!(
-        (a.format().is_float(), a.format().bytes_per_channel()),
-        (e.format().is_float(), e.format().bytes_per_channel()),
+        a.format().kind(),
+        e.format().kind(),
         "format-class mismatch: actual {:?} vs expected {:?}",
         a.format(),
         e.format(),
@@ -364,10 +365,36 @@ pub fn decode_compare_interior(actual: &Path, expected: &Path, margin: usize, to
     );
 }
 
+/// Read one sample as `f64`, dispatching on [`SampleKind`] rather than on
+/// `(is_float, bytes_per_channel)`.
+///
+/// The crate's own `PixelFormat::kind` docs name exactly the trap a
+/// byte-width-keyed match falls into: `Uint32`, `Int32` and `FloatF32` are
+/// all four bytes and none of them is the others (issues #516, #517, #607),
+/// so a width alone cannot tell a counting op's carrier (`project`/`hist_*`/
+/// `hough_*`, unsigned) from a signed one (`profile`). `bytes` must be
+/// exactly `kind.bytes()` long.
+fn sample_at(kind: SampleKind, bytes: &[u8]) -> f64 {
+    match kind {
+        SampleKind::U8 => f64::from(bytes[0]),
+        SampleKind::I8 => f64::from(bytes[0] as i8),
+        SampleKind::U16 => f64::from(u16::from_ne_bytes([bytes[0], bytes[1]])),
+        SampleKind::I16 => f64::from(i16::from_ne_bytes([bytes[0], bytes[1]])),
+        SampleKind::F32 => f64::from(f32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])),
+        SampleKind::U32 => f64::from(u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])),
+        SampleKind::I32 => f64::from(i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])),
+        // SampleKind is #[non_exhaustive]: a future carrier lands here as a
+        // loud panic naming itself, never a silent misread through whichever
+        // same-width arm happened to match first.
+        _ => panic!("unsupported sample kind: {kind:?}"),
+    }
+}
+
 /// Max per-sample absolute difference over the interior of two rasters,
 /// excluding a `margin`-pixel border ring on every side. Mirrors
 /// [`max_abs_diff`]'s sample decoding.
 pub fn max_abs_diff_interior(a: &Raster, b: &Raster, margin: usize) -> f64 {
+    let kind = a.format().kind();
     let bpc = a.format().bytes_per_channel();
     let chans = a.format().channels();
     let (as_, bs_) = (a.stride(), b.stride());
@@ -379,63 +406,10 @@ pub fn max_abs_diff_interior(a: &Raster, b: &Raster, margin: usize) -> f64 {
             for c in 0..chans {
                 let s = x * chans + c;
                 let (ao, bo) = (y * as_ + s * bpc, y * bs_ + s * bpc);
-                let (av, bv) = match (a.format().is_float(), bpc) {
-                    (false, 1) => (f64::from(ad[ao]), f64::from(bd[bo])),
-                    (false, 2) => (
-                        f64::from(u16::from_ne_bytes([ad[ao], ad[ao + 1]])),
-                        f64::from(u16::from_ne_bytes([bd[bo], bd[bo + 1]])),
-                    ),
-                    (true, 4) => (
-                        f64::from(f32::from_ne_bytes([
-                            ad[ao],
-                            ad[ao + 1],
-                            ad[ao + 2],
-                            ad[ao + 3],
-                        ])),
-                        f64::from(f32::from_ne_bytes([
-                            bd[bo],
-                            bd[bo + 1],
-                            bd[bo + 2],
-                            bd[bo + 3],
-                        ])),
-                    ),
-                    // The libvips UINT / INT carriers (issue #517): counting ops
-                    // (project/profile/hough) widened onto these once a 16-bit
-                    // counter overflowed (issue #532). Signedness comes from the
-                    // format, not the byte pattern: `profile` emits INT (signed),
-                    // `project`/`hough_*` emit UINT.
-                    (false, 4) if matches!(a.format(), PixelFormat::Int32(_)) => (
-                        f64::from(i32::from_ne_bytes([
-                            ad[ao],
-                            ad[ao + 1],
-                            ad[ao + 2],
-                            ad[ao + 3],
-                        ])),
-                        f64::from(i32::from_ne_bytes([
-                            bd[bo],
-                            bd[bo + 1],
-                            bd[bo + 2],
-                            bd[bo + 3],
-                        ])),
-                    ),
-                    (false, 4) => (
-                        f64::from(u32::from_ne_bytes([
-                            ad[ao],
-                            ad[ao + 1],
-                            ad[ao + 2],
-                            ad[ao + 3],
-                        ])),
-                        f64::from(u32::from_ne_bytes([
-                            bd[bo],
-                            bd[bo + 1],
-                            bd[bo + 2],
-                            bd[bo + 3],
-                        ])),
-                    ),
-                    (f, n) => {
-                        panic!("unsupported sample class (is_float={f}, bytes_per_channel={n})")
-                    }
-                };
+                let (av, bv) = (
+                    sample_at(kind, &ad[ao..ao + bpc]),
+                    sample_at(kind, &bd[bo..bo + bpc]),
+                );
                 max = max.max((av - bv).abs());
             }
         }
@@ -445,9 +419,10 @@ pub fn max_abs_diff_interior(a: &Raster, b: &Raster, margin: usize) -> f64 {
 
 /// Max per-sample absolute difference between two rasters of identical
 /// dimensions / band-count / format-class (see [`decode_compare`]). Reads
-/// samples as `u8`, `u16` (native-endian), or `f32` per byte depth, honouring
-/// each raster's row stride.
+/// samples per [`SampleKind`] (`u8`/`i8`/`u16`/`i16`/`u32`/`i32`/`f32`,
+/// native-endian), honouring each raster's row stride.
 pub fn max_abs_diff(a: &Raster, b: &Raster) -> f64 {
+    let kind = a.format().kind();
     let bpc = a.format().bytes_per_channel();
     let samples_per_row = a.width() as usize * a.format().channels();
     let (as_, bs_) = (a.stride(), b.stride());
@@ -456,57 +431,10 @@ pub fn max_abs_diff(a: &Raster, b: &Raster) -> f64 {
     for y in 0..a.height() as usize {
         for s in 0..samples_per_row {
             let (ao, bo) = (y * as_ + s * bpc, y * bs_ + s * bpc);
-            let (av, bv) = match (a.format().is_float(), bpc) {
-                (false, 1) => (f64::from(ad[ao]), f64::from(bd[bo])),
-                (false, 2) => (
-                    f64::from(u16::from_ne_bytes([ad[ao], ad[ao + 1]])),
-                    f64::from(u16::from_ne_bytes([bd[bo], bd[bo + 1]])),
-                ),
-                (true, 4) => (
-                    f64::from(f32::from_ne_bytes([
-                        ad[ao],
-                        ad[ao + 1],
-                        ad[ao + 2],
-                        ad[ao + 3],
-                    ])),
-                    f64::from(f32::from_ne_bytes([
-                        bd[bo],
-                        bd[bo + 1],
-                        bd[bo + 2],
-                        bd[bo + 3],
-                    ])),
-                ),
-                // See the matching arm in max_abs_diff_interior above.
-                (false, 4) if matches!(a.format(), PixelFormat::Int32(_)) => (
-                    f64::from(i32::from_ne_bytes([
-                        ad[ao],
-                        ad[ao + 1],
-                        ad[ao + 2],
-                        ad[ao + 3],
-                    ])),
-                    f64::from(i32::from_ne_bytes([
-                        bd[bo],
-                        bd[bo + 1],
-                        bd[bo + 2],
-                        bd[bo + 3],
-                    ])),
-                ),
-                (false, 4) => (
-                    f64::from(u32::from_ne_bytes([
-                        ad[ao],
-                        ad[ao + 1],
-                        ad[ao + 2],
-                        ad[ao + 3],
-                    ])),
-                    f64::from(u32::from_ne_bytes([
-                        bd[bo],
-                        bd[bo + 1],
-                        bd[bo + 2],
-                        bd[bo + 3],
-                    ])),
-                ),
-                (f, n) => panic!("unsupported sample class (is_float={f}, bytes_per_channel={n})"),
-            };
+            let (av, bv) = (
+                sample_at(kind, &ad[ao..ao + bpc]),
+                sample_at(kind, &bd[bo..bo + bpc]),
+            );
             max = max.max((av - bv).abs());
         }
     }
