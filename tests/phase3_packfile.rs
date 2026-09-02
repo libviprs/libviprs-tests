@@ -508,7 +508,14 @@ fn packfile_streaming_memory_bounded() {
     let src = canonical_raster_scaled(2048, 2048);
     let plan = make_plan(2048, 2048, 256);
 
-    let budget: u64 = 2_000_000; // 2 MB
+    // The budget has to clear the streaming engine's pre-flight floor or the
+    // run never starts. That floor is one minimum aligned strip, `2 *
+    // tile_size` rows at canvas width: 2048 * (2 * 256) * 3 = 3_145_728 bytes
+    // for this Rgb8 canvas. This test asked for 2 MB, which is under the
+    // floor, so `generate_pyramid_streaming` could only ever answer
+    // `BudgetExceeded` and every assertion below was unreachable. No job had
+    // ever run the cell, so nothing said so.
+    let budget: u64 = 4_000_000; // 4 MB, one strip plus room to work in
 
     let sink = make_packfile(
         out.clone(),
@@ -537,5 +544,18 @@ fn packfile_streaming_memory_bounded() {
         result.peak_memory_bytes,
         upper,
         budget,
+    );
+
+    // 4x a 4 MB budget is 16 MB, which is more than the whole 12 MB level-0
+    // raster, so the bound above would hold for an engine that read the image
+    // in one piece and streamed nothing. Pin the streaming claim separately:
+    // peak has to stay under one full canvas. Measured peak here is 5_505_024
+    // bytes, so both bounds have room, and this one is the tighter of the two.
+    let canvas_bytes = 2048u64 * 2048 * PixelFormat::Rgb8.bytes_per_pixel() as u64;
+    assert!(
+        result.peak_memory_bytes < canvas_bytes,
+        "peak memory {} reached the full canvas ({canvas_bytes} bytes), so \
+         nothing here was streamed",
+        result.peak_memory_bytes,
     );
 }
