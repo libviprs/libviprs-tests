@@ -25,25 +25,24 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod common;
-use common::hooks::repo_root;
+use common::hooks::{STANDIN_REPOS, repo_root};
 
 /// The comment line every hook this installer writes carries. The installer
 /// uses it to tell its own output apart from a hand-written hook, so the
 /// guards have to agree with it byte for byte.
 const INSTALLER_MARKER: &str = "Installed by libviprs-tests/tools/install-hooks.sh";
 
-/// The four repos `install-hooks.sh` looks for as siblings.
-const REPOS: &[&str] = &[
-    "libviprs",
-    "libviprs-cli",
-    "libviprs-tests",
-    "pdfium-render",
-];
-
-/// A throwaway workspace with the four sibling repos the installer expects and
-/// a copy of the installer itself, so it can be run for real without touching
-/// a developer's checkouts. It removes hooks it recognises as its own, so
+/// A throwaway workspace with every sibling repo the installer expects and a
+/// copy of the installer itself, so it can be run for real without touching a
+/// developer's checkouts. It removes hooks it recognises as its own, so
 /// running it against the live workspace from a test would be destructive.
+///
+/// The repo list is shared with `tests/common/hooks.rs` rather than written
+/// out again here. It used to be a local copy of four names, and when the
+/// installer grew three more repos the copy did not: the stand-in workspace
+/// simply never created them, the installer skipped them as "not a git repo",
+/// and the table below asserted nothing about the three repos that had just
+/// started getting hooks.
 struct Workspace {
     _dir: tempfile::TempDir,
     root: PathBuf,
@@ -54,7 +53,7 @@ impl Workspace {
         let dir = tempfile::tempdir().expect("temp dir for a stand-in workspace");
         let root = dir.path().canonicalize().expect("canonical temp path");
 
-        for repo in REPOS {
+        for repo in STANDIN_REPOS {
             let repo_root = root.join(repo);
             std::fs::create_dir_all(&repo_root).expect("create a stand-in repo");
             git(&repo_root, &["init", "-q"]);
@@ -191,7 +190,33 @@ fn a_pre_push_hook_only_lands_where_the_suite_has_a_slot() {
             false,
             "the fork has no run-tests.sh integration at all",
         ),
+        (
+            "libviprs-bench",
+            false,
+            "the image holds no bench crate, so the gate could not fail on a bench change",
+        ),
+        (
+            "libviprs-org",
+            false,
+            "the image holds no doc site, and the site's own checks are all in its pre-commit hook",
+        ),
+        (
+            "libviprs-dep",
+            false,
+            "the image holds none of the pdfium build inputs, and that repo's checks are python and shell",
+        ),
     ];
+
+    // A repo the installer visits and this table does not name gets no
+    // assertion at all, and no assertion reads to `cargo test` as a pass.
+    let named: std::collections::BTreeSet<&str> = expected.iter().map(|(r, _, _)| *r).collect();
+    let visited: std::collections::BTreeSet<&str> = STANDIN_REPOS.iter().copied().collect();
+    assert_eq!(
+        named, visited,
+        "this table and the repos the installer visits have gone out of step, \
+         so some repo is getting hooks with nothing here saying which. The \
+         installer said:\n{printed}"
+    );
 
     for (repo, wants_pre_push, why) in expected {
         assert!(
