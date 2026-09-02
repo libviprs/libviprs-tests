@@ -2,7 +2,9 @@
 //! surface on `EngineBuilder`.
 //!
 //! Today `EngineKind::Streaming` paired with `ResumePolicy::verify()` is
-//! rejected outright (see `builder_resume_streaming::streaming_verify_is_rejected`).
+//! rejected outright (see
+//! `builder_resume_streaming::streaming_verify_is_now_supported`, which pins
+//! that it is not rejected any more).
 //! That blanket rejection is about to be lifted: the builder will wrap the
 //! user-provided sink in a verifying adapter that walks every tile recorded
 //! by the plan and re-reads it from the target directory without producing

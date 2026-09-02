@@ -13,12 +13,18 @@
 //! wiring are caught by a uniform set of counters rather than
 //! engine-specific assertions scattered across other files.
 //!
-//! The Verify-mode coverage for Streaming and MapReduce is gated on the
-//! stream-verify implementation that the builder currently rejects with
-//! `EngineError::IncompatibleSource`. Those two tests (`streaming_verify_*`
-//! and `mapreduce_verify_*`) are marked `#[ignore]` until the feature lands;
-//! their bodies express the final contract so the implementer has a
-//! concrete assertion target.
+//! Every test in this file runs on the normal `cargo test` path. Two of them
+//! used to sit behind `#[ignore]` waiting on stream-verify, which has since
+//! landed (see `streaming_verify_is_now_supported` in
+//! `builder_resume_streaming.rs`, and the fuller coverage in
+//! `builder_stream_verify.rs`), so they gate CI now like the rest.
+//!
+//! On Resume the observer and the sink measure different things, and both
+//! resume tests below pin both halves. The engine presents every planned tile
+//! to the observer, while `ResumeAwareSink` short-circuits the writes for
+//! tiles the checkpoint already records. Asserting only the event count would
+//! still pass if Resume had ignored the checkpoint and rewritten everything,
+//! so each of those tests carries a sink-write count as its positive control.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -164,6 +170,50 @@ impl TileSink for PanickingSink {
     }
 }
 
+/// Counts the writes that actually reach the inner sink. Mirrors the helper
+/// in `tests/builder_resume_streaming.rs`, copied for the same reason as
+/// `PanickingSink` above and trimmed to just the count this file needs.
+struct RecordingSink {
+    inner: FsSink,
+    writes: AtomicUsize,
+}
+
+impl RecordingSink {
+    fn new(inner: FsSink) -> Self {
+        Self {
+            inner,
+            writes: AtomicUsize::new(0),
+        }
+    }
+
+    fn write_count(&self) -> usize {
+        self.writes.load(Ordering::SeqCst)
+    }
+}
+
+impl TileSink for RecordingSink {
+    fn write_tile(&self, tile: &Tile) -> Result<(), SinkError> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        self.inner.write_tile(tile)
+    }
+
+    fn finish(&self) -> Result<(), SinkError> {
+        self.inner.finish()
+    }
+
+    fn checkpoint_root(&self) -> Option<&Path> {
+        self.inner.checkpoint_root()
+    }
+
+    fn record_engine_config(&self, config: &EngineConfig) {
+        self.inner.record_engine_config(config)
+    }
+
+    fn init_level_count(&self, levels: usize) {
+        self.inner.init_level_count(levels)
+    }
+}
+
 /// Load the persisted checkpoint as `JobMetadata`. Panics loudly if the
 /// checkpoint is missing or unparsable, the test that uses this needs a
 /// partial checkpoint to exist, so absence is a real bug.
@@ -204,19 +254,18 @@ fn monolithic_overwrite_emits_full_event_stream() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Monolithic + Resume — only new writes emit events.
+// 2. Monolithic + Resume: every visited tile emits an event, and only the
+//    unfinished tiles reach the sink.
 // ---------------------------------------------------------------------------
 
-// Ignored: captures the pre-unification semantic where Monolithic resume
-// suppressed TileCompleted events for skipped tiles. The unified resume
-// path (EngineBuilder + ResumeAwareSink) now fires progress events for
-// every tile the engine visits regardless of whether the wrapper
-// short-circuits the actual write — sink writes and observer events are
-// separate concerns. Kept as a ratchet: if we decide later to re-introduce
-// skip-aware event suppression, un-ignore this test and flip the wiring.
+// The unified resume path (EngineBuilder + ResumeAwareSink) fires progress
+// events for every tile the engine visits, whether or not the wrapper
+// short-circuits the actual write. Sink writes and observer events are
+// separate concerns, and this test pins both of them at once, so
+// re-introducing skip-aware event suppression fails the first assertion
+// while a resume that lost its checkpoint fails the second.
 #[test]
-#[ignore = "resolved semantic: observer fires for every engine-visited tile, not per sink write"]
-fn monolithic_resume_emits_events_for_new_writes_only() {
+fn monolithic_resume_emits_events_for_every_visited_tile() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
     std::fs::create_dir_all(&base).unwrap();
@@ -254,12 +303,13 @@ fn monolithic_resume_emits_events_for_new_writes_only() {
     );
     let remaining = total - already_done as u64;
 
-    // Second run: fresh observer, Resume mode. Only the uncompleted tiles
-    // should produce TileCompleted events; level and finish events still
-    // fire for every level / the single Finished.
+    // Second run: fresh observer, Resume mode. The engine still renders and
+    // presents every tile, so TileCompleted fires once per planned tile, while
+    // the resume wrapper short-circuits the writes the checkpoint already has.
     let inner = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
+    let recording = RecordingSink::new(inner);
     let obs = Arc::new(CollectingObserver::new());
-    EngineBuilder::new(&src, plan.clone(), &inner)
+    EngineBuilder::new(&src, plan.clone(), &recording)
         .with_engine(EngineKind::Monolithic)
         .with_resume(ResumePolicy::resume())
         .with_observer_arc(obs.clone())
@@ -268,10 +318,19 @@ fn monolithic_resume_emits_events_for_new_writes_only() {
 
     let counts = EventCounts::from_events(&obs.events());
     assert_eq!(
-        counts.tile_completed as u64, remaining,
-        "Resume should emit TileCompleted only for the {remaining} unfinished tiles \
-         (already_done={already_done}, total={total}), got {}",
+        counts.tile_completed as u64, total,
+        "the observer sees every tile the engine visits, so TileCompleted should \
+         fire {total} times (already_done={already_done}), got {}",
         counts.tile_completed,
+    );
+    // Positive control. Without this the assertion above would still pass if
+    // Resume had ignored the checkpoint and rewritten the whole pyramid.
+    assert_eq!(
+        recording.write_count() as u64,
+        remaining,
+        "Resume should write only the {remaining} unfinished tiles \
+         (already_done={already_done}, total={total}), got {}",
+        recording.write_count(),
     );
     assert_eq!(counts.finished, 1, "Finished must fire exactly once");
     assert_eq!(
@@ -355,18 +414,15 @@ fn streaming_overwrite_emits_full_event_stream() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Streaming + Resume after a full run — no new tile events.
+// 5. Streaming + Resume after a full run: events still fire, writes do not.
 // ---------------------------------------------------------------------------
 
-// Ignored: same reason as monolithic_resume_emits_events_for_new_writes_only.
-// The streaming engine emits TileCompleted for every tile it renders;
-// ResumeAwareSink only filters write_tile, not observer events. The
-// regression guards live in builder_resume_streaming.rs
-// (streaming_resume_short_circuits_already_complete_tiles) which counts
-// sink writes rather than observer events.
+// The streaming engine emits TileCompleted for every tile it renders, and
+// ResumeAwareSink filters write_tile rather than observer events. This pins
+// both sides on a fully-complete checkpoint, which is the sharpest case: the
+// event count is at its maximum while the write count is at zero.
 #[test]
-#[ignore = "resolved semantic: observer fires for every engine-visited tile, not per sink write"]
-fn streaming_resume_emits_no_tile_events_when_complete() {
+fn streaming_resume_emits_tile_events_but_writes_nothing_when_complete() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
     let src = canonical_raster_scaled(256, 192);
@@ -382,12 +438,13 @@ fn streaming_resume_emits_no_tile_events_when_complete() {
             .expect("seed streaming run should succeed");
     }
 
-    // Second run: Resume against a complete checkpoint. Every tile is
-    // short-circuited by ResumeAwareSink, so no TileCompleted events
-    // should fire — but Finished and the per-level bookends still do.
-    let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
+    // Second run: Resume against a complete checkpoint. Every write is
+    // short-circuited by ResumeAwareSink, but the engine still renders and
+    // presents every tile, so the observer sees the full event stream.
+    let inner = FsSink::new(base, plan.clone()).with_format(TileFormat::Raw);
+    let recording = RecordingSink::new(inner);
     let obs = Arc::new(CollectingObserver::new());
-    EngineBuilder::new(&src, plan.clone(), &sink)
+    EngineBuilder::new(&src, plan.clone(), &recording)
         .with_engine(EngineKind::Streaming)
         .with_resume(ResumePolicy::resume())
         .with_observer_arc(obs.clone())
@@ -396,9 +453,21 @@ fn streaming_resume_emits_no_tile_events_when_complete() {
 
     let counts = EventCounts::from_events(&obs.events());
     assert_eq!(
-        counts.tile_completed, 0,
-        "Fully short-circuited Resume must not emit TileCompleted, got {}",
+        counts.tile_completed as u64,
+        plan.total_tile_count(),
+        "the observer sees every tile the engine visits, so TileCompleted should fire \
+         {} times, got {}",
+        plan.total_tile_count(),
         counts.tile_completed
+    );
+    // Positive control. A fully short-circuited Resume must reach the inner
+    // sink zero times; the event assertion alone cannot tell a working
+    // short-circuit from a full rewrite.
+    assert_eq!(
+        recording.write_count(),
+        0,
+        "Resume wrote {} tiles even though the checkpoint recorded a full run",
+        recording.write_count()
     );
     assert_eq!(
         counts.finished, 1,
@@ -419,14 +488,13 @@ fn streaming_resume_emits_no_tile_events_when_complete() {
 // ---------------------------------------------------------------------------
 // 6. Streaming + Verify — one event per tile.
 //
-// Pending stream-verify implementation. Currently the builder rejects this
-// combination with `EngineError::IncompatibleSource` (see
-// `streaming_verify_is_rejected` in `builder_resume_streaming.rs`). This
-// test expresses the target contract for when stream-verify lands.
+// Stream-verify has landed, so the builder runs this combination instead of
+// rejecting it with `EngineError::IncompatibleSource`. See
+// `streaming_verify_is_now_supported` in `builder_resume_streaming.rs`, and
+// `builder_stream_verify.rs` for the fuller coverage.
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "pending stream-verify implementation; currently IncompatibleSource"]
 fn streaming_verify_emits_events_for_every_tile() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
@@ -451,7 +519,7 @@ fn streaming_verify_emits_events_for_every_tile() {
         .with_resume(ResumePolicy::verify())
         .with_observer_arc(obs.clone())
         .run()
-        .expect("streaming verify should succeed once implemented");
+        .expect("streaming verify should succeed against intact output");
 
     let counts = EventCounts::from_events(&obs.events());
     assert_eq!(
@@ -492,13 +560,12 @@ fn mapreduce_overwrite_emits_full_event_stream() {
 // ---------------------------------------------------------------------------
 // 8. MapReduce + Verify — one event per tile.
 //
-// Pending stream-verify implementation for MapReduce. Currently rejected
-// with `EngineError::IncompatibleSource`; this test expresses the target
-// contract.
+// Stream-verify has landed for MapReduce too, so this runs rather than being
+// rejected with `EngineError::IncompatibleSource`. See
+// `mapreduce_verify_is_now_supported` in `builder_resume_streaming.rs`.
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "pending stream-verify implementation; currently IncompatibleSource"]
 fn mapreduce_verify_emits_events_for_every_tile() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("tiles");
@@ -522,7 +589,7 @@ fn mapreduce_verify_emits_events_for_every_tile() {
         .with_resume(ResumePolicy::verify())
         .with_observer_arc(obs.clone())
         .run()
-        .expect("mapreduce verify should succeed once implemented");
+        .expect("mapreduce verify should succeed against intact output");
 
     let counts = EventCounts::from_events(&obs.events());
     assert_eq!(
