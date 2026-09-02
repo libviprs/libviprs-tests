@@ -129,6 +129,46 @@ jobs:
         # (libviprs/libviprs#715).
         run: cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff
 
+  hook-mirror:
+    name: Hook Mirror (every repo in the org)
+    # The hook guards compare each repo's installed pre-commit hook against
+    # that repo's own ci.yml, so they need every repo laid down beside this
+    # one. Nothing else in this workflow does that, and a guard whose sibling
+    # is missing skips, which reads to `cargo test` as a pass. So this job
+    # exists to be the one place they cannot skip: VIPRS_REQUIRE_SIBLINGS=1
+    # turns a missing checkout into a panic, the same shape as
+    # VIPRS_REQUIRE_CLI on the cli-differential job (tests/common/cli.rs).
+    #
+    # Without it the three repos that gained hooks in #198 would be guarded by
+    # tests that never once ran.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/clone-counterpart
+      - uses: ./.github/actions/clone-cli-counterpart
+      - name: Clone the siblings that carry no pin
+        # These four are read for their workflow files only, so the default
+        # branch at whatever it is now is the right thing to compare against:
+        # a hook that has drifted from the CI running today is exactly what
+        # this job is for. The two that do carry a pin are cloned at it above.
+        run: |
+          set -euo pipefail
+          for repo in libviprs-bench libviprs-org libviprs-dep pdfium-render; do
+            git clone --depth 1 --single-branch \
+              "https://github.com/${{ github.repository_owner }}/$repo.git" \
+              "${GITHUB_WORKSPACE}/../$repo"
+          done
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # install_hooks_pdfium_scope drives the fork's real hook against a
+          # throwaway crate, and that hook runs cargo fmt and cargo clippy.
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - env:
+          VIPRS_REQUIRE_SIBLINGS: 1
+          VIPRS_REQUIRE_CLI: 1
+        run: cargo test --test install_hooks_mirror_ci --test install_hooks_pdfium_scope --test install_hooks_pre_push_slots --test install_hooks_localci_selection --test install_hooks_localci_worktree
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

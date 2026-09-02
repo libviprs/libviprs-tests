@@ -16,6 +16,20 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+/// The repos `tools/install-hooks.sh` looks for as siblings, which is what a
+/// stand-in workspace has to lay down for it to install anything. Kept in one
+/// place because two guard suites and the installer all have to agree on it;
+/// `install_hooks_pre_push_slots` asserts the installer visits exactly these.
+pub const STANDIN_REPOS: &[&str] = &[
+    "libviprs",
+    "libviprs-cli",
+    "libviprs-tests",
+    "libviprs-bench",
+    "libviprs-org",
+    "libviprs-dep",
+    "pdfium-render",
+];
+
 /// This crate's root, which is also the repo root for the harness checkout.
 pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
@@ -97,10 +111,11 @@ impl Workspace {
         let dir = tempfile::tempdir().expect("temp dir for a stand-in workspace");
         let root = dir.path().canonicalize().expect("canonical temp path");
 
-        // libviprs-cli gets no pre-push hook (libviprs/libviprs#691) but it
-        // does get a pre-commit one, and #715's guard runs that, so it is here
-        // too. Nothing pushes from it.
-        for repo in ["libviprs", "libviprs-cli", "libviprs-tests"] {
+        // Only libviprs and libviprs-tests get a pre-push hook
+        // (libviprs/libviprs#691), but every one of these gets a pre-commit
+        // hook and install_hooks_mirror_ci runs all of them, so the whole org
+        // is here. Nothing pushes from any but the two.
+        for repo in STANDIN_REPOS {
             let repo_root = root.join(repo);
             std::fs::create_dir_all(&repo_root).expect("create the stand-in repo");
             git(&repo_root, &["init", "-q", "-b", "main"]);
