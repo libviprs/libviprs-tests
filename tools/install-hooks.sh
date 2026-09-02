@@ -639,6 +639,7 @@ fi
 
 python3 - <<'PY'
 import json
+import os
 import subprocess
 import sys
 
@@ -684,10 +685,34 @@ if not file_lines:
     print("  only deletions against HEAD, so nothing is scoped, but the tree")
     print("  still has to build")
 
+# An ambient `-D warnings` has to come off for this one call. The whole
+# arrangement here rests on clippy reporting an inherited lint as a warning so
+# the scope filter can drop it; with `-D warnings` in RUSTFLAGS every one of
+# them arrives as an error instead, clippy exits non-zero, and the hook refuses
+# a commit over debt it was written to ignore. That is not hypothetical: this
+# repo's own CI sets RUSTFLAGS at the workflow level, and the guard for this
+# hook went red there the first time it ran. Real compile errors are unaffected,
+# because they are errors without it.
+env = dict(os.environ)
+flags = env.get("RUSTFLAGS", "").split()
+kept = []
+i = 0
+while i < len(flags):
+    if flags[i] in ("-Dwarnings", "--deny=warnings"):
+        i += 1
+        continue
+    if flags[i] in ("-D", "--deny") and i + 1 < len(flags) and flags[i + 1] == "warnings":
+        i += 2
+        continue
+    kept.append(flags[i])
+    i += 1
+env["RUSTFLAGS"] = " ".join(kept)
+
 clippy = subprocess.run(
     ["cargo", "clippy", "--all-targets", "--message-format=json"],
     capture_output=True,
     text=True,
+    env=env,
 )
 
 hits = []

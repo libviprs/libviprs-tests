@@ -67,6 +67,11 @@ fn fixture() -> Workspace {
 /// Run the installed hook in the stand-in fork and hand back whether it
 /// allowed the commit, plus everything it printed.
 fn run_hook(ws: &Workspace) -> (bool, String) {
+    run_hook_with(ws, None)
+}
+
+/// The same, with a `RUSTFLAGS` of your choosing.
+fn run_hook_with(ws: &Workspace, rustflags: Option<&str>) -> (bool, String) {
     let repo = ws.repo("pdfium-render");
     let hook = repo.join(".git/hooks/pre-commit");
     assert!(
@@ -74,14 +79,17 @@ fn run_hook(ws: &Workspace) -> (bool, String) {
         "no pre-commit hook was installed into the stand-in fork, so every \
          assertion here would be about a hook that does not exist"
     );
-    let out = Command::new("bash")
-        .arg(&hook)
+    let mut cmd = Command::new("bash");
+    cmd.arg(&hook)
         .current_dir(&repo)
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .output()
-        .expect("run the fork's pre-commit hook");
+        .env_remove("GIT_INDEX_FILE");
+    match rustflags {
+        Some(f) => cmd.env("RUSTFLAGS", f),
+        None => cmd.env_remove("RUSTFLAGS"),
+    };
+    let out = cmd.output().expect("run the fork's pre-commit hook");
     (
         out.status.success(),
         format!(
@@ -258,5 +266,66 @@ pub fn caller() -> usize {
         "the fork's pre-commit hook allowed a commit that stops the crate \
          building. The scope was empty because the change adds no lines, and an \
          empty scope was being read as nothing to check.\n{printed}"
+    );
+}
+
+/// `-D warnings` in the environment must not turn inherited debt into a
+/// refusal.
+///
+/// The scoping rests on clippy calling an inherited lint a warning, so the
+/// filter can drop it. With `-D warnings` set every one of them arrives as an
+/// error, clippy exits non-zero, and the hook refuses a commit over exactly
+/// the debt it exists to ignore. That is not a hypothetical: this repo's own
+/// ci.yml sets `RUSTFLAGS: -Dwarnings` at the workflow level, and the first
+/// run of this file on CI went red on it while every local run was green.
+///
+/// So the hook takes `-D warnings` back off for its own clippy call, and this
+/// pins that rather than leaving the next person to find it the same way.
+#[test]
+fn an_ambient_deny_warnings_does_not_turn_inherited_debt_into_a_refusal() {
+    let ws = fixture();
+    let repo = ws.repo("pdfium-render");
+    write(
+        &repo,
+        "src/lib.rs",
+        &format!(
+            "{INHERITED}
+pub fn added_clean(v: &[u8]) -> usize {{
+    v.len()
+}}
+"
+        ),
+    );
+    git(&repo, &["add", "-A"]);
+
+    let (ok, printed) = run_hook_with(&ws, Some("-Dwarnings"));
+    assert!(
+        ok,
+        "with RUSTFLAGS=-Dwarnings the fork's hook refused a change that \
+         introduces no lint of its own. The inherited lint came back as an \
+         error rather than a warning and the scope filter never got to drop \
+         it.\n{printed}"
+    );
+
+    // And a lint this change does write still has to be refused with the flag
+    // set, or the fix is just "ignore clippy when RUSTFLAGS is present".
+    write(
+        &repo,
+        "src/lib.rs",
+        &format!(
+            "{INHERITED}
+pub fn added_dirty(v: &Vec<u8>) -> usize {{
+    v.len()
+}}
+"
+        ),
+    );
+    git(&repo, &["add", "-A"]);
+    let (ok, printed) = run_hook_with(&ws, Some("-Dwarnings"));
+    assert!(
+        !ok,
+        "with RUSTFLAGS=-Dwarnings the fork's hook allowed a change whose own \
+         new line trips a lint, so taking the flag off has been widened into \
+         letting everything through.\n{printed}"
     );
 }
