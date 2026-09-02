@@ -1,9 +1,19 @@
 name: Nightly
 
-# Wall-clock perf smokes are too timing-sensitive to gate every PR on a shared
-# runner, so they are `#[ignore]`d out of ci.yml and exercised here on a
-# schedule. A transient blip on a nightly is a retryable run, not a merge
-# blocker. Runs natively on GitHub Actions (libviprs/libviprs#585).
+# Wall-clock perf smokes and the large-image stress suite are too slow or too
+# timing-sensitive to gate every PR on a shared runner, so they are
+# `#[ignore]`d out of ci.yml and exercised here on a schedule. A transient blip
+# on a nightly is a retryable run, not a merge blocker. Runs natively on GitHub
+# Actions (libviprs/libviprs#585).
+#
+# Each step below names the test TARGET it runs. `#[ignore]` is the mechanism
+# that keeps these off the per-PR path, but it is not the selector: this repo
+# uses `#[ignore]` for at least seven unrelated things, so a crate-wide
+# `-- --ignored` also sweeps in the fixture generators (which rewrite committed
+# files), the manual pdfium diagnostics, tests needing a live S3 endpoint, and
+# deferred-feature stubs that are ignored precisely because they do not pass
+# yet. `nightly_selects_ignored_tests_by_target_not_crate_wide` in
+# tests/pdfium_ci_policy.rs refuses a re-widening.
 on:
   schedule:
     # 07:00 UTC daily.
@@ -39,7 +49,12 @@ jobs:
           sudo cp pdfium/lib/libpdfium.so /usr/local/lib/
           sudo cp -r pdfium/include/* /usr/local/include/
           sudo ldconfig
-      # Run only the `#[ignore]`d tests (the wall-clock perf-ratio smokes).
-      # These assert streaming <= 12x cached and are the signal moved off the
-      # per-PR path in issue #59.
-      - run: cargo test --features pdfium -- --ignored
+      # The wall-clock perf-ratio smokes: streaming <= 12x cached, moved off
+      # the per-PR path in issue #59.
+      - name: Perf-ratio smokes
+        run: cargo test --features pdfium --test pdfium_streaming_perf_smoke -- --ignored
+      # The large-image stress suite (10K x 10K and 4K x 4K synthetic rasters).
+      # Release profile because these are throughput paths and a debug build
+      # makes them pointlessly slow.
+      - name: Large-image stress suite
+        run: cargo test --release --test stress -- --ignored

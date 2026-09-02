@@ -109,15 +109,48 @@ fn perf_ratio_smoke_is_ignored_out_of_normal_ci() {
     );
 }
 
+/// The nightly must select what it runs by TARGET, not by `#[ignore]`.
+///
+/// `#[ignore]` is the mechanism that keeps a test off the per-PR path, but it
+/// is not a category. This repo spends it on at least seven unrelated things:
+/// perf smokes, fixture generators, manual diagnostics, tests needing a live
+/// S3 endpoint, stress runs, unimplemented-feature deferrals, and tests kept
+/// as documentation of a contract that was deliberately abandoned. So a
+/// crate-wide `cargo test -- --ignored` runs all of them, and it did: the
+/// nightly went red on tests it was never meant to run, and three of the
+/// generators it swept in rewrite committed fixture files.
+///
+/// This guard refuses rather than reports. Every `cargo test` line in
+/// nightly.yml that passes `--ignored` must also name a `--test` target, so
+/// the selector cannot silently widen back.
 #[test]
-fn nightly_workflow_runs_the_ignored_perf_smoke_on_a_schedule() {
+fn nightly_selects_ignored_tests_by_target_not_crate_wide() {
     let nightly = read_workflow("nightly.yml");
     assert!(
         nightly.contains("schedule:") && nightly.contains("cron:"),
         "nightly.yml must run on a cron schedule"
     );
+
+    let ignored_cmds: Vec<&str> = cargo_test_command_lines(&nightly)
+        .into_iter()
+        .filter(|c| c.contains("--ignored"))
+        .collect();
     assert!(
-        nightly.contains("cargo test --features pdfium -- --ignored"),
-        "nightly.yml must run the ignored (perf-ratio smoke) tests"
+        !ignored_cmds.is_empty(),
+        "nightly.yml must still run the ignored tests this job exists for"
+    );
+    for cmd in &ignored_cmds {
+        assert!(
+            cmd.contains("--test "),
+            "nightly.yml must select ignored tests by target. `{cmd}` runs every ignored test \
+             in the crate, which sweeps in fixture generators that rewrite committed files, \
+             manual diagnostics, and deferred stubs that do not pass yet (issue #59)"
+        );
+    }
+    assert!(
+        ignored_cmds
+            .iter()
+            .any(|c| c.contains("--features pdfium") && c.contains("pdfium_streaming_perf_smoke")),
+        "nightly.yml must still run the wall-clock perf-ratio smokes (issue #59)"
     );
 }
