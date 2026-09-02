@@ -48,4 +48,18 @@
 # only such construction site in the crate. Nothing about the command surface
 # or the reference fixtures changed, so every existing differential cell keeps
 # its previous classification.
-2235c1194f2e492fb5cbd9f30c22a32d566d4b31
+#
+# Bumped to eef0591, libviprs-cli main after its two CI-shape PRs: libviprs-cli
+# #49 lints all five of that crate's configurations instead of one, and
+# libviprs-cli #51 gives it a nightly. The first is why this pin has to move
+# rather than wait: tests/install_hooks_mirror_ci.rs compares the cli's lint
+# lines against LIBVIPRS_CLI_CARGO_STEPS in tools/install-hooks.sh, and in CI
+# it reads the cli AT THIS PIN, so the hook list and the pin have to arrive in
+# the same commit or the guard goes red on one side or the other.
+#
+# Nothing in `src/` moved between 2235c11 and here. The diff is
+# .github/workflows/ci.yml plus a Cargo.lock re-resolution that puts the
+# pdfium-render fork rev in step with the core's pin (libviprs-cli#45), so the
+# `viprs` binary the CLI-differential cells build behaves exactly as it did at
+# the old pin and every cell keeps its classification.
+eef059101eb93be34b33ebb78bbafbcd2cd124bc

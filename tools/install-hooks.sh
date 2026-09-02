@@ -76,9 +76,19 @@ LIBVIPRS_CARGO_STEPS=(
     "cargo clippy --all-targets --features tracing -- -D warnings -W clippy::incompatible_msrv -W deprecated"
 )
 
-# libviprs-cli has no `pdfium` feature; one clippy pass.
+# libviprs-cli lints five configurations, and this list has to carry all five
+# (libviprs-cli#48). The comment that stood here said the cli "has no `pdfium`
+# feature", which was wrong twice over: it has one and it is the default, so
+# the bare pass below IS the pdfium pass, and the `--no-default-features` one
+# is the only build that ever compiles the `#[cfg(not(feature = "pdfium"))]`
+# halves. The other three are there for the usual reason: the default pass
+# compiles none of the code behind them.
 LIBVIPRS_CLI_CARGO_STEPS=(
     "cargo clippy --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features tracing -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features packfile -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features s3 -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --no-default-features -- -D warnings -W clippy::incompatible_msrv -W deprecated"
 )
 
 # libviprs-tests CI is plainer — no incompatible_msrv / deprecated lints.
