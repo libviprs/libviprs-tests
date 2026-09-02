@@ -30,6 +30,12 @@ jobs:
       # `object-store-sink`, so the default run compiles them out. Exercise the
       # feature so they actually run (#382).
       - run: cargo test --features object-store-sink --test phase3_object_store_sink --test phase3_validation_stress --test sink_object_store_stub_contract
+      # Same hole, same shape, for `packfile`: both packfile test files are
+      # `#![cfg(feature = "packfile")]`, the feature-cells matrix only lints
+      # them, and the default run above compiles them to nothing, so no job on
+      # either forge had ever executed the 14 tests in them. The first run
+      # found one of them red (#191).
+      - run: cargo test --features packfile --test phase3_packfile --test builder_sink_packfile
 
   test-pdfium:
     name: Integration Tests (pdfium)
