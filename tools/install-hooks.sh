@@ -413,7 +413,23 @@ set -euo pipefail
 
 # Pre-commit hook: runs the fast half of this repo's real CI job list, in
 # Docker, via tools/local-ci.py. That script derives its commands from
-# .github/workflows/ci.yml, so this hook and CI cannot disagree.
+# .github/workflows/ci.yml, so the COMMANDS here cannot drift from CI.
+#
+# It runs with --worktree, which bind-mounts the tree instead of provisioning
+# it from git. That is the difference between about 12s and about 107s per
+# commit, measured, and 107s per commit is not a thing anyone will tolerate.
+#
+# The cost is real and you should know it: a Docker Desktop bind mount off an
+# APFS host is CASE-INSENSITIVE and it carries untracked files. So this hook
+# can pass on a tree CI will reject, and it has: libviprs#977 was a fixture
+# whose name differed from the committed file only in case, it resolved fine
+# through the bind mount, and it was red on ubuntu-latest for two days.
+#
+# So this hook is the fast check, NOT the gate. The gate is `make ci`, which
+# provisions from git and is case-exact. Run that before you push anything you
+# care about. libviprs/tests/fixture_paths_are_committed.rs catches the one
+# specific shape that bit us, but it does not make the bind mount case-exact.
+#
 # Installed by libviprs-tests/tools/install-hooks.sh.
 # To skip (emergency only): git commit --no-verify
 
@@ -423,16 +439,17 @@ set -euo pipefail
 # REPO_DIR from $0 always resolves to the main checkout (libviprs/libviprs#684,
 # the same bug install_pre_push below already dodges). Ask git instead.
 REPO_DIR="$(git rev-parse --show-toplevel)"
-echo "Running the fast CI jobs locally (tools/local-ci.py --fast)..."
-if ! python3 "$REPO_DIR/tools/local-ci.py" --fast; then
+echo "Running the fast CI jobs locally (tools/local-ci.py --fast --worktree)..."
+if ! python3 "$REPO_DIR/tools/local-ci.py" --fast --worktree; then
     echo ""
     echo "Failed. These are the real CI commands, so CI will fail the same way."
-    echo "Run everything including tests: tools/local-ci.py"
+    echo "Run everything including tests: make ci"
     echo "Skip this hook once:            git commit --no-verify"
     exit 1
 fi
-echo "Passed. Tests and the integration job run on push,"
-echo "or now with: tools/local-ci.py"
+echo "Passed, but this was the FAST check, not the gate: --worktree bind-mounts"
+echo "the tree, which is case-insensitive here and carries untracked files."
+echo "Before pushing, run the real gate: make ci"
 LOCALCI
         chmod +x "$pre_commit"
         return
