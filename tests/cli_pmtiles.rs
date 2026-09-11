@@ -42,9 +42,14 @@
 //! `tests/common/cli.rs` builds the binary with `cargo build --release
 //! --no-default-features --bin viprs` (CLI_CONTRACT.md §7). `libviprs-cli`'s
 //! only default feature is `pdfium`, and `viprs pmtiles` is compiled
-//! unconditionally, so the whole group survives that build. A future flag that
-//! hid any of it behind a feature would make these cells skip nothing and test
-//! nothing, which is why they drive PNG input rather than PDF.
+//! unconditionally, so the whole group survives that build. If a later change
+//! put any of it behind a feature, that binary would not carry the subcommand
+//! and these cells would fail loudly rather than skip, which is the behaviour
+//! to want.
+//!
+//! The input is a PNG for the same reason. `pdfium` being a default feature is
+//! exactly what `--no-default-features` turns off, so a PDF fixture here would
+//! be testing a render path this binary does not have.
 
 mod common;
 
