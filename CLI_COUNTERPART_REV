@@ -62,4 +62,26 @@
 # pdfium-render fork rev in step with the core's pin (libviprs-cli#45), so the
 # `viprs` binary the CLI-differential cells build behaves exactly as it did at
 # the old pin and every cell keeps its classification.
-eef059101eb93be34b33ebb78bbafbcd2cd124bc
+#
+# Bumped to 23f85a8, libviprs-cli main after libviprs-cli#55 (closing
+# libviprs-cli#54) merged: `viprs pyramid` now defaults to `--storage pmtiles`
+# and writes `<input stem>.pmtiles` when no output is named, and the `viprs
+# pmtiles {info,tile,verify,extract}` group arrives. That is the command surface
+# tests/cli_pmtiles.rs drives, and none of it exists at eef0591.
+#
+# The two pins have to move together. libviprs-cli at this revision imports
+# `libviprs::pmtiles`, so a `viprs` binary cannot be built at all against a core
+# older than COUNTERPART_REV's c1efa565, and the cli-differential job would fail
+# to lay a binary down for every one of the 18 vips-differential cells, not only
+# for the PMTiles one.
+#
+# Nothing in the group sits behind a cargo feature, which matters because
+# tests/common/cli.rs builds with `cargo build --release --no-default-features
+# --bin viprs` (CLI_CONTRACT.md §7). `libviprs-cli`'s only default feature is
+# pdfium; `viprs pmtiles` compiles unconditionally, so it survives that build.
+#
+# Same discipline as the core pin above, for the same reason: this is a merged
+# commit on `main` and not a branch head. `gh api
+# repos/libviprs/libviprs-cli/commits/main` answers exactly this SHA, which is
+# the merge commit of PR #55.
+23f85a8cfa46d8be5c49dd53dbb1dbf0aebd6c67
