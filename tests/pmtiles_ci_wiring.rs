@@ -227,3 +227,65 @@ fn the_committed_go_pmtiles_fixtures_are_all_present() {
         );
     }
 }
+
+/// The CLI-driven cell has to run in the one job that lays the CLI down, with
+/// the env var that turns its skip into a panic set on the same step.
+///
+/// `tests/cli_pmtiles.rs` is named `cli_pmtiles` rather than
+/// `cli_pmtiles_diff`, so neither of the two wiring guards that already exist
+/// sees it: `cli_differential_job_runs_every_diff_binary` globs
+/// `tests/cli_*_diff.rs` and `the_interop_job_runs_every_pmtiles_binary` globs
+/// `tests/pmtiles_*.rs`. The name is deliberate ("differential" in this repo
+/// means differential against a vips oracle, and PMTiles has no vips oracle),
+/// so the cost of the honest name is this guard.
+///
+/// The env check is the half that matters. `--test cli_pmtiles` in a job with
+/// no `VIPRS_REQUIRE_CLI` is a cell that skips every assertion and reports a
+/// pass, which is the same green a dev machine gives and for the same reason:
+/// it did not run. So this looks for the var **inside the step that runs the
+/// cell**, not anywhere in the file, because the file already contains that
+/// string on a different job and a whole-file `contains` would pass while the
+/// cell sat somewhere it can never run.
+#[test]
+fn the_cli_pmtiles_cell_runs_where_it_cannot_skip() {
+    let mut cells: Vec<String> = std::fs::read_dir(repo_root().join("tests"))
+        .expect("read tests/ dir")
+        .filter_map(|e| e.ok())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| n.starts_with("cli_pmtiles") && n.ends_with(".rs"))
+        .map(|n| n.trim_end_matches(".rs").to_string())
+        .collect();
+    cells.sort();
+    assert!(
+        !cells.is_empty(),
+        "expected at least one tests/cli_pmtiles*.rs binary; with none, this \
+         guard is pinning an empty set and passes forever"
+    );
+
+    let ci = read_workflow("ci.yml");
+    for name in &cells {
+        let needle = format!("--test {name}");
+        let at = ci.find(&needle).unwrap_or_else(|| {
+            panic!(
+                "ci.yml must run `cargo test --test {name}` (found \
+                 tests/{name}.rs but no matching --test line). Nothing else \
+                 wires this file in: it is neither a `cli_*_diff.rs` nor a \
+                 `pmtiles_*.rs`."
+            )
+        });
+
+        // The step this line belongs to, back to the previous `- ` at the
+        // six-space step indent. Anything before that belongs to another step
+        // and says nothing about this one.
+        let head = &ci[..at];
+        let step_start = head.rfind("\n      - ").map(|i| i + 1).unwrap_or(0);
+        let step = &ci[step_start..at + needle.len()];
+        assert!(
+            step.contains("VIPRS_REQUIRE_CLI: 1") || step.contains("VIPRS_REQUIRE_CLI: \"1\""),
+            "`--test {name}` runs in a step that does not set \
+             VIPRS_REQUIRE_CLI=1, so an absent libviprs-cli sibling would make \
+             every cell in it skip and the job would report green having \
+             compared nothing. The step reads:\n{step}"
+        );
+    }
+}
