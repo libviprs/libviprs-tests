@@ -44,6 +44,7 @@ mod pmtiles_support;
 use pmtiles_support::{assert_decoded_tiles_equal, materialise};
 
 use libviprs::planner::TileCoord;
+use libviprs::pmtiles::Reader;
 use libviprs::sink_pmtiles::PmTilesSink;
 use libviprs::{
     DirectoryPyramidReader, EngineBuilder, EngineConfig, EngineKind, FsSink, Layout,
@@ -380,4 +381,84 @@ fn both_backends_describe_the_same_pyramid() {
     // that happen to match on both sides.
     assert_eq!(from_archive.tile_size, Some(plan.tile_size));
     assert_eq!(from_archive.layout, Some(Layout::Xyz));
+}
+
+/// The archive stores a tile at the `(z, x, y)` the planner's coordinate names,
+/// and not merely somewhere our own reader agrees with.
+///
+/// # Why every other cell in this file misses this
+///
+/// `PmTilesSink` and `PmTilesPyramidReader` both map `TileCoord` through
+/// `sink_pmtiles::tile_coord_to_zxy`. That is a good thing, it is what stops the
+/// two drifting apart, and it is also exactly why a mistake inside that function
+/// is invisible to a comparison that goes through it on both sides: the error
+/// cancels.
+///
+/// I measured that rather than reasoning about it. Swapping `col` and `row` in
+/// `tile_coord_to_zxy` reddens **nothing** in this suite: not the cross-backend
+/// comparison, not the count control, not the interop leg (go-pmtiles and our
+/// raw reader agree with each other about the swapped archive, because neither
+/// of them has an opinion about which one the planner meant). Every level of a
+/// `2**z` grid has room for the swapped coordinate, so nothing goes out of
+/// range and nothing errors. The archive is simply transposed, quietly, and a
+/// consumer fetching `z/x/y` over HTTP gets the wrong tile.
+///
+/// So this cell asks `pmtiles::Reader::get_tile` for the raw `(z, x, y)`
+/// directly, which is the one path that does not go through the shared
+/// function, and compares against the file the directory backend put at that
+/// same `z/x/y`.
+#[test]
+fn the_archive_addresses_tiles_at_the_coordinates_the_planner_named() {
+    let dir = tempfile::tempdir().unwrap();
+    // Deliberately not square: on a square level a transposition of the whole
+    // grid is still a bijection onto itself, so half the coordinates land on a
+    // tile that happens to be there and the comparison gets weaker.
+    let src = canonical_raster_scaled(512, 384);
+    let plan = xyz_plan(512, 384, 128);
+    let base = dir.path().join("tiles");
+    let archive = dir.path().join("out.pmtiles");
+    generate_into_fs(&src, &plan, &base, TileFormat::Png);
+    generate_into_pmtiles(&src, &plan, &archive, TileFormat::Png);
+
+    // The control for the control: if every coordinate had col == row, swapping
+    // them would be the identity and this cell could not fail.
+    let off_diagonal = plan.tile_coords().filter(|c| c.col != c.row).count();
+    assert!(
+        off_diagonal > 0,
+        "every coordinate in this plan is on the diagonal, so a transposed \
+         archive would be indistinguishable from a correct one"
+    );
+
+    let reader = Reader::try_open(&archive).expect("open the archive as a raw PMTiles reader");
+    let mut compared = 0usize;
+    for coord in plan.tile_coords() {
+        let rel = plan
+            .tile_path(coord, "png")
+            .expect("the plan has a path for its own coordinate");
+        let on_disk = std::fs::read(base.join(&rel))
+            .unwrap_or_else(|e| panic!("the directory backend has no {rel}: {e}"));
+        let z = u8::try_from(coord.level).expect("a test plan stays inside u8 zooms");
+        let in_archive = reader
+            .get_tile(z, coord.col, coord.row)
+            .unwrap_or_else(|e| panic!("({z}, {}, {}): {e}", coord.col, coord.row))
+            .unwrap_or_else(|| {
+                panic!(
+                    "the archive holds nothing at ({z}, {}, {}), which is where \
+                     the planner put {rel}",
+                    coord.col, coord.row
+                )
+            });
+        assert_decoded_tiles_equal(
+            std::slice::from_ref(&(rel.clone(), on_disk)),
+            std::slice::from_ref(&(rel.clone(), in_archive)),
+            "planner z/x/y vs archive z/x/y",
+        );
+        compared += 1;
+    }
+
+    assert_eq!(
+        compared as u64,
+        plan.total_tile_count(),
+        "only {compared} coordinates were checked against the raw archive"
+    );
 }
