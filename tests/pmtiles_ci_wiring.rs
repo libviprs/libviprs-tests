@@ -264,15 +264,28 @@ fn the_cli_pmtiles_cell_runs_where_it_cannot_skip() {
 
     let ci = read_workflow("ci.yml");
     for name in &cells {
+        // The match has to end at a word boundary. `--test cli_pmtiles` is a
+        // prefix of `--test cli_pmtiles_extra`, so a plain substring search
+        // would call `cli_pmtiles` wired on a line that only names a different
+        // binary, which is the false pass this guard exists to prevent.
         let needle = format!("--test {name}");
-        let at = ci.find(&needle).unwrap_or_else(|| {
-            panic!(
-                "ci.yml must run `cargo test --test {name}` (found \
-                 tests/{name}.rs but no matching --test line). Nothing else \
-                 wires this file in: it is neither a `cli_*_diff.rs` nor a \
-                 `pmtiles_*.rs`."
-            )
-        });
+        let at = ci
+            .match_indices(&needle)
+            .find(|(i, _)| {
+                ci[i + needle.len()..]
+                    .chars()
+                    .next()
+                    .is_none_or(|c| c.is_whitespace())
+            })
+            .map(|(i, _)| i)
+            .unwrap_or_else(|| {
+                panic!(
+                    "ci.yml must run `cargo test --test {name}` (found \
+                     tests/{name}.rs but no line naming exactly that binary). \
+                     Nothing else wires this file in: it is neither a \
+                     `cli_*_diff.rs` nor a `pmtiles_*.rs`."
+                )
+            });
 
         // The step this line belongs to, back to the previous `- ` at the
         // six-space step indent. Anything before that belongs to another step
