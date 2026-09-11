@@ -59,6 +59,7 @@ mod pmtiles_support;
 use pmtiles_support::assert_decoded_tiles_equal;
 
 use libviprs::planner::TileCoord;
+use libviprs::pmtiles::tileid_to_zxy;
 use libviprs::{PixelFormat, PmTilesPyramidReader, PyramidReader, Raster};
 
 use tempfile::TempDir;
@@ -279,35 +280,60 @@ fn cli_pyramid_writes_a_pmtiles_the_library_can_read() {
         header.max_zoom
     );
 
-    // Every addressed tile has to be there and has to decode. A count that
-    // matches a header the same writer produced is one source of truth, so walk
-    // the levels and read them.
+    // Every addressed tile has to be reachable and has to decode. The walk is
+    // driven by the index rather than by a sweep of every coordinate a zoom
+    // range allows: this pyramid is zoom 0 to 10, so a sweep would be 1.4
+    // million lookups to find 17 tiles, and it would grow by a factor of four
+    // per level the fixture gained.
+    //
+    // Going through `tileid_to_zxy` and back through `PyramidReader::tile` also
+    // says something the count alone does not: every id the index holds maps to
+    // a coordinate, and that coordinate maps back to the same entry. A reader
+    // whose two directions disagree holds tiles nobody can ask for.
+    assert!(
+        !header.has_leaves(),
+        "this fixture is a 17-tile archive and it has grown leaf directories, \
+         so walking the root no longer reaches everything and this cell would \
+         be checking a subset without saying so"
+    );
     let mut seen = 0u64;
-    for z in header.min_zoom..=header.max_zoom {
-        let span = 1u32 << u32::from(z);
-        for x in 0..span {
-            for y in 0..span {
-                let coord = TileCoord {
-                    level: u32::from(z),
-                    col: x,
-                    row: y,
-                };
-                let Some(bytes) = reader.tile(coord).expect("read a tile back") else {
-                    continue;
-                };
-                let decoded = image::load_from_memory(&bytes)
-                    .unwrap_or_else(|e| panic!("tile {z}/{x}/{y} does not decode: {e}"));
-                assert!(
-                    decoded.width() > 0 && decoded.height() > 0,
-                    "tile {z}/{x}/{y} decoded to nothing"
-                );
-                seen += 1;
-            }
+    for entry in reader.reader().root_entries() {
+        assert!(
+            entry.run_length > 0,
+            "a leaf pointer in the root of an archive whose header says it has \
+             no leaves"
+        );
+        for id in entry.tile_id..entry.tile_id + u64::from(entry.run_length) {
+            let (z, x, y) = tileid_to_zxy(id).unwrap_or_else(|e| {
+                panic!("the index holds tile id {id}, which is not a coordinate: {e}")
+            });
+            let coord = TileCoord {
+                level: u32::from(z),
+                col: x,
+                row: y,
+            };
+            let bytes = reader
+                .tile(coord)
+                .unwrap_or_else(|e| panic!("read {z}/{x}/{y}: {e}"))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "the index holds an entry for {z}/{x}/{y} and asking for \
+                         that coordinate answers None, so the two directions of \
+                         the id mapping disagree"
+                    )
+                });
+            let decoded = image::load_from_memory(&bytes)
+                .unwrap_or_else(|e| panic!("tile {z}/{x}/{y} does not decode: {e}"));
+            assert!(
+                decoded.width() > 0 && decoded.height() > 0,
+                "tile {z}/{x}/{y} decoded to nothing"
+            );
+            seen += 1;
         }
     }
     assert_eq!(
         seen, header.addressed_tiles_count,
-        "the walk found {seen} readable tiles and the header claims {}. Either \
+        "the walk reached {seen} readable tiles and the header claims {}. Either \
          the header is lying or the index does not reach everything it counted.",
         header.addressed_tiles_count
     );
@@ -435,11 +461,21 @@ fn cli_pmtiles_info_reports_the_archive_the_library_sees() {
 ///
 /// The acceptance half on its own is satisfied by a `verify` that returns 0
 /// unconditionally, which is the failure mode worth guarding: a checker nobody
-/// has ever seen say no. So the same archive is truncated inside its tile-data
-/// section and fed back in, and `verify` has to refuse it. Truncation is the
-/// mutation the CLI documents itself as being stricter than go-pmtiles about
-/// (it adds an entry's length to its offset, which the reference never does),
-/// so this pins the stricter behaviour rather than a generic parse failure.
+/// has ever seen say no. So the same archive is truncated by its last 64 bytes
+/// and fed back in, and `verify` has to refuse it.
+///
+/// Truncation is the right mutation because it leaves every structure intact
+/// and breaks only the arithmetic. The header still parses, the root directory
+/// still decodes, and what stops being true is that the tile data the header
+/// points at fits inside the file. Measured on a 217720-byte archive: the good
+/// one verifies with `OK` and exit 0, and the 217656-byte one comes back exit 1
+/// with "the tile data at offset 464 for 217256 bytes does not fit in a 217656
+/// byte archive". go-pmtiles' own `verify` never adds a length to an offset, so
+/// that bound is ours rather than the reference's.
+///
+/// The assertions stay on the exit code and the absence of `OK` rather than on
+/// that sentence: the message belongs to the other repository and rewording it
+/// is not a regression.
 #[test]
 fn cli_pmtiles_verify_accepts_what_pyramid_wrote_and_refuses_a_damaged_one() {
     if skip_if_no_cli("cli_pmtiles_verify_accepts_what_pyramid_wrote_and_refuses_a_damaged_one") {
@@ -494,6 +530,58 @@ fn cli_pmtiles_verify_accepts_what_pyramid_wrote_and_refuses_a_damaged_one() {
         !String::from_utf8_lossy(&out.stdout).contains("OK"),
         "verify refused the damaged archive and printed OK anyway, so the exit \
          code and the message disagree"
+    );
+
+    // The truncation above is caught when the archive is opened, before the
+    // walk starts, so on its own it says nothing about the walk. Measured: with
+    // `verify`'s problem list neutered so it can never report anything, the
+    // truncated archive was still refused and this cell stayed green. That is a
+    // mutation nothing here caught, which is the same as not testing the walk.
+    //
+    // So damage the one thing only the walk can see. `addressed_tiles_count` is
+    // a header field nothing validates at open time: the archive parses, every
+    // directory decodes, every tile reads, and the only thing wrong with it is
+    // that the header's own count disagrees with what the runs cover. A writer
+    // that miscounts produces exactly this, every reader still reads it, and
+    // `verify` is the only thing that would ever notice.
+    const OFF_ADDRESSED_TILES: usize = 72;
+    let mut miscounted = good.clone();
+    let claimed = u64::from_le_bytes(
+        miscounted[OFF_ADDRESSED_TILES..OFF_ADDRESSED_TILES + 8]
+            .try_into()
+            .expect("eight bytes"),
+    );
+    assert_eq!(
+        claimed, header.addressed_tiles_count,
+        "byte {OFF_ADDRESSED_TILES} of the header is not the addressed-tile \
+         count any more, so this damage is landing somewhere else"
+    );
+    miscounted[OFF_ADDRESSED_TILES..OFF_ADDRESSED_TILES + 8]
+        .copy_from_slice(&(claimed + 1).to_le_bytes());
+    let miscounted_path = dir.path().join("miscounted.pmtiles");
+    std::fs::write(&miscounted_path, &miscounted).expect("write the miscounted archive");
+
+    // The positive control for the damage: it still opens. Without this the
+    // refusal below would be indistinguishable from the truncation's, which is
+    // the thing this second case exists to be different from.
+    let reopened =
+        PmTilesPyramidReader::try_open(&miscounted_path).expect("the miscounted archive must open");
+    assert_eq!(
+        reopened.reader().header().addressed_tiles_count,
+        claimed + 1,
+        "the damage did not take"
+    );
+
+    let out = run_viprs(&["pmtiles", "verify", s(&miscounted_path)]);
+    assert!(
+        !out.status.success(),
+        "verify accepted an archive whose header claims {} addressed tiles while \
+         its runs cover {}. Every reader reads this file; verify is the only \
+         thing that would ever notice.\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        claimed + 1,
+        claimed,
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
     );
 }
 
