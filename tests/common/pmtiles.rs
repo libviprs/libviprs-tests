@@ -55,8 +55,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use libviprs::PyramidReader;
-use libviprs::pmtiles::{Compression, Entry, Header, PmTilesError, RangeReader, directory};
 use libviprs::planner::PyramidPlan;
+use libviprs::pmtiles::{Compression, Entry, Header, PmTilesError, RangeReader, directory};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -140,7 +140,8 @@ pub fn read_checked(relative: &str, want_sha256: &str) -> Vec<u8> {
         .unwrap_or_else(|e| panic!("cannot read the committed fixture {}: {e}", path.display()));
     let got = sha256_hex(&bytes);
     assert_eq!(
-        got, want_sha256,
+        got,
+        want_sha256,
         "{} is not the file these tests were pinned against. Either the fixture \
          was edited, which is never the fix for a red interop test, or it was \
          regenerated, which needs PROVENANCE.md updating with it.",
@@ -171,9 +172,9 @@ pub fn vectors(name: &str, want_sha256: &str) -> Value {
     let bytes = read_checked(&format!("vectors/{name}"), want_sha256);
     let value: Value = serde_json::from_slice(&bytes)
         .unwrap_or_else(|e| panic!("vectors/{name} is not JSON: {e}"));
-    let produced = value
-        .get("produced_by")
-        .unwrap_or_else(|| panic!("vectors/{name} has no produced_by block, so nothing says which tool wrote it"));
+    let produced = value.get("produced_by").unwrap_or_else(|| {
+        panic!("vectors/{name} has no produced_by block, so nothing says which tool wrote it")
+    });
     for (key, want) in [
         ("release_tag", ORACLE_RELEASE_TAG),
         ("source_commit", ORACLE_SOURCE_COMMIT),
@@ -217,6 +218,15 @@ pub struct TileRow {
     pub length: usize,
     /// sha256 of what was written, empty on a zero-length row.
     pub sha256: String,
+    /// The offset of the directory entry covering this tile, relative to the
+    /// tile data section, as the reference read it. `None` when the tile is
+    /// served by a run, in which case the covering entry carries a lower tile
+    /// id and this row is not the place to look it up.
+    pub directory_entry_offset: Option<u64>,
+    /// Whether an entry addresses this tile directly. `false` means a run
+    /// serves it, which is the duplicate shape a reader can get wrong while
+    /// looking correct on everything else.
+    pub directly_addressed: bool,
 }
 
 fn archive_block<'a>(vectors: &'a Value, archive: &str) -> &'a Value {
@@ -303,6 +313,11 @@ pub fn tile_rows(vectors: &Value, archive: &str, section: &str) -> Vec<TileRow> 
                     .and_then(Value::as_str)
                     .unwrap_or_else(|| panic!("{archive}.{section}[{index}] has no sha256"))
                     .to_string(),
+                directory_entry_offset: row.get("directory_entry_offset").and_then(Value::as_u64),
+                directly_addressed: row
+                    .get("directly_addressed_by_an_entry")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             }
         })
         .collect();
@@ -562,7 +577,11 @@ pub fn sparse_archive(
 /// caller's count assertion fires. Filling holes with empties would make an
 /// empty archive compare equal to an empty tree, which is the vacuous pass this
 /// whole exercise is about avoiding.
-pub fn materialise(reader: &dyn PyramidReader, plan: &PyramidPlan, ext: &str) -> Vec<(String, Vec<u8>)> {
+pub fn materialise(
+    reader: &dyn PyramidReader,
+    plan: &PyramidPlan,
+    ext: &str,
+) -> Vec<(String, Vec<u8>)> {
     let mut out: Vec<(String, Vec<u8>)> = Vec::new();
     for coord in plan.tile_coords() {
         let Some(rel) = plan.tile_path(coord, ext) else {
@@ -580,4 +599,69 @@ pub fn materialise(reader: &dyn PyramidReader, plan: &PyramidPlan, ext: &str) ->
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out
+}
+
+/// Compare two tile sets by decoded pixels, whatever they are encoded as.
+///
+/// `common::dzsave_expected::assert_tiles_pixel_equal_tol` is the repo's
+/// comparator and the right one to reach for, but it calls `decode_png`
+/// unconditionally, so it panics on a JPEG tile with `InvalidSignature` rather
+/// than comparing it. That is not a bug in it, the ported `dzsave` cells it was
+/// written for are all PNG, but it does mean an archive cell that covers more
+/// than one encoding needs this.
+///
+/// The rule is the same one, and it is the rule this whole repo runs on: decode
+/// and compare pixels, never compare compressed bytes. Both sides here happen
+/// to share an encoder, so a byte comparison would pass too, which is exactly
+/// why it would be the wrong test: it would keep passing right up until one
+/// side gained an encoder setting, and then it would fail for a reason that is
+/// not a difference in the image.
+pub fn assert_decoded_tiles_equal(
+    expected: &[(String, Vec<u8>)],
+    actual: &[(String, Vec<u8>)],
+    context: &str,
+) {
+    assert_eq!(
+        expected.len(),
+        actual.len(),
+        "{context}: tile count mismatch: {} vs {}",
+        expected.len(),
+        actual.len()
+    );
+    assert!(
+        !expected.is_empty(),
+        "{context}: both sides are empty, and two empty sets are equal, so this \
+         comparison asserts nothing"
+    );
+    for ((want_path, want_bytes), (got_path, got_bytes)) in expected.iter().zip(actual.iter()) {
+        assert_eq!(want_path, got_path, "{context}: tile path mismatch");
+        let want = image::load_from_memory(want_bytes)
+            .unwrap_or_else(|e| panic!("{context}: cannot decode expected {want_path}: {e}"));
+        let got = image::load_from_memory(got_bytes)
+            .unwrap_or_else(|e| panic!("{context}: cannot decode actual {got_path}: {e}"));
+        assert_eq!(
+            (want.width(), want.height()),
+            (got.width(), got.height()),
+            "{context}: {want_path} is {}x{} one side and {}x{} the other",
+            want.width(),
+            want.height(),
+            got.width(),
+            got.height()
+        );
+        let want_px = want.into_bytes();
+        let got_px = got.into_bytes();
+        assert_eq!(
+            want_px.len(),
+            got_px.len(),
+            "{context}: {want_path} decodes to a different number of samples on \
+             each side, so the two are not the same image even before the values \
+             are compared"
+        );
+        if let Some(at) = want_px.iter().zip(got_px.iter()).position(|(a, b)| a != b) {
+            panic!(
+                "{context}: {want_path} differs at sample {at}: {} vs {}",
+                want_px[at], got_px[at]
+            );
+        }
+    }
 }
