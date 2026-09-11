@@ -46,8 +46,9 @@ fn read(rel: &str) -> String {
 /// nothing to compare against passes.
 fn produced_by(vector_file: &str) -> serde_json::Value {
     let text = read(&format!("tests/fixtures/pmtiles/vectors/{vector_file}"));
-    let value: serde_json::Value = serde_json::from_str(&text)
-        .unwrap_or_else(|e| panic!("tests/fixtures/pmtiles/vectors/{vector_file} is not JSON: {e}"));
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|e| {
+        panic!("tests/fixtures/pmtiles/vectors/{vector_file} is not JSON: {e}")
+    });
     value
         .get("produced_by")
         .cloned()
