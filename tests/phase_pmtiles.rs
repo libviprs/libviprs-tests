@@ -97,14 +97,19 @@ fn generate_into_pmtiles(src: &Raster, plan: &PyramidPlan, path: &Path, format: 
     );
 }
 
-/// Both backends for one plan, as `(relative path, encoded tile)` lists sorted
-/// the same way.
+/// One backend's tiles, as `(relative path, encoded tile)` sorted by path.
+///
+/// The shape `common::dzsave_expected` compares and `collect_files` returns, so
+/// naming it is what lets the two backends line up positionally.
+type TileSet = Vec<(String, Vec<u8>)>;
+
+/// Both backends for one plan, sorted the same way.
 fn both_backends(
     src: &Raster,
     plan: &PyramidPlan,
     format: TileFormat,
     dir: &Path,
-) -> (Vec<(String, Vec<u8>)>, Vec<(String, Vec<u8>)>) {
+) -> (TileSet, TileSet) {
     let base = dir.join("tiles");
     let archive = dir.join("out.pmtiles");
     generate_into_fs(src, plan, &base, format);
