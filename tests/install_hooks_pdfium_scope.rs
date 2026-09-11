@@ -479,6 +479,16 @@ pub fn added_dirty(v: &Vec<u8>) -> usize {{
 ///
 /// So drive two forks through one shared directory, dirty first so there is
 /// something to replay, and require the clean one to commit anyway.
+///
+/// **Both trees are written before either hook runs**, and that ordering is the
+/// test rather than an accident of style. Cargo decides freshness by comparing
+/// source mtimes against the artifact, so a second crate created *after* the
+/// first was compiled is newer, gets rebuilt, and reports its own lints
+/// correctly. Write it first and it is older than the artifact, cargo calls it
+/// fresh, and the replay happens. The suite's six fixtures are all built at
+/// test start and compiled afterwards, so the suite is in the second case; a
+/// version of this cell that built the clean fork last passed under the bug and
+/// proved nothing.
 #[test]
 fn a_target_dir_shared_with_another_fork_does_not_decide_this_one() {
     let shared = tempfile::tempdir().expect("a target dir for the two forks to share");
@@ -498,16 +508,9 @@ pub fn added_dirty(v: &Vec<u8>) -> usize {{
         ),
     );
     git(&dirty.repo("pdfium-render"), &["add", "-A"]);
-    let (dirty_ok, dirty_printed) = run_hook_full(&dirty, None, Some(shared.path()));
-    assert!(
-        !dirty_ok,
-        "the first fork writes `&Vec<u8>` on a line it is adding and the hook \
-         let it through, so the second half of this test would be proving \
-         nothing: there would be no lint to replay.\n{dirty_printed}"
-    );
 
     // Same package name, same version, same shared directory, and a line in the
-    // same place that is clean.
+    // same place that is clean. Written now, before anything is compiled.
     let clean = fixture();
     write(
         &clean.repo("pdfium-render"),
@@ -521,6 +524,15 @@ pub fn added_clean(v: &[u8]) -> usize {{
         ),
     );
     git(&clean.repo("pdfium-render"), &["add", "-A"]);
+
+    let (dirty_ok, dirty_printed) = run_hook_full(&dirty, None, Some(shared.path()));
+    assert!(
+        !dirty_ok,
+        "the first fork writes `&Vec<u8>` on a line it is adding and the hook \
+         let it through, so the second half of this test would be proving \
+         nothing: there would be no lint to replay.\n{dirty_printed}"
+    );
+
     let (clean_ok, clean_printed) = run_hook_full(&clean, None, Some(shared.path()));
     assert!(
         clean_ok,
