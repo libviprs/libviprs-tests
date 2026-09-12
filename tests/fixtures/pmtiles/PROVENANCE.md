@@ -39,8 +39,10 @@ same one the vector files below say produced them, so the two cannot drift apart
 | `raster-z0z2.pmtiles` | 1878 | `e2ed5e64f3c29efa3ec3b679ec5f1b06569c1b234c6eea762fb9f02fc23e9c12` |
 | `dupes-z0z3.pmtiles` | 5007 | `bfc9db4c6ce6a04194e02b3d4815814adb05209f1aaba8591e4e1332f6e56a27` |
 | `leaves-z0z7.pmtiles` | 869 | `fe5c9636be61abc60046d7f13837f8a3efb20ce3c38303644dac0cbec8248b8d` |
+| `distinct-z0z7.pmtiles` | 246114 | `a32dce77a93a304dbd27b80d72160b29455446931b477b5b1b7a84155ecd2dd5` |
+| `header-mvt-z2z4.pmtiles` | 11256 | `d15ece2e0cd6517817529a96fc6767e8df448a197e59bcabf6c1456c3bc3eba7` |
 
-All three pass `pmtiles verify` with exit code 0.
+All five pass `pmtiles verify` with exit code 0.
 
 `go-pmtiles` cannot synthesise an archive from nothing: `convert` is its only subcommand that builds
 one from raw tiles and its only input is an MBTiles database. So the tile *payloads* were written by
@@ -72,6 +74,28 @@ base hands back directory bytes dressed as a tile. A test that only asserts `get
 `Some` passes either way, which is why `leaf_entries_resolve_against_tile_data_not_the_leaf_start`
 compares the payload and shows what the wrong base would have returned.
 
+And then it turned out not to be able to show either of the two things it was committed for. Its two
+payloads alternate by `(x + y) % 2`, and every symmetric tile-id mistake preserves that parity at
+every zoom, so all 21845 cells come back identical under a dropped rotation, a dropped reflection, a
+dropped swap and a transposition. Measured from the reference's own answers rather than argued:
+`vectors/sweep.json` records 0 discriminating cells for this archive against 48 for each of the
+others. And every leaf in it starts at entry offset 0, which makes "rebase each leaf on its own first
+entry" the identity, so it cannot see that base either. It stays committed because 6 leaf directories
+over 21844 entries in 869 bytes is still the cheapest run-length and leaf-fanout fixture there is. It
+is no longer the fixture any tile-id or leaf-base claim rests on.
+
+**`distinct-z0z7.pmtiles`** is what those claims rest on now. Zoom 1 to 7, 19858 tiles with 19843
+distinct payloads, 5 leaf directories starting at 49164, 98324, 147497 and 196597, so neither the
+parity trick nor the zero-offset coincidence applies. Under a dropped corner reflection 17267 of its
+21912 probed cells change. It costs 240 KB, which is the price of a fixture that can fail.
+
+**`header-mvt-z2z4.pmtiles`** exists for the header. The other four all carry the symmetric
+whole-world bounds, a centre of `0, 0`, a minimum zoom of 0, PNG tiles and uncompressed payloads, so
+a lat/lon transposition, a swapped pair of compression bytes and a dropped minimum zoom are all the
+identity in them. This one is `mvt` with gzip payloads, bounds
+`(-10.5, 20.25) (30.125, 40.0625)`, centre `(12.5, 33.75)` and zooms 2 to 4: nothing in its header is
+its own mirror image.
+
 ## The vectors
 
 `vectors/tiles.json` and `vectors/header.json` are dumps from the same pinned binary, copied
@@ -79,6 +103,20 @@ unchanged from `.epicF/oracle/vectors/`. `tiles.json` records, for a handful of 
 archive, the payload length and sha256 `pmtiles tile` wrote, plus rows for tiles the archive does not
 hold and rows the reference answers *wrongly*. `header.json` records each archive's raw 127 header
 bytes and the field-by-field decoding `pmtiles.DeserializeHeader` gives for them.
+
+`vectors/show.json` and `vectors/sweep.json` were produced here rather than copied from the oracle
+lane, by the same pinned binary. `show.json` records what `pmtiles show` prints for each archive,
+which is the reference putting its decoded header through its own accessors: bounds, centre, tile
+type and the two compressions become observable there and nowhere else, and those are precisely the
+fields no test read back until now.
+
+`sweep.json` is every cell of every zoom, all 44131 of them, run through `pmtiles tile` once. It
+records one digest per zoom rather than one row per cell, which is 66 KB instead of about 4 MB and
+asserts the same thing: for each zoom, every cell in raster order contributes `z/x/y` and either
+`absent` or the payload's sha256, and the digest is the sha256 of those lines. `discriminating`
+carries full rows for up to 48 cells per archive that a wrong tile-id convention actually moves onto
+a different payload, so a failure still names a coordinate. The count in that list is the measurement
+behind everything said about `leaves-z0z7` above.
 
 The `out_of_range` rows are evidence about the reference, not a target. `ZxyToID` masks an x or y
 past `2**z - 1` into a different, valid tile and serves it with exit 0, so go-pmtiles answers
