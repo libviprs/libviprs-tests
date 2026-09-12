@@ -61,12 +61,13 @@ RUN cargo fetch
 # Each integration test is a separate binary; full debuginfo exhausts disk space.
 ENV CARGO_PROFILE_DEV_DEBUG=0
 
-# The pdfium test suites run multi-threaded. The pdfium-render fork on the
-# `libviprs/integration` branch (a direct dep of libviprs, mirrored into
-# libviprs-tests via `[patch.crates-io]`) rewrites `ThreadSafePdfiumBindings`
-# to take the pdfium global mutex per call, so concurrent FPDF access across
-# cargo-test worker threads is safe. Running the default thread pool exercises
-# that cross-test concurrency instead of hiding it behind `--test-threads=1`.
+# The pdfium test suites run multi-threaded. Upstream pdfium-render 0.9.4's
+# `thread_safe` feature, which the core requests in its own `Cargo.toml`, makes
+# `ThreadSafePdfiumBindings` take the pdfium global mutex per call, so
+# concurrent FPDF access across cargo-test worker threads is safe. There is no
+# fork and no `[patch.crates-io]` in the graph any more; the per-call lock is
+# upstream's. Running the default thread pool exercises that cross-test
+# concurrency instead of hiding it behind `--test-threads=1`.
 # The wall-clock perf-ratio smoke is `#[ignore]`d here and runs in the nightly
 # workflow, so it never gates this container run.
 #

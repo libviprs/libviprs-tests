@@ -962,10 +962,13 @@ fn the_pdfium_fork_ci_still_has_no_lint_to_mirror() {
 }
 
 /// The doc site's sync check is the one conditional step in any of these
-/// hooks, and it mirrors a conditional in the workflow: CI runs the
-/// frozen-copy comparison only when the canonical `libviprs-cli` checkout
-/// succeeded, and skips it green otherwise. Locally the equivalent question is
-/// whether the sibling is there at all.
+/// hooks, and its condition is a deliberate difference from the workflow
+/// rather than a mirror of one. CI runs the frozen-copy comparison
+/// unconditionally, against a checkout pinned to `CLI_COUNTERPART_REV`;
+/// libviprs-org#63 took away the skip arm it used to have, so the gate can no
+/// longer pass by not running. The local condition asks a different question,
+/// whether the `libviprs-cli` sibling is checked out at all, because a
+/// contributor who has only this repo must still be able to commit.
 ///
 /// A condition has two arms and only one of them is exercised by the
 /// comparison above, which runs in a stand-in workspace that always has the
@@ -1006,9 +1009,10 @@ fn the_org_hook_skips_the_sync_check_only_when_the_cli_sibling_is_missing() {
     assert!(
         ok,
         "the doc site's hook refused the commit because the libviprs-cli \
-         sibling is absent. CI skips that step green in the same situation, so \
-         this makes the hook stricter than the thing it stands in for and \
-         unusable for anyone who has not cloned the cli.\n{printed}"
+         sibling is absent. Skipping when the sibling is missing is the whole \
+         point of this condition, so that anyone who has not cloned the cli \
+         can still commit; refusing instead makes the hook unusable for \
+         them.\n{printed}"
     );
     assert!(
         !recorded.iter().any(|l| l == SYNC),
