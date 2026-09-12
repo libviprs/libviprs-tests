@@ -196,4 +196,28 @@
 # Confirmed at bump time rather than assumed: `gh api
 # repos/libviprs/libviprs/commits/main` answers exactly this SHA, so the pin is
 # main's own tip.
-c1efa5651067b0cd02109a27a8eb8122496d0c40
+#
+# Bumped to 2faf02ad, the merge of libviprs#1004 (closing #1003 and #1005). Two
+# reasons, and the second is the one that forces it rather than merely
+# suggesting it.
+#
+# #1003 is two PMTiles mistakes the core's own suite could not see, both found
+# while hardening this repo's black-box cells in #204 and both measured there
+# and in core: a tile entry inside a leaf rebased onto that leaf's own first
+# entry, and the writer exchanging latitude and longitude in every header it
+# produces. Each left all 128 of the core's PMTiles tests green. The fix commits
+# distinct-z0z7.pmtiles beside the existing goldens, which is why the core's
+# header.json moves too.
+#
+# #1005 is what this repo needs. tools/run-tests.sh could not finish, because it
+# stages the counterpart without .git (1.8 GB of it) and five of the
+# counterpart's binaries ask git rather than walking the tree. #206 stages the
+# index and the refs so those five can answer, and changelog_release_claims then
+# gets as far as `git grep <tag>`, which needs objects that are deliberately not
+# there. #1005 teaches it to tell that state from a broken invocation. Without
+# this pin, #206 lands and the gate still stops one binary further along than it
+# used to.
+#
+# Verified with the two checkouts laid out the way the gate lays them out: the
+# counterpart's own suite is 78 binaries, 2796 passed, 0 failed.
+2faf02ad970c0bfbb64a7c1835dab01cdb4dce75
