@@ -30,7 +30,15 @@ RUN case "${TARGETARCH}" in \
 # Stage 2: Build and test
 FROM rust:latest AS builder
 
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# shellcheck is here because the pre-commit hook runs it and `ubuntu-latest`
+# ships it, so CI has it and this image did not. Nothing noticed until the local
+# mirror got far enough to run the lint half at all (libviprs-tests#205): before
+# that the run stopped in the counterpart's unit tests, and
+# `install_hooks_localci_selection` reported `shellcheck: command not found`
+# from inside a hook whose other commands were all stubbed to succeed.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates shellcheck \
+ && rm -rf /var/lib/apt/lists/*
 
 # Install PDFium shared library
 COPY --from=pdfium /opt/pdfium/lib/libpdfium.so /usr/local/lib/libpdfium.so

@@ -386,6 +386,56 @@ stage_tree() {
             --exclude ./.git --exclude ./target --exclude ./tmp . ) \
           | ( cd "$dst" && tar -xf - )
     fi
+    stage_git_index "$src" "$dst"
+}
+
+# The index and the refs, and just enough around them for git to answer.
+#
+# `.git` is excluded above and has to stay excluded: the core crate's is
+# hundreds of megabytes and every byte of it would go into the Docker build
+# context. But some guards ask git what is tracked rather than walking the tree,
+# and they have to: on a case-insensitive filesystem only one side of a
+# case-only collision is physically there, so the index is the only place both
+# names exist. `libviprs/tests/case_only_path_collisions.rs` is one, and it
+# asserts on `git ls-files`' exit status rather than skipping, so with no repo
+# in the context it fails and the run stops before it reaches this repo's own
+# integration suite at all. That is how it has been: the local gate has never
+# been able to finish the counterpart's unit tests.
+#
+# `git ls-files` reads the index and nothing else, so the fix is about 100 KB:
+# the index, a HEAD, a minimal config, and the two directories git wants before
+# it will call a path a repository. No objects, no refs, no history. A worktree
+# is handled by resolving `.git` to the real gitdir first, which is why this
+# cannot just copy `$src/.git`.
+stage_git_index() {
+    local src="$1"
+    local dst="$2"
+    local gitdir
+
+    gitdir=$(git -C "$src" rev-parse --absolute-git-dir 2>/dev/null) || return 0
+    [ -f "$gitdir/index" ] || return 0
+
+    local common
+    common=$(git -C "$src" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+        || common="$gitdir"
+
+    mkdir -p "$dst/.git/objects" "$dst/.git/refs/heads" "$dst/.git/refs/tags"
+    cp "$gitdir/index" "$dst/.git/index"
+    printf 'ref: refs/heads/staged\n' > "$dst/.git/HEAD"
+    printf '[core]\n\trepositoryformatversion = 0\n\tbare = false\n' \
+        > "$dst/.git/config"
+    # Tags and branches, so `git tag` and `git rev-parse <ref>` answer. Loose
+    # refs live under the common dir even for a worktree; packed ones are a
+    # single file. Both are kilobytes.
+    [ -f "$common/packed-refs" ] && cp "$common/packed-refs" "$dst/.git/packed-refs"
+    if [ -d "$common/refs" ] && command -v rsync >/dev/null 2>&1; then
+        rsync -a "$common/refs/" "$dst/.git/refs/"
+    fi
+    # `COPY` does not carry an empty directory into the image, and git wants
+    # `objects` and `refs` to exist before it will call a path a repository. The
+    # refs come across on their own when there are any; `objects` never has a
+    # file in it here, so it needs a placeholder.
+    : > "$dst/.git/objects/.keep"
 }
 
 echo ""

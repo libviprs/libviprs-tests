@@ -16,7 +16,21 @@
 # `libviprs/` and `libviprs-tests/`, staged there by run-tests.sh. `**/` makes
 # them match under both.
 **/target/
-**/.git/
+**/.git/**
+# ...except the handful git needs to answer. Five of the counterpart's test
+# binaries ask git rather than walking the tree, and they are right to: on a
+# case-insensitive filesystem only one side of a case-only collision is
+# physically there, so the index is the only place both names exist. None of
+# the commands involved reads an object, so the index answers `ls-files`, the
+# refs answer `tag`, and the layout answers `rev-parse`. That is about 100 KB
+# rather than the hundreds of megabytes a whole `.git` would be.
+# tools/run-tests.sh `stage_git_index` writes them.
+!**/.git/index
+!**/.git/HEAD
+!**/.git/config
+!**/.git/packed-refs
+!**/.git/refs/**
+!**/.git/objects/.keep
 **/.DS_Store
 **/tmp/
 **/*.log
