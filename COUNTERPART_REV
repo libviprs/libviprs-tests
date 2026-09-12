@@ -171,4 +171,29 @@
 # and TOML-parser sharing infra, migration docs, and csvsave/matrixsave
 # routing) — none touch `project`, `PixelFormat`, or resample, and the full
 # suite is green against them.
-694fd4b2e046cc5bdc4dd334f68b5b489cd84a6a
+#
+# Bumped to c1efa565, libviprs main with the whole of EPIC F on it: the
+# `pmtiles` module (format and varint, TileID/Hilbert, RangeReader, the indexed
+# reader, the streaming writer, validate), `PmTilesSink`, the `PyramidReader`
+# trait with its directory and archive implementations, the `PyramidStorage`
+# type, and the 0.5.0 bump that carries the default-storage flip (#987, #988,
+# #989, #990, #991, #992). 87 commits since 694fd4b2. Every PMTiles cell in this
+# suite names one of those symbols, so nothing in tests/phase_pmtiles.rs,
+# tests/pmtiles_interop.rs, tests/pmtiles_bounded.rs or tests/cli_pmtiles.rs
+# compiles against the old pin. This is the bump they were all waiting on.
+#
+# The version move is why Cargo.lock changes in the same commit: the counterpart
+# is 0.5.0 here and was 0.4.0 at 694fd4b2.
+#
+# This is a commit on `main`, not a branch head, and the distinction is the
+# point rather than pedantry. `.github/actions/clone-counterpart` fetches a raw
+# SHA and checks out FETCH_HEAD, so a branch head resolves perfectly well and
+# then stops being an ancestor of main the moment anything rewrites the branch,
+# and it keeps resolving through refs/pull/N/head even after the branch is
+# deleted. Nothing would ever fail. CI would quietly test a tree nobody has.
+# tests/counterpart_pinning.rs only checks the SHA's shape and the clone action
+# only checks that HEAD equals the pin, so neither of them would notice.
+# Confirmed at bump time rather than assumed: `gh api
+# repos/libviprs/libviprs/commits/main` answers exactly this SHA, so the pin is
+# main's own tip.
+c1efa5651067b0cd02109a27a8eb8122496d0c40

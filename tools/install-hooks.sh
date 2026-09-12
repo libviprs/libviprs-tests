@@ -125,7 +125,8 @@ deferred_jobs() {
             printf '%s\t%s\n' \
                 test 'the test half; 279s measured, and the pre-push gate runs it' \
                 test-pdfium 'the test half, and it needs libpdfium.so installed' \
-                cli-differential 'the test half; 18 differential binaries against the cli at CLI_COUNTERPART_REV' \
+                cli-differential 'the test half; 18 vips-differential binaries plus the CLI-driven PMTiles cell, against the cli at CLI_COUNTERPART_REV' \
+                pmtiles-interop 'the test half, and it downloads a pinned go-pmtiles release and runs the real binary against an archive libviprs generated' \
                 hook-mirror 'the job that holds these hooks to every repo'"'"'s CI, which needs all seven laid down side by side'
             ;;
         libviprs-bench)
