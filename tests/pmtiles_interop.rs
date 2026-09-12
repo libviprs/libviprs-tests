@@ -294,10 +294,13 @@ fn an_out_of_range_coordinate_is_refused_rather_than_masked() {
 /// at entry offset 0, so that base is the identity there and the fixture cannot
 /// see it: measured, a reader rebased that way passes the entire PMTiles suite.
 ///
-/// So this runs on `distinct-z0z7`, whose leaves start at 49164, 98324, 147497
-/// and 196597, and it checks every candidate base rather than one. The leaf
-/// golden stays committed and stays swept, it just stops carrying a claim it
-/// cannot support.
+/// So this runs on `distinct-z0z7`, whose five leaves hold tile entries whose
+/// first offsets are 0, 49164, 98324, 147497 and 196597, and it checks every
+/// candidate base rather than one. The first leaf still starts at 0, so that
+/// one leaf cannot tell a self-rebase from the right base and the loop below
+/// skips the comparison rather than counting it as evidence. The leaf golden
+/// stays committed and stays swept, it just stops carrying a claim it cannot
+/// support.
 ///
 /// Under a wrong base the offsets still land inside the file, on the leaf
 /// directory region, so `get_tile` returns `Some` either way and a test that

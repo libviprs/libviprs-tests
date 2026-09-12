@@ -85,7 +85,9 @@ over 21844 entries in 869 bytes is still the cheapest run-length and leaf-fanout
 is no longer the fixture any tile-id or leaf-base claim rests on.
 
 **`distinct-z0z7.pmtiles`** is what those claims rest on now. Zoom 1 to 7, 19858 tiles with 19843
-distinct payloads, 5 leaf directories starting at 49164, 98324, 147497 and 196597, so neither the
+distinct payloads and 5 leaf directories of 4096, 4096, 4096, 4096 and 3463 entries. The tile entries
+in those leaves start at offsets 0, 49164, 98324, 147497 and 196597, so rebasing a leaf on its own
+first entry is the identity for the first leaf only and moves bytes for the other four. Neither the
 parity trick nor the zero-offset coincidence applies. Under a dropped corner reflection 17267 of its
 21912 probed cells change. It costs 240 KB, which is the price of a fixture that can fail.
 
