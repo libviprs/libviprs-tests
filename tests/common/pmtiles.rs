@@ -109,8 +109,10 @@ pub const LEAVES_GOLDEN_SHA256: &str =
 /// tile-id mistake preserves that parity at every zoom, so all 21845 cells come
 /// back identical under five wrong conventions, measured. Its leaves all start
 /// at offset 0 as well, which makes the wrong leaf-entry base the identity.
-/// This one has 19843 distinct payloads and leaves starting at 49164, 98324,
-/// 147497 and 196597, so both mistakes move bytes.
+/// This one has 19843 distinct payloads, and its five leaves hold tile entries
+/// whose first offsets are 0, 49164, 98324, 147497 and 196597, so rebasing a
+/// leaf on its own first entry is the identity only for the first of the five.
+/// Both mistakes move bytes here.
 pub const DISTINCT_GOLDEN: &str = "distinct-z0z7.pmtiles";
 /// sha256 of [`DISTINCT_GOLDEN`].
 pub const DISTINCT_GOLDEN_SHA256: &str =
