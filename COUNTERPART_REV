@@ -220,4 +220,13 @@
 #
 # Verified with the two checkouts laid out the way the gate lays them out: the
 # counterpart's own suite is 78 binaries, 2796 passed, 0 failed.
-2faf02ad970c0bfbb64a7c1835dab01cdb4dce75
+#
+# Bumped to 18b7c8b4, the merge of libviprs#1006 (closing #981), which retires
+# the pdfium-render fork and depends on registry 0.9.4 with the libpdfium ABI
+# named explicitly. This repo has to move with it: its own [patch.crates-io]
+# pinned the fork's mutable libviprs/integration branch at 0.9.3, which cannot
+# satisfy the core's new ^0.9.4, so a build against this counterpart fails at
+# resolution until that patch is gone. It is gone in the same commit, along with
+# the reason it was a problem beyond the version: the patch meant this suite
+# exercised pdfium-render code the core crate did not ship.
+18b7c8b4f9d9bb8b50490e2a54ff9bb94f4e604a

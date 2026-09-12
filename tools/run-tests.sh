@@ -118,8 +118,6 @@ case "$ARCH" in
 esac
 
 IMAGE_NAME="libviprs-tests:local"
-CONTAINER_NAME="libviprs-tests-run"
-
 # ---------------------------------------------------------------------------
 # Resolve the trees under test
 # ---------------------------------------------------------------------------
@@ -172,6 +170,23 @@ fi
 
 LIBVIPRS_DIR="$(cd "$LIBVIPRS_DIR" && pwd -P)"
 TESTS_DIR="$(cd "$TESTS_DIR" && pwd -P)"
+
+# One fixed name means two gate runs on one machine collide, and the second one
+# dies with `Conflict. The container name "/libviprs-tests-run" is already in
+# use` rather than with a test result. That is a confusing failure: it names the
+# daemon, not the run, and `--libviprs`/`--libviprs-tests` exist precisely so
+# several trees can be gated side by side. So the name carries a suffix derived
+# from the trees under test, and RUN_TESTS_CONTAINER_NAME overrides it outright.
+#
+# The image tag is still shared, which is a real remaining collision: two runs
+# over different trees build into `libviprs-tests:local` and the second wins.
+# Left alone here because it wants more thought than a name suffix.
+CONTAINER_NAME="${RUN_TESTS_CONTAINER_NAME:-}"
+if [ -z "$CONTAINER_NAME" ]; then
+    _tree_tag="$(printf '%s\n%s\n' "${LIBVIPRS_DIR:-}" "${TESTS_DIR:-}" \
+        | cksum | cut -d' ' -f1)"
+    CONTAINER_NAME="libviprs-tests-run-${_tree_tag}"
+fi
 
 if [ ! -f "$TESTS_DIR/Dockerfile" ]; then
     echo "Error: Dockerfile not found at $TESTS_DIR/Dockerfile"

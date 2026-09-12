@@ -45,37 +45,6 @@ fn read_tests_manifest() -> String {
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("failed to read {}: {e}", p.display()))
 }
 
-/// Extract the `[patch.crates-io]` pdfium-render override line from this
-/// crate's manifest — the git-sourced declaration, not the crates-io
-/// `[dependencies]` entry of the same name.
-fn tests_pdfium_patch_line(manifest: &str) -> String {
-    for line in manifest.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with('#') {
-            continue;
-        }
-        if trimmed.starts_with("pdfium-render") && trimmed.contains("git") {
-            return trimmed.to_string();
-        }
-    }
-    String::new()
-}
-
-/// Collapse every `#`-comment line in the manifest into one whitespace-
-/// normalised string. Comment bodies wrap across many physical lines with a
-/// `# ` prefix; folding them lets a single substring check match a phrase that
-/// spans line breaks without being brittle about exact wrapping.
-fn folded_comments(manifest: &str) -> String {
-    let mut words: Vec<&str> = Vec::new();
-    for line in manifest.lines() {
-        let trimmed = line.trim_start();
-        if let Some(body) = trimmed.strip_prefix('#') {
-            words.extend(body.split_whitespace());
-        }
-    }
-    words.join(" ")
-}
-
 /// Extract the single-line `pdfium-render = { ... }` workspace-dependency
 /// declaration (the actual key/value line, not the surrounding comments).
 fn pdfium_dep_line(manifest: &str) -> String {
@@ -107,113 +76,114 @@ fn pdfium_dep_line(manifest: &str) -> String {
     collected
 }
 
-/// A 40-char lowercase hex commit SHA, e.g. the value of a git `rev` pin.
-fn is_full_commit_sha(v: &str) -> bool {
-    v.len() == 40 && v.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
-/// Pull the `rev = "..."` value out of the pdfium dependency line.
-fn pdfium_rev(dep_line: &str) -> Option<String> {
-    let after = dep_line.split("rev").nth(1)?;
-    // Skip `=`, whitespace and the opening quote, then read to the close quote.
-    let after = after.trim_start().strip_prefix('=')?.trim_start();
-    let after = after.strip_prefix('"')?;
-    let end = after.find('"')?;
-    Some(after[..end].to_string())
-}
-
 // ---------------------------------------------------------------------------
-// #375 — the pin must be an immutable rev, and the comment must state the
-// reachability precondition rather than claim unconditional immutability.
+// #375, then #981 — there is no pin any more, and that is the point.
+//
+// These guards used to require the core crate's `pdfium-render` to be a git
+// dependency at an immutable `rev`, never a mutable `branch`, and to require
+// this repo's `[patch.crates-io]` to admit in prose that it *was* a branch pin
+// and route the follow-up. Both were the right guards for a world where the
+// fork was load-bearing.
+//
+// libviprs#981 retired the fork: upstream reinstated the per-call locking in
+// 0.9.4 and what the fork still carried over it is nothing either crate calls.
+// A git source cannot survive `cargo publish`, so pinning one made the crate
+// everyone builds a different piece of software from the crate everyone
+// installs. Worse for this repo specifically: our patch tracked a *branch*, so
+// the suite that gates libviprs was exercising a third variant again, one
+// where `src/bindings/thread_safe.rs` is absent entirely.
+//
+// So the invariant flipped, and these assert the new one in both manifests.
+// Inverted rather than deleted, because a silent resolution change on this
+// dependency is what #149 was.
 // ---------------------------------------------------------------------------
 
-/// The fork dependency is pinned to a full immutable commit `rev`, never a
-/// bare `branch`. A `branch` pin re-resolves on every fetch and lets a
-/// force-push silently swap the dependency, so a regression to `branch = ...`
-/// must fail this guard.
+/// Neither manifest declares `pdfium-render` from git.
 #[test]
-fn pdfium_dep_is_pinned_to_immutable_rev() {
-    let manifest = read_core_manifest();
-    let dep = pdfium_dep_line(&manifest);
-
-    assert!(
-        !dep.contains("branch"),
-        "pdfium-render must not be pinned to a mutable `branch`; found: {dep}"
-    );
-    let rev = pdfium_rev(&dep)
-        .unwrap_or_else(|| panic!("pdfium-render dependency has no `rev = \"...\"` pin: {dep}"));
-    assert!(
-        is_full_commit_sha(&rev),
-        "pdfium-render `rev` must be a full 40-char commit SHA (immutable pin), got {rev:?}"
-    );
+fn pdfium_comes_from_the_registry_in_both_manifests() {
+    for (what, manifest) in [
+        ("the core crate", read_core_manifest()),
+        ("this crate", read_tests_manifest()),
+    ] {
+        let dep = pdfium_dep_line(&manifest);
+        for forbidden in ["git =", "rev =", "branch ="] {
+            assert!(
+                !dep.contains(forbidden),
+                "{what} declares pdfium-render with `{forbidden}`, so a git \
+                 consumer and a crates.io consumer get different code under one \
+                 name (libviprs#981). Found: {dep}"
+            );
+        }
+    }
 }
 
-/// The pin comment must not oversell durability: it has to state the
-/// reachability precondition (GitHub only serves a bare SHA that stays
-/// reachable from an advertised ref), so a cold-cache fetch failure after the
-/// branch is force-pushed past the commit is documented, not a surprise.
+/// Neither manifest carries a `[patch.crates-io]` override for it either.
+///
+/// A patch is the same divergence by another route, and ours was worse than the
+/// core's `rev` because it tracked a branch head.
 #[test]
-fn pdfium_pin_comment_states_reachability_precondition() {
-    let comments = folded_comments(&read_core_manifest()).to_ascii_lowercase();
-    assert!(
-        comments.contains("reachable"),
-        "the pdfium pin comment must state the reachability precondition \
-         (the immutable-rev pin only holds while the commit stays reachable \
-         from an advertised ref) instead of claiming unconditional immutability"
-    );
+fn no_patch_table_redirects_pdfium_render() {
+    for (what, manifest) in [
+        ("the core crate", read_core_manifest()),
+        ("this crate", read_tests_manifest()),
+    ] {
+        // Line-based, and deliberately so. Splitting the file on the literal
+        // `[patch.crates-io]` also matches the string where a *comment*
+        // mentions it, and the core's manifest opens with a paragraph doing
+        // exactly that. A guard that reads a comment as configuration is the
+        // failure this file exists to prevent, so the table is recognised only
+        // as a line that is nothing but the header.
+        let mut in_patch_table = false;
+        let mut patched = false;
+        for line in manifest.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                in_patch_table = trimmed == "[patch.crates-io]";
+                continue;
+            }
+            if in_patch_table && !trimmed.starts_with('#') && trimmed.starts_with("pdfium-render") {
+                patched = true;
+                break;
+            }
+        }
+        assert!(
+            !patched,
+            "{what} still redirects pdfium-render through [patch.crates-io]"
+        );
+    }
 }
 
-// ---------------------------------------------------------------------------
-// #376 / #378 — the lead / top-of-block provenance comment must not claim the
-// dependency is "pinned to its libviprs/integration branch", which the rev pin
-// makes false. The branch may only appear as named provenance.
-// ---------------------------------------------------------------------------
-
+/// Both manifests agree on the floor and on the libpdfium ABI.
+///
+/// Cargo unions features across the graph, so this repo taking defaults would
+/// turn `pdfium_latest` back on and undo the explicit ABI pin the core makes.
+/// The two have to be chosen together, and a mismatch here is the drift that
+/// would hide it.
 #[test]
-fn pdfium_provenance_comment_does_not_claim_branch_pin() {
-    let comments = folded_comments(&read_core_manifest());
-    assert!(
-        !comments.contains("pinned to its `libviprs/integration` branch"),
-        "the provenance comment must not claim the dependency is `pinned to its \
-         libviprs/integration branch`; the actual pin is an immutable rev and \
-         the branch is only provenance (#376/#378)"
-    );
-    // The branch must still be documented as provenance so the pin's origin is
-    // traceable when advancing the fork.
-    assert!(
-        comments.contains("provenance") && comments.contains("libviprs/integration"),
-        "the comment must still name `libviprs/integration` as the pin's provenance"
-    );
+fn both_manifests_name_the_same_floor_and_abi() {
+    let core = pdfium_dep_line(&read_core_manifest());
+    let tests = pdfium_dep_line(&read_tests_manifest());
+    for (what, dep) in [("the core crate", &core), ("this crate", &tests)] {
+        assert!(
+            dep.contains("0.9.4"),
+            "{what} does not declare a 0.9.4 floor: {dep}"
+        );
+        assert!(
+            dep.contains("default-features = false"),
+            "{what} takes pdfium-render's default features, which turns \
+             `pdfium_latest` back on: {dep}"
+        );
+        assert!(
+            dep.contains("pdfium_7881"),
+            "{what} does not name a libpdfium ABI: {dep}"
+        );
+        assert!(
+            dep.contains("thread_safe"),
+            "{what} does not request `thread_safe`: {dep}"
+        );
+    }
 }
 
-// ---------------------------------------------------------------------------
-// #377 — the descoped published-crate soundness leg must not point at the
-// already-closed issue #149 as its live tracker; it must name the descoping
-// and route renewed work to an open tracker.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn pdfium_soundness_divergence_names_descope_and_open_tracker() {
-    let comments = folded_comments(&read_core_manifest());
-    assert!(
-        comments.contains("descoped"),
-        "the comment must state that PR #333 descoped the published-crate \
-         soundness leg (#377), not silently defer it to a closed tracker"
-    );
-    assert!(
-        comments.contains("#344"),
-        "renewed published-crate soundness work must be routed to the open \
-         follow-up epic #344, since #149 is closed (#377)"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// #391 — the `s3` feature is deprecated only by comment; Cargo emits no
-// warning. The comment must make that absence of a build-time signal explicit
-// and unambiguously point migrators at `object-store-sink`.
-// ---------------------------------------------------------------------------
-
-/// Locate the comment block immediately preceding the `s3 = [...]` feature.
 fn s3_feature_comment(manifest: &str) -> String {
     let mut block: Vec<&str> = Vec::new();
     for line in manifest.lines() {
@@ -250,55 +220,5 @@ fn s3_alias_comment_states_no_build_time_signal() {
             || comment.contains("cargo has no mechanism"),
         "the `s3` comment must make explicit that Cargo emits no deprecation \
          warning for the feature alias, so consumers get no automated signal (#391)"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// tests-crate `[patch.crates-io]` honesty — this crate's own override pins the
-// MUTABLE `libviprs/integration` branch, not the core crate's immutable `rev`.
-// The comment must state that plainly (so "mirror"/"lockstep" is not read as a
-// claim of matching immutability) and route the immutable-rev follow-up to an
-// open tracker, mirroring the honesty guards applied to the core manifest.
-// ---------------------------------------------------------------------------
-
-/// The override really is a `branch` pin today — guard that actual state so the
-/// prose below is checked against reality, not an aspirational description.
-#[test]
-fn tests_pdfium_patch_is_a_branch_pin() {
-    let manifest = read_tests_manifest();
-    let patch = tests_pdfium_patch_line(&manifest);
-    assert!(
-        !patch.is_empty(),
-        "no git-sourced `pdfium-render` `[patch.crates-io]` override found in tests Cargo.toml"
-    );
-    assert!(
-        patch.contains("branch"),
-        "the tests `[patch.crates-io]` override is expected to be a `branch` pin; \
-         if it was upgraded to an immutable `rev`, update the honesty comment and \
-         this guard together. Found: {patch}"
-    );
-}
-
-/// The patch comment must not let "mirror"/"lockstep" imply the tests override
-/// shares the core crate's immutable pin: it has to state the override is a
-/// MUTABLE branch pin and route the immutable-rev upgrade to the open #344
-/// follow-up.
-#[test]
-fn tests_pdfium_patch_comment_admits_mutable_branch_and_routes_follow_up() {
-    let comments = folded_comments(&read_tests_manifest()).to_ascii_lowercase();
-    assert!(
-        comments.contains("mutable"),
-        "the tests `[patch.crates-io]` comment must state that it pins a MUTABLE \
-         branch (not the core crate's immutable rev)"
-    );
-    assert!(
-        comments.contains("immutable") && comments.contains("rev"),
-        "the tests patch comment must contrast the mutable branch pin against the \
-         core crate's immutable `rev`, so the divergence is explicit"
-    );
-    assert!(
-        comments.contains("#344"),
-        "the immutable-rev upgrade for the tests patch must be routed to the open \
-         fork-pinning follow-up epic #344"
     );
 }

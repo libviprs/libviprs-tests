@@ -54,7 +54,23 @@ jxl = ["libviprs/jxl"]
 
 [dependencies]
 libviprs = { path = "../libviprs" }
-pdfium-render = { version = "0.9", optional = true }
+# Matched to the core crate's declaration, deliberately and in full. Cargo
+# unions features across the graph, so taking defaults here would turn
+# `pdfium_latest` back on and undo the explicit ABI pin the core crate makes
+# (libviprs#981): `pdfium_latest` has moved three times inside the 0.9 line and
+# this repo pins a `libpdfium.so` build of its own, so the two have to be chosen
+# together rather than one of them floating.
+#
+# This used to be accompanied by a `[patch.crates-io]` override pointing at the
+# fork's mutable `libviprs/integration` branch, whose own comment said to drop
+# it "once the fork is upstreamed and released". Upstream released 0.9.4, the
+# core crate retired the fork, and the patch is gone. It was also the reason
+# this suite tested pdfium-render code the core crate did not ship.
+pdfium-render = { version = "0.9.4", default-features = false, features = [
+    "thread_safe",
+    "pdfium_7881",
+    "image_025",
+], optional = true }
 # Feature unification across the workspace means the decode features enabled
 # here also reach the core `libviprs` crate's `image` dependency, so the ported
 # foreign cell's `decode_file`/`decode_bytes` calls gain the pure-Rust decoders
@@ -87,25 +103,3 @@ sha2 = "0.10"
 # Used by `tests/builder_composition_invariants.rs` for property-based
 # invariants over the `EngineBuilder` composition surface.
 proptest = "1"
-# Mirror the core crate's `pdfium-render` thread-safety fork. `[patch]`
-# tables apply only from the build-root manifest, so the pin in
-# `../libviprs/Cargo.toml` does not reach this crate when it is the
-# build root — without this override this crate would resolve the
-# unpatched `pdfium-render 0.9.x` from crates.io, whose
-# `ThreadSafePdfiumBindings` acquires the pdfium global mutex only once
-# on `FPDF_InitLibrary` and bypasses it for every other call,
-# segfaulting under concurrent access to a shared `Pdfium`.
-#
-# HONESTY / pin strength: this override pins the MUTABLE
-# `libviprs/integration` branch, NOT the immutable commit `rev` the core
-# crate (`../libviprs/Cargo.toml`) pins. A force-push or rebase of that
-# branch silently changes what this patch resolves on the next fetch, so
-# this override is not reproducible the way the core `rev` pin is — it
-# only tracks the branch head. Do not read "mirror" / "lockstep" above as
-# a claim of matching immutability: today the two differ, and converting
-# this patch to the same immutable `rev` (genuine lockstep) is deferred as
-# a follow-up under the fork-pinning epic #344. Until then, keep this
-# branch pointed at the fork the core `rev` was cut from, and drop both
-# once the fork is upstreamed and released.
-[patch.crates-io]
-pdfium-render = { git = "https://github.com/libviprs/pdfium-render.git", branch = "libviprs/integration" }
