@@ -31,11 +31,13 @@ set -euo pipefail
 # Anything that runs a test binary is therefore on push, with one deliberate
 # exception argued from the same measurement:
 #
-#   libviprs-org's entire CI is four node scripts, one shell diff and a small
-#   cargo extractor, and it runs in 4s cold and under 1s warm. Splitting that
-#   buys nothing and leaving half of it unguarded locally costs something, so
-#   the pre-commit hook there mirrors the whole workflow.
-#   libviprs-dep is the same story at 2s, so it gets the same treatment.
+#   libviprs-org's CI is six node scripts, one shell diff and a small cargo
+#   extractor, and it runs in seconds. Splitting that buys nothing and leaving
+#   half of it unguarded locally costs something, so the pre-commit hook there
+#   mirrors the whole workflow bar one job: `msrv` clones libviprs to read its
+#   rust-version, and reaching the network is not something a pre-commit hook
+#   should do, so it is deferred rather than mirrored.
+#   libviprs-dep is the same story at 2s, and all of its jobs are mirrored.
 #
 # The lists here are not maintained by hand and hope. `install_hooks_mirror_ci`
 # runs the generated hook with recording stand-ins in front of every tool it
@@ -97,7 +99,7 @@ mirror_jobs() {
         libviprs-tests) printf '%s\n' lint feature-cells ported-tests ;;
         libviprs-bench) printf '%s\n' check ;;
         # The whole workflow, on the cost argument in the header.
-        libviprs-org)   printf '%s\n' sync extract test-flags gen-op-sections ;;
+        libviprs-org)   printf '%s\n' sync extract test-flags gen-op-sections bench-drift ;;
         libviprs-dep)   printf '%s\n' lint test shellcheck ;;
         # Nothing. The fork's CI runs no lint at all, so there is nothing here
         # to mirror; see the note above write_pdfium_pre_commit.
@@ -133,7 +135,10 @@ deferred_jobs() {
             printf '%s\t%s\n' \
                 test 'the test half, and linking it needs libvips on the linker path rather than merely installed'
             ;;
-        libviprs-org) : ;;
+        libviprs-org)
+            printf '%s\t%s\n' \
+                msrv 'clones libviprs over the network to read its rust-version, and a pre-commit hook should not reach the network; the floor it checks is prose on a page rather than something a local build could contradict'
+            ;;
         libviprs-dep) : ;;
         pdfium-render)
             printf '%s\t%s\n' \
@@ -279,6 +284,8 @@ LIBVIPRS_ORG_STEPS=(
     "git diff --exit-code cli/tools/gen-op-sections/generated-op-sections.html"
     "node cli/tools/gen-op-sections/placeholder-substitution.test.js"
     "node cli/tools/gen-op-sections/hand-authored.test.js"
+    "node benchmarks/tools/bench-drift.js"
+    "node benchmarks/tools/bench-drift.test.js"
 )
 
 # The dependency build inputs. Python and shell rather than Rust, and the
