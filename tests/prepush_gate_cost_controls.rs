@@ -50,8 +50,12 @@ fn inert_path_driver() -> String {
         .map(|i| start + i + 2)
         .expect("unterminated inert_path()");
     let body = &hook[start..end];
+    // `TREE` is the tree whose commits are going out, which is where the hook
+    // looks for tests that pull a candidate in with `include_str!`. git gives
+    // the hook one; the driver is handed one.
     format!(
         "REPO_NAME=\"$1\"\n\
+         TREE=\"$2\"\n\
          {body}\n\
          while IFS= read -r candidate; do\n\
          \x20   [ -z \"$candidate\" ] && continue\n\
@@ -60,8 +64,9 @@ fn inert_path_driver() -> String {
     )
 }
 
-/// Which of `paths` the hook would treat as inert for a push to `repo_name`.
-fn inert_paths(repo_name: &str, paths: &[String]) -> BTreeSet<String> {
+/// Which of `paths` the hook would treat as inert for a push to `repo_name`
+/// out of the checkout at `tree`.
+fn inert_paths(repo_name: &str, tree: &Path, paths: &[String]) -> BTreeSet<String> {
     let dir = tempfile::tempdir().expect("temp dir for the inert_path driver");
     let script = dir.path().join("inert_path.sh");
     std::fs::write(&script, inert_path_driver()).expect("write the inert_path driver");
@@ -69,6 +74,7 @@ fn inert_paths(repo_name: &str, paths: &[String]) -> BTreeSet<String> {
     let mut child = Command::new("sh")
         .arg(&script)
         .arg(repo_name)
+        .arg(tree)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -154,6 +160,14 @@ const INERT_IN_LIBVIPRS_TESTS: &[&str] = &["LICENSE"];
 
 /// The same for the core checkout, where `.github/` and `.gitignore` are inert
 /// because nothing in either repo reads the core's copies of them.
+///
+/// `docs/` is not on this list as a directory and must not go on it. Whether a
+/// doc is inert is a question about the tree, not about the path:
+/// `docs/streaming-pdf-rotation.md` is inert because nothing pulls it in, and
+/// libviprs/libviprs#1010's `docs/pmtiles-benchmarks.md` is not, because
+/// `tests/pmtiles_release_readiness.rs` reads it with `include_str!` and
+/// asserts on its columns and on the test names it quotes. `inert_path()` goes
+/// and looks, which is why only the first of those two is named here.
 const INERT_IN_LIBVIPRS: &[&str] = &[
     ".github/workflows/ci.yml",
     ".github/workflows/merge-gate.yml",
@@ -186,7 +200,7 @@ fn the_skip_list_exempts_exactly_the_pinned_paths() {
             root.display()
         );
 
-        let got = inert_paths(repo_name, &paths);
+        let got = inert_paths(repo_name, &root, &paths);
         let want: BTreeSet<String> = pinned.iter().map(|s| s.to_string()).collect();
 
         let newly_exempt: Vec<&String> = got.difference(&want).collect();
@@ -272,7 +286,12 @@ fn the_skip_list_never_exempts_what_the_suite_reads() {
     ];
 
     for (repo_name, path, why) in load_bearing {
-        let inert = inert_paths(repo_name, &[(*path).to_string()]);
+        let tree = if *repo_name == "libviprs" {
+            core_root()
+        } else {
+            repo_root()
+        };
+        let inert = inert_paths(repo_name, &tree, &[(*path).to_string()]);
         assert!(
             inert.is_empty(),
             "the pre-push gate would skip a {repo_name} push that changes only \
@@ -280,6 +299,71 @@ fn the_skip_list_never_exempts_what_the_suite_reads() {
              saved five minutes (#683)."
         );
     }
+}
+
+/// A doc a test pulls in with `include_str!` is read, and one nothing pulls in
+/// is inert. Both halves, against a tree built here rather than against
+/// whatever the two checkouts happen to hold.
+///
+/// `docs/*` used to mean inert on the strength of the pattern alone, and the
+/// day a test pulled a doc in, the gate started waving through the doc edits
+/// that break it: libviprs/libviprs#1010 adds `docs/pmtiles-benchmarks.md`,
+/// whose contents two cells in `tests/pmtiles_release_readiness.rs` assert on.
+/// A push changing only that file skipped the suite and failed in CI instead.
+///
+/// Both halves are here because either one passes on its own for the wrong
+/// reason. Delete the scan and the read doc comes back inert; make the scan
+/// answer yes to everything and the unread one stops being inert. Only the
+/// pair pins the rule.
+#[test]
+fn a_doc_a_test_includes_is_read_and_one_nothing_includes_is_inert() {
+    let dir = tempfile::tempdir().expect("temp dir for a stand-in tree");
+    let tree = dir.path();
+    std::fs::create_dir_all(tree.join("tests/common")).expect("stand-in tests directory");
+    std::fs::create_dir_all(tree.join("docs")).expect("stand-in docs directory");
+
+    let read_by_a_test = "docs/read-by-a-test.md";
+    let read_from_a_submodule = "docs/read-from-a-submodule.md";
+    let read_by_nothing = "docs/read-by-nothing.md";
+    for rel in [read_by_a_test, read_from_a_submodule, read_by_nothing] {
+        std::fs::write(tree.join(rel), "stand-in doc\n").expect("write a stand-in doc");
+    }
+    std::fs::write(
+        tree.join("tests/reads_a_doc.rs"),
+        format!("const DOC: &str = include_str!(\"../{read_by_a_test}\");\n"),
+    )
+    .expect("write the stand-in test that reads a doc");
+    // One directory deeper, so the answer cannot come from counting `../`.
+    std::fs::write(
+        tree.join("tests/common/mod.rs"),
+        format!("pub const DOC: &str = include_str!(\"../../{read_from_a_submodule}\");\n"),
+    )
+    .expect("write the stand-in helper that reads a doc");
+
+    let candidates: Vec<String> = [read_by_a_test, read_from_a_submodule, read_by_nothing]
+        .iter()
+        .map(|p| (*p).to_string())
+        .collect();
+    let inert = inert_paths("libviprs", tree, &candidates);
+
+    for read in [read_by_a_test, read_from_a_submodule] {
+        assert!(
+            !inert.contains(read),
+            "a test in this tree pulls {read} in with include_str!, so a push \
+             that changes only that file changes what a test asserts against. \
+             inert_path() called it inert, which is the gate declining to run \
+             the test that would have caught it (#683, libviprs/libviprs#1010). \
+             It called these inert: {inert:?}"
+        );
+    }
+    assert!(
+        inert.contains(read_by_nothing),
+        "nothing in this tree reads {read_by_nothing}, so a push that changes \
+         only that file cannot fail a test and the gate should skip it. \
+         inert_path() wanted to run the whole Docker suite for it, which is \
+         what taught everyone to reach for --no-verify (#683). It called these \
+         inert: {inert:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +385,11 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
         (".github/workflows/ci.yml", "name: ci\n"),
         ("LICENSE", "stand-in licence\n"),
         ("docs/note.md", "stand-in note\n"),
+        ("docs/read-by-a-test.md", "stand-in doc\n"),
+        (
+            "tests/reads_a_doc.rs",
+            "const DOC: &str = include_str!(\"../docs/read-by-a-test.md\");\n",
+        ),
         ("src/lib.rs", "// stand-in\n"),
         ("tools/run-tests.sh", STUB_RUN_TESTS),
     ];
@@ -342,6 +431,23 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
             "name: ci\njobs: {}\n",
             false,
             "no test reads the core checkout's workflows",
+        ),
+        (
+            "libviprs",
+            "docs/note.md",
+            "stand-in note, revised\n",
+            false,
+            "nothing in the tree pulls it in",
+        ),
+        (
+            "libviprs",
+            "docs/read-by-a-test.md",
+            "stand-in doc, revised\n",
+            true,
+            "tests/reads_a_doc.rs pulls it in with include_str!, so editing it \
+             changes what a test asserts against. This is the shape of \
+             libviprs/libviprs#1010's docs/pmtiles-benchmarks.md, which two \
+             cells in tests/pmtiles_release_readiness.rs read",
         ),
         (
             "libviprs",
