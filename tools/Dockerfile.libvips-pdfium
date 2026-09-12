@@ -12,7 +12,7 @@
 #
 # PDFium provenance: the pinned, checksum-verified pdfium binary published by
 # libviprs-dep (our own branch-pinned builder), the SAME source and version
-# (pdfium-7881) that this repo's root Dockerfile, ci.yml, and nightly.yml
+# (pdfium-8054) that this repo's root Dockerfile, ci.yml, and nightly.yml
 # already consume — NOT a floating bblanchon/pdfium-binaries "latest" channel.
 # Keep PDFIUM_RELEASE and the per-arch SHA-256 digests in lockstep with those
 # files (tests/pdfium_provenance.rs pins that outcome, issue #56).
@@ -50,17 +50,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- PDFium (prebuilt) from libviprs-dep, pinned + checksum-verified ---------
-# Pinned to the same pdfium-7881 build the rest of libviprs-tests consumes.
+# Pinned to the same pdfium-8054 build the rest of libviprs-tests consumes.
 # The libviprs-dep archive nests everything under a `pdfium-<arch>/` top-level
 # directory, so --strip-components=1 lands lib/libpdfium.so + include/*.h
 # directly under /opt/pdfium. The resolved tag is recorded in
 # /opt/pdfium/RESOLVED_TAG for provenance reporting.
-ARG PDFIUM_RELEASE=pdfium-7881
+ARG PDFIUM_RELEASE=pdfium-8054
 ARG TARGETARCH
 RUN set -eux; \
     case "${TARGETARCH:-amd64}" in \
-        amd64) PDFIUM_ARCH="linux-x64";   PDFIUM_SHA256="653f24f074afe6c868f634ae0cc954a1a89821f33bc7795f16065a14022b662b" ;; \
-        arm64) PDFIUM_ARCH="linux-arm64"; PDFIUM_SHA256="3a8940ae414a54601f6bc0b25fb3d589025320ee91fff378e12708259da5702d" ;; \
+        amd64) PDFIUM_ARCH="linux-x64";   PDFIUM_SHA256="b42d1731f07fb73edea38cbd294afe9be4bdcf8e4ed8523de51cd5d12fc8d271" ;; \
+        arm64) PDFIUM_ARCH="linux-arm64"; PDFIUM_SHA256="3e1fe6e6ea1a53b1f801a071be256240513c1cad17b8d27fd80330da8f8c3640" ;; \
         *)     echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     mkdir -p /opt/pdfium; \
@@ -78,7 +78,7 @@ RUN set -eux; \
 # --- pdfium.pc so libvips's meson discovers pdfium via pkg-config -----------
 # libvips 8.18.4 gates on `dependency('pdfium', version: '>=4200')`, so the
 # Version field must be the numeric pdfium build number. It is derived from the
-# pinned PDFIUM_RELEASE tag (pdfium-7881 -> 7881); if that ever fails to yield a
+# pinned PDFIUM_RELEASE tag (pdfium-8054 -> 7881); if that ever fails to yield a
 # number >= 4200, fall back to 6000 as instructed.
 RUN set -eux; \
     BUILD="$(printf '%s' "${PDFIUM_RELEASE}" | sed -E 's/[^0-9]//g')"; \
