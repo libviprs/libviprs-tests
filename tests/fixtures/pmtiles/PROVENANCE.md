@@ -71,20 +71,22 @@ The base is the thing to get right. A tile entry found inside a leaf is still re
 tile entry in every leaf carries offset 0 or 72, landing at absolute 725 or 797. Under the leaf's own
 start the same offsets land at 405 and 477, inside the directory region, so a reader with the wrong
 base hands back directory bytes dressed as a tile. A test that only asserts `get_tile` returned
-`Some` passes either way, which is why `leaf_entries_resolve_against_tile_data_not_the_leaf_start`
+`Some` passes either way, which is why `leaf_entries_resolve_against_tile_data_not_against_any_other_base`
 compares the payload and shows what the wrong base would have returned.
 
 And then it turned out not to be able to show either of the two things it was committed for. Its two
 payloads alternate by `(x + y) % 2`, and every symmetric tile-id mistake preserves that parity at
 every zoom, so all 21845 cells come back identical under a dropped rotation, a dropped reflection, a
 dropped swap and a transposition. Measured from the reference's own answers rather than argued:
-`vectors/sweep.json` records 0 discriminating cells for this archive against 48 for each of the
-others. And every leaf in it starts at entry offset 0, which makes "rebase each leaf on its own first
+`vectors/sweep.json` records 0 discriminating cells for this archive, against 48 apiece (the
+per-archive cap) for `dupes-z0z3`, `distinct-z0z7` and `header-mvt-z2z4`, and 12 of `raster-z0z2`'s
+21 cells. And every leaf in it starts at entry offset 0, which makes "rebase each leaf on its own first
 entry" the identity, so it cannot see that base either. It stays committed because 6 leaf directories
 over 21844 entries in 869 bytes is still the cheapest run-length and leaf-fanout fixture there is. It
 is no longer the fixture any tile-id or leaf-base claim rests on.
 
-**`distinct-z0z7.pmtiles`** is what those claims rest on now. Zoom 1 to 7, 19858 tiles with 19843
+**`distinct-z0z7.pmtiles`** is what those claims rest on now. Zoom 1 to 7 (not 0, which is why a
+dropped minimum zoom is not the identity in it either), 19858 tiles with 19843
 distinct payloads and 5 leaf directories of 4096, 4096, 4096, 4096 and 3463 entries. The tile entries
 in those leaves start at offsets 0, 49164, 98324, 147497 and 196597, so rebasing a leaf on its own
 first entry is the identity for the first leaf only and moves bytes for the other four. Neither the
@@ -98,19 +100,54 @@ identity in them. This one is `mvt` with gzip payloads, bounds
 `(-10.5, 20.25) (30.125, 40.0625)`, centre `(12.5, 33.75)` and zooms 2 to 4: nothing in its header is
 its own mirror image.
 
+The payloads of these two are not PNGs, whatever their `tile_type` byte says, and the paragraph
+above about a small Python PNG encoder does not describe them. `distinct-z0z7`'s tiles are
+self-describing records, a `T` then the zoom then x and y as `u16`s then coordinate-derived padding,
+which is what makes every tile in it distinguishable from every other. `header-mvt-z2z4`'s are
+pre-gzipped, because go-pmtiles gzips an MVT payload itself unless the bytes already start `1f 8b`,
+and the point of that archive is a header whose two compression fields differ.
+
 ## The vectors
 
-`vectors/tiles.json` and `vectors/header.json` are dumps from the same pinned binary, copied
-unchanged from `.epicF/oracle/vectors/`. `tiles.json` records, for a handful of `(z, x, y)` per
+`vectors/tiles.json` and `vectors/header.json` are dumps from the same pinned binary. `tiles.json`
+is copied unchanged from `.epicF/oracle/vectors/`; `header.json` is that file with the two archives
+added later appended, decoded by the same `oracle_dump` program built inside the pinned go-pmtiles
+module, and its keys sorted so the file is stable across regenerations. The three original archives'
+decoded values are byte-identical to the oracle lane's copy. `tiles.json` records, for a handful of `(z, x, y)` per
 archive, the payload length and sha256 `pmtiles tile` wrote, plus rows for tiles the archive does not
 hold and rows the reference answers *wrongly*. `header.json` records each archive's raw 127 header
 bytes and the field-by-field decoding `pmtiles.DeserializeHeader` gives for them.
+
+`vectors/tileid.json` is 184 rows of `(z, x, y) -> tile_id`, every one the return value of
+`pmtiles.ZxyToID` from the pinned source, trimmed from the oracle lane's copy. Twelve of them were
+chosen because they separate the candidate Hilbert conventions from each other. They are here because
+`tests/common/pmtiles.rs` carries a second, independent implementation of that curve so it can say
+which cells a wrong convention would move, and a second implementation asserted correct is not a
+second implementation shown correct: corrupting its correct branch left every test in the suite
+green. These rows pin it, and `libviprs::pmtiles::zxy_to_tileid` with it.
 
 `vectors/show.json` and `vectors/sweep.json` were produced here rather than copied from the oracle
 lane, by the same pinned binary. `show.json` records what `pmtiles show` prints for each archive,
 which is the reference putting its decoded header through its own accessors: bounds, centre, tile
 type and the two compressions become observable there and nowhere else, and those are precisely the
 fields no test read back until now.
+
+Both were produced by running the pinned binary in the oracle image against the committed archives,
+one invocation per question:
+
+```
+# show.json, once per archive
+pmtiles show <archive>
+
+# sweep.json, for z in min_zoom..=max_zoom and every (x, y) in raster order
+pmtiles tile --quiet <archive> <z> <x> <y> | sha256sum
+```
+
+A cell that writes nothing is recorded as `absent`, which is how the reference reports a tile it
+cannot find. Each cell contributes one line, `z/x/y <sha256|absent>`, terminated by a newline, and
+the zoom's digest is the sha256 of those lines concatenated in raster order. That is the whole
+format: no script of ours decides anything, and the loop is short enough to write again from this
+paragraph.
 
 `sweep.json` is every cell of every zoom, all 44131 of them, run through `pmtiles tile` once. It
 records one digest per zoom rather than one row per cell, which is 66 KB instead of about 4 MB and
@@ -129,4 +166,15 @@ past `2**z - 1` into a different, valid tile and serves it with exit 0, so go-pm
 
 `.epicF/oracle/` holds `Dockerfile.oracle`, which downloads the release and verifies it with
 `sha256sum -c` at build time, plus the generator scripts and the full write-up in its own
-`PROVENANCE.md` and `goldens/PROVENANCE.md`. Start there rather than from this file.
+`PROVENANCE.md`. Which document covers what:
+
+| Archive or file | Where its generator and write-up live |
+|---|---|
+| `raster-z0z2`, `dupes-z0z3`, `leaves-z0z7` | `.epicF/oracle/goldens/PROVENANCE.md`, `tools/make_mbtiles.py` |
+| `distinct-z0z7`, `header-mvt-z2z4` | `.epicF/oracle/discrimination/PROVENANCE.md`, `discrimination/tools/fixtures.py` and `convert.sh` |
+| `vectors/tiles.json`, `vectors/header.json`, `vectors/tileid.json` | `.epicF/oracle/PROVENANCE.md`, `tools/oracle_dump.go` |
+| `vectors/show.json`, `vectors/sweep.json` | produced here; the two commands and the digest format are under "The vectors" above |
+
+That directory is not in any repository, which is the weak link in all of the above and is worth
+fixing: an archive whose regenerator only exists on one machine has provenance that is stated rather
+than established. Start there rather than from this file, and do not treat it as permanent.

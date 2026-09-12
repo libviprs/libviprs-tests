@@ -2073,5 +2073,5 @@
     "tool": "go-pmtiles"
   },
   "what_this_is": "Every cell of every zoom each committed golden declares, swept through `pmtiles tile` once and reduced to one digest per zoom. tiles.json carries hand-picked rows; this carries all of them, so no future edit can narrow the coverage without changing a digest.",
-  "why_digests_and_not_rows": "44174 rows with a digest each is about 4 MB of JSON for a test repository. One digest per zoom is 15 KB and asserts the same thing. The cost is that a failure localises to a zoom, which is why `discriminating` below carries full rows for the cells a wrong tile-id convention actually moves."
+  "why_digests_and_not_rows": "44131 rows with a digest each is about 4 MB of JSON for a test repository. One digest per zoom is 3 KB and asserts the same thing. The cost is that a failure localises to a zoom, which is why `discriminating` below carries full rows for the cells a wrong tile-id convention actually moves; tests/pmtiles_sweep.rs replays them on a mismatch so the failure names a coordinate and the convention that sends the payload there. Those rows are what take the file to 66 KB."
 }
