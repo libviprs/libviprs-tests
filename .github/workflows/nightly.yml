@@ -39,8 +39,8 @@ jobs:
         # single source shared with the Dockerfile and ci.yml. Keep
         # PDFIUM_RELEASE and the SHA-256 digest in lockstep with those files.
         env:
-          PDFIUM_RELEASE: pdfium-7881
-          PDFIUM_SHA256: 653f24f074afe6c868f634ae0cc954a1a89821f33bc7795f16065a14022b662b
+          PDFIUM_RELEASE: pdfium-8054
+          PDFIUM_SHA256: b42d1731f07fb73edea38cbd294afe9be4bdcf8e4ed8523de51cd5d12fc8d271
         run: |
           curl -fsSL -o pdfium.tgz "https://github.com/libviprs/libviprs-dep/releases/download/${PDFIUM_RELEASE}/pdfium-linux-x64.tgz"
           echo "${PDFIUM_SHA256}  pdfium.tgz" | sha256sum -c -

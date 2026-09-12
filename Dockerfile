@@ -13,11 +13,11 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 # single provenance source shared with CI. Keep PDFIUM_RELEASE and the per-arch
 # SHA-256 digests in lockstep with the release consumed by
 # .github/workflows/ci.yml.
-ARG PDFIUM_RELEASE=pdfium-7881
+ARG PDFIUM_RELEASE=pdfium-8054
 ARG TARGETARCH
 RUN case "${TARGETARCH}" in \
-        amd64) PDFIUM_ARCH="linux-x64";   PDFIUM_SHA256="653f24f074afe6c868f634ae0cc954a1a89821f33bc7795f16065a14022b662b" ;; \
-        arm64) PDFIUM_ARCH="linux-arm64"; PDFIUM_SHA256="3a8940ae414a54601f6bc0b25fb3d589025320ee91fff378e12708259da5702d" ;; \
+        amd64) PDFIUM_ARCH="linux-x64";   PDFIUM_SHA256="b42d1731f07fb73edea38cbd294afe9be4bdcf8e4ed8523de51cd5d12fc8d271" ;; \
+        arm64) PDFIUM_ARCH="linux-arm64"; PDFIUM_SHA256="3e1fe6e6ea1a53b1f801a071be256240513c1cad17b8d27fd80330da8f8c3640" ;; \
         *)     echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
     esac && \
     curl -fsSL -o /tmp/pdfium.tgz \
