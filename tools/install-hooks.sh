@@ -31,11 +31,13 @@ set -euo pipefail
 # Anything that runs a test binary is therefore on push, with one deliberate
 # exception argued from the same measurement:
 #
-#   libviprs-org's entire CI is four node scripts, one shell diff and a small
-#   cargo extractor, and it runs in 4s cold and under 1s warm. Splitting that
-#   buys nothing and leaving half of it unguarded locally costs something, so
-#   the pre-commit hook there mirrors the whole workflow.
-#   libviprs-dep is the same story at 2s, so it gets the same treatment.
+#   libviprs-org's CI is six node scripts, one shell diff and a small cargo
+#   extractor, and it runs in seconds. Splitting that buys nothing and leaving
+#   half of it unguarded locally costs something, so the pre-commit hook there
+#   mirrors the whole workflow bar one job: `msrv` clones libviprs to read its
+#   rust-version, and reaching the network is not something a pre-commit hook
+#   should do, so it is deferred rather than mirrored.
+#   libviprs-dep is the same story at 2s, and all of its jobs are mirrored.
 #
 # The lists here are not maintained by hand and hope. `install_hooks_mirror_ci`
 # runs the generated hook with recording stand-ins in front of every tool it
@@ -97,7 +99,7 @@ mirror_jobs() {
         libviprs-tests) printf '%s\n' lint feature-cells ported-tests ;;
         libviprs-bench) printf '%s\n' check ;;
         # The whole workflow, on the cost argument in the header.
-        libviprs-org)   printf '%s\n' sync extract test-flags gen-op-sections ;;
+        libviprs-org)   printf '%s\n' sync extract test-flags gen-op-sections bench-drift ;;
         libviprs-dep)   printf '%s\n' lint test shellcheck ;;
         # Nothing. The fork's CI runs no lint at all, so there is nothing here
         # to mirror; see the note above write_pdfium_pre_commit.
@@ -133,7 +135,10 @@ deferred_jobs() {
             printf '%s\t%s\n' \
                 test 'the test half, and linking it needs libvips on the linker path rather than merely installed'
             ;;
-        libviprs-org) : ;;
+        libviprs-org)
+            printf '%s\t%s\n' \
+                msrv 'clones libviprs over the network to read its rust-version, and a pre-commit hook should not reach the network; the floor it checks is prose on a page rather than something a local build could contradict'
+            ;;
         libviprs-dep) : ;;
         pdfium-render)
             printf '%s\t%s\n' \
@@ -169,12 +174,13 @@ exempt_steps() {
             ;;
         libviprs-org)
             printf '%s\t%s\n' \
-                'Skip note (canonical CLI unavailable)' 'the other arm of the sync step, which only prints a warning; the hook prints its own when the sibling is missing'
+                'Resolve the pinned counterpart revision' 'reads the pin and writes it to GITHUB_OUTPUT for a later step to consume, and that file has no local meaning; sync-pin.test.js below is the part of this step that checks anything, and the hook runs it' \
+                'Advisory — has libviprs-cli main moved past the pin?' 'continue-on-error, and it git ls-remotes github.com to report drift; a warning that cannot fail the job is not a check, and a hook should not reach the network'
             ;;
         libviprs-dep)
             printf '%s\t%s\n' \
                 'pip install ruff' 'installs the tool rather than checking anything; the hook fails loudly if ruff is not on PATH' \
-                'pip install pytest' 'same, for pytest'
+                'pip install pytest pyyaml' 'same, for pytest; pyyaml rides along because pdfium/tests/test_release_workflow.py importorskips it, and without it those tests skipped while the job looked green'
             ;;
         *) : ;;
     esac
@@ -257,12 +263,17 @@ LIBVIPRS_BENCH_STEPS=(
 # gates, which is exactly the check you want before a commit rather than after
 # it: they catch "you edited the source and did not re-run the generator".
 #
-# The sync step is conditional because the workflow's is. CI runs it only when
-# the canonical cli checkout succeeded; locally the equivalent question is
-# whether the sibling is there at all. Unlike CI's, this hook's sibling is
-# whatever you have checked out rather than CLI_COUNTERPART_REV, so a green
-# here is a weaker claim than a green there. The note it prints says so.
+# The sync step is conditional, and it is the only one that is. CI's used to
+# be too, with a skip arm that printed a note; libviprs-org#63 removed that so
+# the gate stops passing by skipping, and it now runs unconditionally against a
+# checkout pinned to CLI_COUNTERPART_REV. The local condition is a different
+# question that is still worth asking: whether the sibling is checked out at
+# all, since a contributor who has only this repo should still be able to
+# commit. Unlike CI's, this hook's sibling is whatever you have checked out
+# rather than the pinned revision, so a green here is a weaker claim than a
+# green there. The note it prints says so.
 LIBVIPRS_ORG_STEPS=(
+    "node cli/tools/sync-pin.test.js"
     "test -d ../libviprs-cli%%no libviprs-cli sibling, so the frozen-copy sync check has nothing to compare (CI skips it the same way)%%cli/tools/sync-cli-src.sh --check"
     "cargo run --manifest-path cli/tools/extract-snippets/Cargo.toml"
     "git diff --exit-code cli/js/snippets.generated.json"
@@ -272,22 +283,35 @@ LIBVIPRS_ORG_STEPS=(
     "node cli/tools/gen-op-sections/index.js --out cli/tools/gen-op-sections/generated-op-sections.html"
     "git diff --exit-code cli/tools/gen-op-sections/generated-op-sections.html"
     "node cli/tools/gen-op-sections/placeholder-substitution.test.js"
+    "node cli/tools/gen-op-sections/hand-authored.test.js"
+    "node benchmarks/tools/bench-drift.js"
+    "node benchmarks/tools/bench-drift.test.js"
 )
 
-# The pdfium build inputs. Python and shell rather than Rust, and the whole
-# workflow runs in about 2s locally, so all of it is here.
+# The dependency build inputs. Python and shell rather than Rust, and the
+# whole workflow runs in about 2s locally, so all of it is here.
 #
-# This repo also ships its own tools/install-hooks.sh, which writes a hook that
-# skips shellcheck when shellcheck is not installed. That is the false green
-# this whole file exists to refuse, and nothing held that script to the
-# workflow, so the hook this one writes is the one that should be in place.
+# That repo used to ship its own installer, writing a hook whose lint step was
+# skipped whenever the tool was missing, which is the false green this whole
+# file exists to refuse. It was retired in libviprs-dep#36, so this is now the
+# only installer writing its hook.
+#
+# None of these name a dependency directory any more. libviprs-dep#34 added a
+# second one (zstd/) and found that every step there said pdfium/, so a new
+# dependency landed lint-free; the paths are discovered from the tree now, and
+# this list follows. shellcheck goes through a tracked script for a reason
+# that belongs here rather than there: install_hooks_mirror_ci refuses to
+# stand in for a multi-line `run:` block, and an exempted step is one this
+# hook does not run, so an inline block would have quietly taken shellcheck
+# back out of the local gate.
+#
 # CI runs pytest on 3.9 and on 3.12; the hook runs it on whatever `pytest`
 # resolves to, which is one of the two cells rather than both.
 LIBVIPRS_DEP_STEPS=(
-    "ruff check pdfium/"
-    "ruff format --check pdfium/"
-    "shellcheck pdfium/patches/*.sh"
-    "pytest pdfium/tests/ -v"
+    "ruff check ."
+    "ruff format --check ."
+    "tools/shellcheck-all.sh"
+    "pytest -v"
 )
 
 steps_for_repo() {
