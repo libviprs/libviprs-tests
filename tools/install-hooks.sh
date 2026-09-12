@@ -274,7 +274,7 @@ LIBVIPRS_BENCH_STEPS=(
 # green there. The note it prints says so.
 LIBVIPRS_ORG_STEPS=(
     "node cli/tools/sync-pin.test.js"
-    "test -d ../libviprs-cli%%no libviprs-cli sibling, so the frozen-copy sync check has nothing to compare (CI skips it the same way)%%cli/tools/sync-cli-src.sh --check"
+    "test -d ../libviprs-cli%%no libviprs-cli sibling, so the frozen-copy sync check has nothing to compare. CI has no skip arm here and runs it against the pinned checkout; skipping is local-only, so you can commit without the cli%%cli/tools/sync-cli-src.sh --check"
     "cargo run --manifest-path cli/tools/extract-snippets/Cargo.toml"
     "git diff --exit-code cli/js/snippets.generated.json"
     "cd cli/tools/extract-snippets && cargo test --quiet"
