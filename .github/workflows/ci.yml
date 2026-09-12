@@ -216,7 +216,7 @@ jobs:
       # exactly the reason a dev machine goes green: it never ran the binary.
       - env:
           VIPRS_REQUIRE_GO_PMTILES: 1
-        run: cargo test --test pmtiles_interop --test phase_pmtiles --test pmtiles_bounded --test pmtiles_ci_wiring
+        run: cargo test --test pmtiles_interop --test phase_pmtiles --test pmtiles_bounded --test pmtiles_ci_wiring --test pmtiles_sweep
 
   lint:
     name: Lint

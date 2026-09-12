@@ -78,3 +78,441 @@ fn candidate_list(name: &str) -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
+
+// ---------------------------------------------------------------------------
+// Reading the workflow as structure rather than as text
+// ---------------------------------------------------------------------------
+
+/// A workflow read as jobs and steps rather than as one long string.
+///
+/// Every guard in this repo used to ask whether some substring appeared
+/// *anywhere* in `ci.yml`. That is a spelling check wearing a guard's clothes,
+/// and seven separate one-line edits pass it while changing what CI does:
+/// disabling a job with `if: false`, letting a step fail with
+/// `continue-on-error: true`, commenting out an `env:` block so the string
+/// survives in a comment, deleting `set -euo pipefail` from an install script,
+/// appending `|| true` to a `sha256sum -c`, moving a `--test` flag to a job
+/// that has no external binary, and setting the require-variable on the wrong
+/// job. All seven are valid YAML that GitHub honours.
+///
+/// So the guards read structure. This is not a YAML parser and does not want to
+/// be one: it understands the block style these workflows are written in and
+/// [refuses](Workflow::parse) anything else rather than quietly reporting that a
+/// job it could not parse has no steps, which is the failure that would put us
+/// back where we started.
+#[derive(Debug, Clone)]
+pub struct Workflow {
+    jobs: Vec<Job>,
+}
+
+/// One entry under `jobs:`.
+#[derive(Debug, Clone)]
+pub struct Job {
+    /// The mapping key, e.g. `pmtiles-interop`.
+    pub id: String,
+    /// Scalar keys directly on the job: `name`, `runs-on`, `if`, and so on.
+    pub keys: Vec<(String, String)>,
+    /// The job's `steps:` in order.
+    pub steps: Vec<Step>,
+}
+
+/// One entry under a job's `steps:`.
+#[derive(Debug, Clone)]
+pub struct Step {
+    /// Scalar keys on the step: `name`, `uses`, `run`, `continue-on-error`, ...
+    pub keys: Vec<(String, String)>,
+    /// The step's own `env:` mapping. Only this step's, never the job's and
+    /// never another step's, which is the whole point of reading structure.
+    pub env: Vec<(String, String)>,
+}
+
+impl Job {
+    /// The value of a scalar key on the job, if it has one.
+    pub fn key(&self, name: &str) -> Option<&str> {
+        self.keys
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
+    }
+}
+
+impl Step {
+    /// The value of a scalar key on the step, if it has one.
+    pub fn key(&self, name: &str) -> Option<&str> {
+        self.keys
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// The step's `run:` script, or the empty string for a `uses:` step.
+    pub fn run(&self) -> &str {
+        self.key("run").unwrap_or("")
+    }
+
+    /// The value this step sets for an environment variable, if it sets one.
+    pub fn env_value(&self, name: &str) -> Option<&str> {
+        self.env
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
+    }
+}
+
+impl Workflow {
+    /// Every job, in file order.
+    pub fn jobs(&self) -> &[Job] {
+        &self.jobs
+    }
+
+    /// The job with this id.
+    ///
+    /// Panics when it is absent, naming the jobs that do exist. A guard that
+    /// silently found no job is a guard that passes.
+    pub fn job(&self, id: &str) -> &Job {
+        self.jobs.iter().find(|j| j.id == id).unwrap_or_else(|| {
+            panic!(
+                "no job `{id}` in the workflow. It has: {}. A renamed job \
+                 leaves every guard about it asserting nothing, so this is a \
+                 failure rather than a skip.",
+                self.jobs
+                    .iter()
+                    .map(|j| j.id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
+    }
+
+    /// Every step of every job, paired with the job it belongs to.
+    pub fn steps(&self) -> impl Iterator<Item = (&Job, &Step)> {
+        self.jobs
+            .iter()
+            .flat_map(|j| j.steps.iter().map(move |s| (j, s)))
+    }
+
+    /// Parse the block-style workflow in `text`.
+    ///
+    /// Handles exactly what these files use: a `jobs:` mapping, two-space
+    /// indent steps, `run: |` and `run: >` block scalars, and `env:` mappings
+    /// on jobs and steps. Anything else is a panic rather than a guess, because
+    /// the alternative is a guard reporting that the construct it could not
+    /// read is fine.
+    pub fn parse(text: &str) -> Self {
+        assert!(
+            !text.contains('\t'),
+            "the workflow contains a tab, which YAML does not allow as indentation \
+             and this reader does not try to interpret"
+        );
+        assert!(
+            !text.contains("\n---"),
+            "the workflow has more than one document. This reader assumes one, \
+             and would silently read only the first"
+        );
+
+        let lines: Vec<&str> = text.lines().collect();
+        let mut jobs: Vec<Job> = Vec::new();
+
+        let Some(jobs_at) = lines.iter().position(|l| l.trim_end() == "jobs:") else {
+            panic!("the workflow has no `jobs:` key at column 0");
+        };
+
+        let mut i = jobs_at + 1;
+        while i < lines.len() {
+            let line = lines[i];
+            if skippable(line) {
+                i += 1;
+                continue;
+            }
+            let indent = indent_of(line);
+            // Column 0 ends the `jobs:` mapping.
+            if indent == 0 {
+                break;
+            }
+            assert_eq!(
+                indent,
+                2,
+                "expected a job id at indent 2, got {indent} on line {}: {line:?}",
+                i + 1
+            );
+            let id = mapping_key(line, i).0.to_string();
+            let (job, next) = parse_job(&lines, i + 1, id);
+            jobs.push(job);
+            i = next;
+        }
+
+        assert!(!jobs.is_empty(), "the workflow declares no jobs");
+        Self { jobs }
+    }
+}
+
+/// Blank lines and whole-line comments carry nothing this reader needs.
+///
+/// A commented-out `env:` block is the Y3 mutation, and the reason the guards
+/// have to read structure at all: as text the variable is still there.
+fn skippable(line: &str) -> bool {
+    let t = line.trim_start();
+    t.is_empty() || t.starts_with('#')
+}
+
+fn indent_of(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// Split `key: value` at the first colon that ends the key.
+///
+/// Returns the key and the value with any trailing comment and surrounding
+/// quotes removed. `line_no` is only for the panic.
+fn mapping_key(line: &str, line_no: usize) -> (&str, String) {
+    let body = line.trim_start();
+    let body = body.strip_prefix("- ").unwrap_or(body);
+    let colon = body.find(':').unwrap_or_else(|| {
+        panic!(
+            "expected `key: value` on line {}, got {line:?}",
+            line_no + 1
+        )
+    });
+    let key = body[..colon].trim();
+    let value = body[colon + 1..].trim();
+    (key, scalar(value))
+}
+
+/// A scalar with its trailing comment and quotes taken off.
+///
+/// Only strips a `#` that follows whitespace, so a digest or a URL fragment
+/// survives.
+fn scalar(value: &str) -> String {
+    let mut end = value.len();
+    let bytes = value.as_bytes();
+    for (idx, b) in bytes.iter().enumerate() {
+        if *b == b'#' && idx > 0 && bytes[idx - 1].is_ascii_whitespace() {
+            end = idx;
+            break;
+        }
+    }
+    let value = value[..end].trim();
+    let value = value
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
+        .unwrap_or(value);
+    value.to_string()
+}
+
+/// Read one job's body, starting at `from`. Returns it and the line after it.
+fn parse_job(lines: &[&str], from: usize, id: String) -> (Job, usize) {
+    let mut job = Job {
+        id,
+        keys: Vec::new(),
+        steps: Vec::new(),
+    };
+    let mut i = from;
+
+    while i < lines.len() {
+        let line = lines[i];
+        if skippable(line) {
+            i += 1;
+            continue;
+        }
+        if indent_of(line) <= 2 {
+            break;
+        }
+        assert_eq!(
+            indent_of(line),
+            4,
+            "expected a job key at indent 4 in job `{}`, got {} on line {}: {line:?}",
+            job.id,
+            indent_of(line),
+            i + 1
+        );
+        let (key, value) = mapping_key(line, i);
+        if key == "steps" {
+            let (steps, next) = parse_steps(lines, i + 1, &job.id);
+            job.steps = steps;
+            i = next;
+            continue;
+        }
+        if value.is_empty() {
+            // A nested mapping on the job (`env:`, `strategy:`, `outputs:`).
+            // Its own keys are not read here; a guard that needs one asks for
+            // the step it lives on instead.
+            let (_, next) = skip_block(lines, i + 1, 4);
+            job.keys.push((key.to_string(), String::new()));
+            i = next;
+            continue;
+        }
+        job.keys.push((key.to_string(), value));
+        i += 1;
+    }
+
+    (job, i)
+}
+
+/// Read a `steps:` sequence. Items are `- ` at indent 6, keys at indent 8.
+fn parse_steps(lines: &[&str], from: usize, job_id: &str) -> (Vec<Step>, usize) {
+    let mut steps: Vec<Step> = Vec::new();
+    let mut i = from;
+
+    while i < lines.len() {
+        let line = lines[i];
+        if skippable(line) {
+            i += 1;
+            continue;
+        }
+        let indent = indent_of(line);
+        if indent <= 4 {
+            break;
+        }
+        assert!(
+            line.trim_start().starts_with("- "),
+            "expected a step to start with `- ` in job `{job_id}`, got line {}: \
+             {line:?}",
+            i + 1
+        );
+        assert_eq!(
+            indent,
+            6,
+            "expected a step at indent 6 in job `{job_id}`, got {indent} on line \
+             {}: {line:?}",
+            i + 1
+        );
+        let (step, next) = parse_step(lines, i, job_id);
+        steps.push(step);
+        i = next;
+    }
+
+    (steps, i)
+}
+
+/// Read one step. `at` is its `- ` line, whose own `key: value` counts.
+fn parse_step(lines: &[&str], at: usize, job_id: &str) -> (Step, usize) {
+    let mut step = Step {
+        keys: Vec::new(),
+        env: Vec::new(),
+    };
+    let mut i = at;
+    let mut first = true;
+
+    while i < lines.len() {
+        let line = lines[i];
+        if skippable(line) {
+            i += 1;
+            continue;
+        }
+        let indent = indent_of(line);
+        if !first {
+            // A new `- ` at indent 6 is the next step; anything shallower ends
+            // the sequence.
+            if indent <= 6 {
+                break;
+            }
+            assert_eq!(
+                indent,
+                8,
+                "expected a step key at indent 8 in job `{job_id}`, got {indent} \
+                 on line {}: {line:?}",
+                i + 1
+            );
+        }
+        first = false;
+
+        let (key, value) = mapping_key(line, i);
+        if key == "env" {
+            let (env, next) = parse_env(lines, i + 1, job_id);
+            step.env = env;
+            i = next;
+            continue;
+        }
+        if value == "|" || value == ">" || value == "|-" || value == ">-" {
+            let (block, next) = read_block_scalar(lines, i + 1);
+            step.keys.push((key.to_string(), block));
+            i = next;
+            continue;
+        }
+        if value.is_empty() {
+            // `with:` and friends. Not read as scalars, skipped as a block.
+            let (_, next) = skip_block(lines, i + 1, 8);
+            step.keys.push((key.to_string(), String::new()));
+            i = next;
+            continue;
+        }
+        step.keys.push((key.to_string(), value));
+        i += 1;
+    }
+
+    (step, i)
+}
+
+/// Read an `env:` mapping under a step.
+fn parse_env(lines: &[&str], from: usize, job_id: &str) -> (Vec<(String, String)>, usize) {
+    let mut env = Vec::new();
+    let mut i = from;
+    while i < lines.len() {
+        let line = lines[i];
+        if skippable(line) {
+            i += 1;
+            continue;
+        }
+        if indent_of(line) <= 8 {
+            break;
+        }
+        assert_eq!(
+            indent_of(line),
+            10,
+            "expected an env key at indent 10 in job `{job_id}`, got {} on line \
+             {}: {line:?}",
+            indent_of(line),
+            i + 1
+        );
+        let (key, value) = mapping_key(line, i);
+        env.push((key.to_string(), value));
+        i += 1;
+    }
+    (env, i)
+}
+
+/// A `|` or `>` block scalar: every following line indented past the key.
+fn read_block_scalar(lines: &[&str], from: usize) -> (String, usize) {
+    let mut body = String::new();
+    let mut i = from;
+    let mut base: Option<usize> = None;
+    while i < lines.len() {
+        let line = lines[i];
+        if line.trim().is_empty() {
+            body.push('\n');
+            i += 1;
+            continue;
+        }
+        let indent = indent_of(line);
+        let base = *base.get_or_insert(indent);
+        if indent < base {
+            break;
+        }
+        body.push_str(&line[base..]);
+        body.push('\n');
+        i += 1;
+    }
+    (body, i)
+}
+
+/// Walk past a nested block whose keys this reader does not need.
+fn skip_block(lines: &[&str], from: usize, parent_indent: usize) -> ((), usize) {
+    let mut i = from;
+    while i < lines.len() {
+        let line = lines[i];
+        if skippable(line) {
+            i += 1;
+            continue;
+        }
+        if indent_of(line) <= parent_indent {
+            break;
+        }
+        i += 1;
+    }
+    ((), i)
+}
+
+/// The workflow CI runs, read as structure.
+pub fn workflow(name: &str) -> Workflow {
+    Workflow::parse(&read_workflow(name))
+}
