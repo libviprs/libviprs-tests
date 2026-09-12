@@ -158,23 +158,23 @@ into the two the suite can see:
 - The lockstep is enforced rather than asked for:
   `tests/install_hooks_mirror_ci.rs` runs the generated hook with a recording
   stand-in for `cargo` and compares what it invokes against the workflow
-  (libviprs/libviprs#715).
+  (libviprs/).
 
 **Pre-push** (libviprs and libviprs-tests only; runs on `git push`, when the
 push can reach the suite):
 - The hook is `tools/hooks/pre-push`, a tracked file. What lands in
   `.git/hooks/pre-push` is a shim that runs it, so a `git pull` here updates
   the hook in every repo at once and no clone is left running a vintage nobody
-  can name (libviprs/libviprs#695). Re-run `install-hooks.sh` only when the
+  can name (libviprs/). Re-run `install-hooks.sh` only when the
   workspace layout moves. A harness push runs the hook out of the tree it is
   pushing, so a change to the hook is gated by the changed hook.
 - Runs the Docker test suite via `run-tests.sh`, against the working tree being
   pushed. A linked worktree gates on its own branch, not on the main checkout
-  (libviprs/libviprs#684).
+  (libviprs/).
 - libviprs-cli does not get it. `run-tests.sh` wires two trees and the
   `Dockerfile` copies two, so a cli push would build an image the cli is not in
   and come back with a verdict independent of the commits going out
-  (libviprs/libviprs#691). The cli's differential coverage runs in the
+  (libviprs/). The cli's differential coverage runs in the
   `cli-differential` CI job, which lays the cli down at `CLI_COUNTERPART_REV`
   and sets `VIPRS_REQUIRE_CLI=1` so a silent skip is a hard failure. Running
   `install-hooks.sh` also clears a pre-push hook an older copy of it left in
@@ -214,7 +214,7 @@ first, because `--no-verify` is how the gate stopped protecting anything.
 
 | File | Tests | Description |
 |---|---|---|
-| `pdf_to_pyramid.rs` | 4 | End-to-end: PDF extract → geo-reference → tile pyramid. Core workflow from issue #142. |
+| `pdf_to_pyramid.rs` | 4 | End-to-end: PDF extract → geo-reference → tile pyramid. Core workflow |
 | `pyramid_determinism.rs` | 2 | Output is identical across concurrency levels and tile sizes. Mirrors libvips' `test_threading.sh`. |
 | `pyramid_fs_sink.rs` | 5 | Filesystem output: DeepZoom/XYZ layouts, PNG/JPEG/Raw encoding, DZI manifests. |
 | `no_temp_files.rs` | 1 | Engine completes without creating temp files (read-only TMPDIR). Mirrors libvips' `test_seq.sh`. |
