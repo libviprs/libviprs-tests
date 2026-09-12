@@ -1,0 +1,155 @@
+{
+  "archives": {
+    "distinct-z0z7.pmtiles": {
+      "cli_pmtiles_show": "pmtiles spec version: 3\ntile type: png\nbounds: (long: -180.000000, lat: -85.051129) (long: 180.000000, lat: 85.051129)\nmin zoom: 1\nmax zoom: 7\ncenter: (long: 0.000000, lat: 0.000000)\ncenter zoom: 3\naddressed tiles count: 19858\ntile entries count: 19847\ntile contents count: 19843\nclustered: true\ninternal compression: gzip\ntile compression: none\ndescription libviprs EPIC F discrimination fixture: distinct self-describing payloads, holes, leaf directories\nformat png\nname libviprs-fable-distinct\ntype baselayer\nversion 1\n",
+      "fields": {
+        "addressed tiles count": "19858",
+        "bounds": [
+          -180.0,
+          -85.051129,
+          180.0,
+          85.051129
+        ],
+        "center": [
+          0.0,
+          0.0
+        ],
+        "center zoom": "3",
+        "clustered": "true",
+        "internal compression": "gzip",
+        "max zoom": "7",
+        "min zoom": "1",
+        "pmtiles spec version": "3",
+        "tile compression": "none",
+        "tile contents count": "19843",
+        "tile entries count": "19847",
+        "tile type": "png"
+      },
+      "golden_sha256": "a32dce77a93a304dbd27b80d72160b29455446931b477b5b1b7a84155ecd2dd5",
+      "golden_size": 246114
+    },
+    "dupes-z0z3.pmtiles": {
+      "cli_pmtiles_show": "pmtiles spec version: 3\ntile type: png\nbounds: (long: -180.000000, lat: -85.051129) (long: 180.000000, lat: 85.051129)\nmin zoom: 0\nmax zoom: 3\ncenter: (long: 0.000000, lat: 0.000000)\ncenter zoom: 2\naddressed tiles count: 85\ntile entries count: 67\ntile contents count: 63\nclustered: true\ninternal compression: gzip\ntile compression: none\nformat png\nmaxzoom 3\nminzoom 0\nname libviprs-oracle-dupes\ntype baselayer\nversion 1\ndescription libviprs EPIC F oracle golden, deliberate duplicate tiles\n",
+      "fields": {
+        "addressed tiles count": "85",
+        "bounds": [
+          -180.0,
+          -85.051129,
+          180.0,
+          85.051129
+        ],
+        "center": [
+          0.0,
+          0.0
+        ],
+        "center zoom": "2",
+        "clustered": "true",
+        "internal compression": "gzip",
+        "max zoom": "3",
+        "min zoom": "0",
+        "pmtiles spec version": "3",
+        "tile compression": "none",
+        "tile contents count": "63",
+        "tile entries count": "67",
+        "tile type": "png"
+      },
+      "golden_sha256": "bfc9db4c6ce6a04194e02b3d4815814adb05209f1aaba8591e4e1332f6e56a27",
+      "golden_size": 5007
+    },
+    "header-mvt-z2z4.pmtiles": {
+      "cli_pmtiles_show": "pmtiles spec version: 3\ntile type: mvt\nbounds: (long: -10.500000, lat: 20.250000) (long: 30.125000, lat: 40.062500)\nmin zoom: 2\nmax zoom: 4\ncenter: (long: 12.500000, lat: 33.750000)\ncenter zoom: 3\naddressed tiles count: 336\ntile entries count: 335\ntile contents count: 334\nclustered: true\ninternal compression: gzip\ntile compression: gzip\nformat pbf\nname libviprs-fable-header\ntype overlay\nvector_layers <object, use --metadata to view full JSON metadata>\nversion 1.2.3\ndescription libviprs EPIC F discrimination fixture: header byte positions all distinct\n",
+      "fields": {
+        "addressed tiles count": "336",
+        "bounds": [
+          -10.5,
+          20.25,
+          30.125,
+          40.0625
+        ],
+        "center": [
+          12.5,
+          33.75
+        ],
+        "center zoom": "3",
+        "clustered": "true",
+        "internal compression": "gzip",
+        "max zoom": "4",
+        "min zoom": "2",
+        "pmtiles spec version": "3",
+        "tile compression": "gzip",
+        "tile contents count": "334",
+        "tile entries count": "335",
+        "tile type": "mvt"
+      },
+      "golden_sha256": "d15ece2e0cd6517817529a96fc6767e8df448a197e59bcabf6c1456c3bc3eba7",
+      "golden_size": 11256
+    },
+    "leaves-z0z7.pmtiles": {
+      "cli_pmtiles_show": "pmtiles spec version: 3\ntile type: png\nbounds: (long: -180.000000, lat: -85.051129) (long: 180.000000, lat: 85.051129)\nmin zoom: 0\nmax zoom: 7\ncenter: (long: 0.000000, lat: 0.000000)\ncenter zoom: 3\naddressed tiles count: 21845\ntile entries count: 21844\ntile contents count: 2\nclustered: true\ninternal compression: gzip\ntile compression: none\nversion 1\ndescription libviprs EPIC F oracle golden, entry count forces leaf directories\nformat png\nmaxzoom 7\nminzoom 0\nname libviprs-oracle-leaves\ntype baselayer\n",
+      "fields": {
+        "addressed tiles count": "21845",
+        "bounds": [
+          -180.0,
+          -85.051129,
+          180.0,
+          85.051129
+        ],
+        "center": [
+          0.0,
+          0.0
+        ],
+        "center zoom": "3",
+        "clustered": "true",
+        "internal compression": "gzip",
+        "max zoom": "7",
+        "min zoom": "0",
+        "pmtiles spec version": "3",
+        "tile compression": "none",
+        "tile contents count": "2",
+        "tile entries count": "21844",
+        "tile type": "png"
+      },
+      "golden_sha256": "fe5c9636be61abc60046d7f13837f8a3efb20ce3c38303644dac0cbec8248b8d",
+      "golden_size": 869
+    },
+    "raster-z0z2.pmtiles": {
+      "cli_pmtiles_show": "pmtiles spec version: 3\ntile type: png\nbounds: (long: -180.000000, lat: -85.051129) (long: 180.000000, lat: 85.051129)\nmin zoom: 0\nmax zoom: 2\ncenter: (long: 0.000000, lat: 0.000000)\ncenter zoom: 1\naddressed tiles count: 21\ntile entries count: 21\ntile contents count: 21\nclustered: true\ninternal compression: gzip\ntile compression: none\ndescription libviprs EPIC F oracle golden, distinct 8x8 PNG per tile\nformat png\nmaxzoom 2\nminzoom 0\nname libviprs-oracle-raster\ntype baselayer\nversion 1\n",
+      "fields": {
+        "addressed tiles count": "21",
+        "bounds": [
+          -180.0,
+          -85.051129,
+          180.0,
+          85.051129
+        ],
+        "center": [
+          0.0,
+          0.0
+        ],
+        "center zoom": "1",
+        "clustered": "true",
+        "internal compression": "gzip",
+        "max zoom": "2",
+        "min zoom": "0",
+        "pmtiles spec version": "3",
+        "tile compression": "none",
+        "tile contents count": "21",
+        "tile entries count": "21",
+        "tile type": "png"
+      },
+      "golden_sha256": "e2ed5e64f3c29efa3ec3b679ec5f1b06569c1b234c6eea762fb9f02fc23e9c12",
+      "golden_size": 1878
+    }
+  },
+  "how_each_number_was_obtained": "Ran the pinned binary against the committed archive and parsed its stdout. Degrees are the reference's own rendering at six decimal places, so a comparison against them is a comparison at 1e-6.",
+  "produced_by": {
+    "cli_version_line": "pmtiles 1.31.2, commit a3e4951ea6a0477b784c27c1dcbfd9c130878c5a, built at 2026-07-22T18:59:03Z",
+    "linux_amd64_tarball_sha256": "3ed7dbf4ec2e6dfe5e25b6f70d1ffc932729f93c86db353bf514dd71010a312f",
+    "linux_arm64_tarball_sha256": "f8bd47e7ea866863489cad588fbaf2f31f42e5821f7a03f009b3769f05801cb1",
+    "release_tag": "v1.31.2",
+    "see": "../PROVENANCE.md",
+    "source_commit": "a3e4951ea6a0477b784c27c1dcbfd9c130878c5a",
+    "tool": "go-pmtiles"
+  },
+  "what_this_is": "What `pmtiles show <archive>` prints for each committed golden, field by field. header.json carries the fields go-pmtiles' DeserializeHeader returns; this carries the ones it renders, which is where bounds, centre, tile type and the two compressions become observable. Those are exactly the fields no test read back, so a big-endian i32 or a lat/lon transposition was invisible."
+}

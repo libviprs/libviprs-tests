@@ -44,15 +44,21 @@ use common::fixtures::canonical_raster_scaled;
 #[path = "common/pmtiles.rs"]
 mod pmtiles_support;
 use pmtiles_support::{
-    GOLDENS, LEAVES_GOLDEN, LEAVES_GOLDEN_SHA256, ORACLE_RELEASE_TAG, golden_path, header_vectors,
-    oracle_header_u64, read_checked, sha256_hex, tile_rows, tiles_vectors, vector_archive_names,
-    vector_golden_sha256,
+    DISTINCT_GOLDEN, DISTINCT_GOLDEN_SHA256, GOLDENS, ORACLE_RELEASE_TAG, TILES_VECTOR_GOLDENS,
+    assert_header_positions_are_in_range, assert_probes_discriminate, golden_path, header_vectors,
+    oracle_header_fields, oracle_header_i64, oracle_header_u64, oracle_shown, oracle_shown_numbers,
+    read_checked, sha256_hex, show_vectors, sweep_vectors, tile_rows, tiles_vectors,
+    vector_archive_names, vector_golden_sha256,
 };
 
-use libviprs::pmtiles::Reader;
+use libviprs::pmtiles::WriterOptions;
+use libviprs::pmtiles::directory::deserialize_entries;
+use libviprs::pmtiles::header::SPEC_VERSION;
+use libviprs::pmtiles::{Compression, Entry, Reader, tileid_to_zxy};
 use libviprs::sink_pmtiles::PmTilesSink;
 use libviprs::{
-    EngineBuilder, EngineConfig, EngineKind, Layout, PyramidPlan, PyramidPlanner, TileFormat,
+    EngineBuilder, EngineConfig, EngineKind, FsSink, Layout, PyramidPlan, PyramidPlanner,
+    TileFormat,
 };
 
 // ---------------------------------------------------------------------------
@@ -65,28 +71,55 @@ use libviprs::{
 /// and one the oracle's dump program wrote into the vector file beside them. A
 /// fixture edited to make a red test pass has to defeat both, and the second is
 /// not somewhere anybody editing a test would think to look.
+///
+/// Two vector files, because `tiles.json` carries hand-picked rows and the two
+/// goldens added later are covered by `sweep.json`, which holds every cell of
+/// every zoom instead. Both lists are checked against the committed set so an
+/// archive cannot land in the fixtures directory and be described by neither.
 #[test]
 fn the_committed_goldens_are_the_ones_the_vectors_describe() {
     let tiles = tiles_vectors();
     let names = vector_archive_names(&tiles);
     assert_eq!(
         names.len(),
-        GOLDENS.len(),
-        "the vector file covers {:?} but {} archives are committed, so one of \
+        TILES_VECTOR_GOLDENS.len(),
+        "tiles.json covers {:?} but {} archives expect rows in it, so one of \
          them is being tested by nothing",
         names,
-        GOLDENS.len()
+        TILES_VECTOR_GOLDENS.len()
     );
-    for (name, digest) in GOLDENS {
+    for (name, digest) in TILES_VECTOR_GOLDENS {
         assert!(
             names.iter().any(|n| n == name),
-            "{name} is committed but the vector file has no rows for it"
+            "{name} expects rows in tiles.json and has none"
         );
         let bytes = read_checked(name, digest);
         assert_eq!(
             sha256_hex(&bytes),
             vector_golden_sha256(&tiles, name),
-            "{name} on disk is not the archive the vector file was dumped from"
+            "{name} on disk is not the archive tiles.json was dumped from"
+        );
+    }
+
+    // Every committed golden, including the two that have no hand-picked rows,
+    // has to be described somewhere.
+    let swept = vector_archive_names(&sweep_vectors());
+    let shown = vector_archive_names(&show_vectors());
+    for (name, digest) in GOLDENS {
+        assert!(
+            swept.iter().any(|n| n == name),
+            "{name} is committed and sweep.json has no cells for it, so nothing \
+             sweeps it"
+        );
+        assert!(
+            shown.iter().any(|n| n == name),
+            "{name} is committed and show.json has no fields for it"
+        );
+        let bytes = read_checked(name, digest);
+        assert_eq!(
+            sha256_hex(&bytes),
+            vector_golden_sha256(&sweep_vectors(), name),
+            "{name} on disk is not the archive sweep.json was dumped from"
         );
     }
 }
@@ -97,7 +130,7 @@ fn libviprs_reads_every_go_pmtiles_golden() {
     let tiles = tiles_vectors();
     let mut checked = 0usize;
 
-    for (name, digest) in GOLDENS {
+    for (name, digest) in TILES_VECTOR_GOLDENS {
         let path = golden_path(name, digest);
         let reader = Reader::try_open(&path).unwrap_or_else(|e| panic!("open {name}: {e}"));
 
@@ -172,7 +205,7 @@ fn a_tile_the_archive_does_not_hold_is_absent_rather_than_an_error() {
     let tiles = tiles_vectors();
     let mut checked = 0usize;
 
-    for (name, digest) in GOLDENS {
+    for (name, digest) in TILES_VECTOR_GOLDENS {
         let reader = Reader::try_open(golden_path(name, digest))
             .unwrap_or_else(|e| panic!("open {name}: {e}"));
         for row in tile_rows(&tiles, name, "absent") {
@@ -213,7 +246,7 @@ fn an_out_of_range_coordinate_is_refused_rather_than_masked() {
     let tiles = tiles_vectors();
     let mut checked = 0usize;
 
-    for (name, digest) in GOLDENS {
+    for (name, digest) in TILES_VECTOR_GOLDENS {
         let reader = Reader::try_open(golden_path(name, digest))
             .unwrap_or_else(|e| panic!("open {name}: {e}"));
         for row in tile_rows(&tiles, name, "out_of_range") {
@@ -245,29 +278,47 @@ fn an_out_of_range_coordinate_is_refused_rather_than_masked() {
 }
 
 /// A tile entry found inside a leaf is relative to `tile_data_offset`, not to
-/// the leaf it was found in.
+/// the leaf it was found in, and not to anything else that happens to work on
+/// one fixture.
 ///
 /// The spec keys an entry's base off the **entry kind**, not off the directory
 /// it was read from, and none of the three fixtures in the upstream spec
 /// repository has leaf directories at all, so nothing upstream exercises this.
 /// A writer and a reader that make the same wrong choice agree with each other.
 ///
-/// What makes this cell worth having is the second assertion. Under the wrong
-/// base the offsets still land inside the file, on the leaf directory region,
-/// so `get_tile` returns `Some` either way and a test that checks for `Some`
-/// passes on a reader that is handing back directory bytes dressed as a tile.
-/// So this compares the payload, and then shows what the wrong base would have
-/// returned instead, which is the proof that the comparison can fail.
+/// # The base that used to hide
+///
+/// This ran on `leaves-z0z7` and demonstrated one wrong base,
+/// `leaf_directory_offset + entry_offset`. There are others, and the
+/// interesting one is the leaf's own first entry offset, which a writer
+/// rebasing each leaf onto itself produces. Every leaf in `leaves-z0z7` starts
+/// at entry offset 0, so that base is the identity there and the fixture cannot
+/// see it: measured, a reader rebased that way passes the entire PMTiles suite.
+///
+/// So this runs on `distinct-z0z7`, whose five leaves hold tile entries whose
+/// first offsets are 0, 49164, 98324, 147497 and 196597, and it checks every
+/// candidate base rather than one. The first leaf still starts at 0, so that
+/// one leaf cannot tell a self-rebase from the right base and the loop below
+/// skips the comparison rather than counting it as evidence. The leaf golden
+/// stays committed and stays swept, it just stops carrying a claim it cannot
+/// support.
+///
+/// Under a wrong base the offsets still land inside the file, on the leaf
+/// directory region, so `get_tile` returns `Some` either way and a test that
+/// checks for `Some` passes on a reader handing back directory bytes dressed as
+/// a tile. So this compares the payload, and then shows what each wrong base
+/// would have returned instead, which is the proof that the comparison can fail.
 #[test]
-fn leaf_entries_resolve_against_tile_data_not_the_leaf_start() {
+fn leaf_entries_resolve_against_tile_data_not_against_any_other_base() {
     let headers = header_vectors();
-    let leaf_offset = oracle_header_u64(&headers, LEAVES_GOLDEN, "leaf_directory_offset");
-    let leaf_length = oracle_header_u64(&headers, LEAVES_GOLDEN, "leaf_directory_length");
-    let data_offset = oracle_header_u64(&headers, LEAVES_GOLDEN, "tile_data_offset");
+    let leaf_offset = oracle_header_u64(&headers, DISTINCT_GOLDEN, "leaf_directory_offset");
+    let leaf_length = oracle_header_u64(&headers, DISTINCT_GOLDEN, "leaf_directory_length");
+    let data_offset = oracle_header_u64(&headers, DISTINCT_GOLDEN, "tile_data_offset");
+    let root_offset = oracle_header_u64(&headers, DISTINCT_GOLDEN, "root_offset");
 
     assert!(
         leaf_length > 0,
-        "{LEAVES_GOLDEN} has no leaf directories, so this cell is about a code \
+        "{DISTINCT_GOLDEN} has no leaf directories, so this cell is about a code \
          path the fixture never reaches"
     );
     assert_ne!(
@@ -276,61 +327,149 @@ fn leaf_entries_resolve_against_tile_data_not_the_leaf_start() {
          cannot tell them apart"
     );
 
-    let archive = read_checked(LEAVES_GOLDEN, LEAVES_GOLDEN_SHA256);
-    let reader = Reader::try_open(golden_path(LEAVES_GOLDEN, LEAVES_GOLDEN_SHA256))
-        .expect("open the leaf golden");
-
-    // Our own reader has to agree with the reference about where the sections
-    // are before anything below means anything.
-    assert_eq!(reader.header().leaf_directories_offset, leaf_offset);
-    assert_eq!(reader.header().leaf_directories_length, leaf_length);
-    assert_eq!(reader.header().tile_data_offset, data_offset);
-
-    let tiles = tiles_vectors();
-    let mut discriminating = 0usize;
-
-    for row in tile_rows(&tiles, LEAVES_GOLDEN, "hits") {
-        let got = reader
-            .get_tile(row.z, row.x, row.y)
-            .unwrap_or_else(|e| panic!("({}, {}, {}): {e}", row.z, row.x, row.y))
-            .unwrap_or_else(|| panic!("({}, {}, {}) is absent", row.z, row.x, row.y));
+    let archive = read_checked(DISTINCT_GOLDEN, DISTINCT_GOLDEN_SHA256);
+    let reader = Reader::try_open(golden_path(DISTINCT_GOLDEN, DISTINCT_GOLDEN_SHA256))
+        .expect("open the distinct golden");
+    // Our reader has to agree with the reference about where the sections are
+    // before anything below means anything.
+    for (field, ours, theirs) in [
+        (
+            "leaf_directories_offset",
+            reader.header().leaf_directories_offset,
+            leaf_offset,
+        ),
+        (
+            "leaf_directories_length",
+            reader.header().leaf_directories_length,
+            leaf_length,
+        ),
+        (
+            "tile_data_offset",
+            reader.header().tile_data_offset,
+            data_offset,
+        ),
+    ] {
         assert_eq!(
-            sha256_hex(&got),
-            row.sha256,
-            "({}, {}, {}) came back with the wrong bytes",
-            row.z,
-            row.x,
-            row.y
+            ours, theirs,
+            "{DISTINCT_GOLDEN}: we decode {field} as {ours}, go-pmtiles decoded \
+             it as {theirs}, so nothing below is about the entry base"
         );
+    }
 
-        let Some(entry_offset) = row.directory_entry_offset else {
-            continue;
-        };
-        let wrong = (leaf_offset + entry_offset) as usize;
-        let end = wrong + row.length;
-        if end > archive.len() {
-            continue;
-        }
-        // The wrong base lands inside the file, so a reader using it returns
-        // bytes rather than an error. Show that they are different bytes.
-        assert_ne!(
-            sha256_hex(&archive[wrong..end]),
-            row.sha256,
-            "({}, {}, {}) reads the same under both bases, so this fixture \
-             cannot discriminate between them and the assertion above is \
-             satisfied by a reader with the wrong one",
-            row.z,
-            row.x,
-            row.y
+    // Walk the root for leaf pointers, which carry a run length of zero and
+    // nothing else that marks them, then read the entries behind each one.
+    let root = decompress_section(&archive, root_offset, reader.header().root_length);
+    let root_entries = deserialize_entries(&root).expect("deserialise the root directory");
+    let pointers: Vec<Entry> = root_entries
+        .iter()
+        .filter(|e| e.run_length == 0)
+        .copied()
+        .collect();
+    assert!(
+        pointers.len() >= 2,
+        "{DISTINCT_GOLDEN} has {} leaf pointers, so there is no second leaf for \
+         a per-leaf base to be wrong about",
+        pointers.len()
+    );
+    let starts: Vec<u64> = pointers.iter().map(|p| p.offset).collect();
+    assert!(
+        starts.iter().any(|s| *s != 0),
+        "every leaf in {DISTINCT_GOLDEN} starts at offset 0, which makes a \
+         per-leaf rebase the identity and this whole cell decorative. The \
+         leaves start at {starts:?}"
+    );
+
+    let mut checked = 0usize;
+    let mut discriminating = 0usize;
+    for pointer in &pointers {
+        let leaf = decompress_section(
+            &archive,
+            leaf_offset + pointer.offset,
+            u64::from(pointer.length),
         );
-        discriminating += 1;
+        let entries = deserialize_entries(&leaf).expect("deserialise a leaf directory");
+        let first_offset = entries.first().map(|e| e.offset).unwrap_or(0);
+
+        for entry in entries.iter().filter(|e| e.run_length > 0).take(16) {
+            let (z, x, y) = tileid_to_zxy(entry.tile_id).expect("a committed id is in range");
+            let got = reader
+                .get_tile(z, x, y)
+                .unwrap_or_else(|e| panic!("({z}, {x}, {y}): {e}"))
+                .unwrap_or_else(|| panic!("({z}, {x}, {y}) is absent"));
+            let right = slice_at(&archive, data_offset + entry.offset, entry.length);
+            assert_eq!(
+                sha256_hex(&got),
+                sha256_hex(right),
+                "({z}, {x}, {y}) did not come back from tile_data_offset + \
+                 entry.offset"
+            );
+            checked += 1;
+
+            // Every base a writer or a reader could plausibly use instead. Each
+            // has to land on different bytes, or the fixture is not evidence
+            // about which one we use.
+            for (label, base) in [
+                ("leaf_directory_offset", leaf_offset),
+                ("the leaf's own start", leaf_offset + pointer.offset),
+                ("the leaf's first entry offset", data_offset + first_offset),
+                ("root_offset", root_offset),
+            ] {
+                if base == data_offset {
+                    // The leaf's first entry is at offset 0 in some leaves, and
+                    // then that candidate *is* the right base rather than a
+                    // wrong one. Not evidence either way, so not counted.
+                    continue;
+                }
+                let Some(wrong) = try_slice_at(&archive, base + entry.offset, entry.length) else {
+                    continue;
+                };
+                assert_ne!(
+                    sha256_hex(wrong),
+                    sha256_hex(right),
+                    "({z}, {x}, {y}) reads the same whether the base is \
+                     tile_data_offset or {label}, so this fixture cannot tell \
+                     those two apart and the assertion above is satisfied by a \
+                     reader with the wrong one"
+                );
+                discriminating += 1;
+            }
+        }
     }
 
     assert!(
-        discriminating > 0,
-        "no row in {LEAVES_GOLDEN} could tell the two bases apart, so nothing \
-         here is about the leaf offset base"
+        checked >= 32,
+        "only {checked} entries behind a leaf pointer were resolved"
     );
+    assert!(
+        discriminating >= checked * 2,
+        "only {discriminating} base comparisons over {checked} entries could \
+         tell two bases apart"
+    );
+}
+
+/// A gzip section of the archive, decompressed. Both directories in these
+/// goldens are gzip, which `header.json` records and the header test pins.
+fn decompress_section(archive: &[u8], offset: u64, length: u64) -> Vec<u8> {
+    let at = usize::try_from(offset).expect("a committed offset fits in a usize");
+    let len = usize::try_from(length).expect("a committed length fits in a usize");
+    Compression::Gzip
+        .decompress(&archive[at..at + len], 1 << 26)
+        .expect("a committed directory section decompresses")
+}
+
+fn slice_at(archive: &[u8], offset: u64, length: u32) -> &[u8] {
+    try_slice_at(archive, offset, length).expect("a committed entry is inside the archive")
+}
+
+/// The same, returning `None` when the range falls outside the file, which is
+/// what a wrong base does near the ends.
+fn try_slice_at(archive: &[u8], offset: u64, length: u32) -> Option<&[u8]> {
+    let at = usize::try_from(offset).ok()?;
+    let end = at.checked_add(length as usize)?;
+    if end > archive.len() {
+        return None;
+    }
+    Some(&archive[at..end])
 }
 
 /// The duplicate golden has to work through both duplicate shapes.
@@ -343,7 +482,7 @@ fn leaf_entries_resolve_against_tile_data_not_the_leaf_start() {
 fn the_duplicate_golden_serves_runs_as_well_as_direct_entries() {
     let tiles = tiles_vectors();
     let name = "dupes-z0z3.pmtiles";
-    let digest = GOLDENS
+    let digest = TILES_VECTOR_GOLDENS
         .iter()
         .find(|(n, _)| *n == name)
         .map(|(_, d)| *d)
@@ -391,6 +530,18 @@ fn the_duplicate_golden_serves_runs_as_well_as_direct_entries() {
 /// it produced is recorded. This is where an endianness mistake or an offset
 /// off by a field width shows up as itself rather than as a confusing failure
 /// three layers up.
+///
+/// # Every field, because naming them is how this stopped covering twelve
+///
+/// It used to compare thirteen of the twenty-five fields the reference decodes,
+/// all of them offsets, lengths, counts and zooms. The twelve it left out were
+/// the six `i32` positions, the two compressions, the tile type, the clustered
+/// flag and the spec version, and they are exactly the ones a position bug
+/// lives in: switching our `i32` reads to big-endian leaves the entire PMTiles
+/// suite green, because nothing here ever read a bound or a centre back. So the
+/// list below is checked against the reference's own field names and the test
+/// fails if it is not covering all of them, rather than growing silently
+/// staler.
 #[test]
 fn our_header_decoding_matches_the_reference_field_for_field() {
     let headers = header_vectors();
@@ -401,7 +552,11 @@ fn our_header_decoding_matches_the_reference_field_for_field() {
             .unwrap_or_else(|e| panic!("open {name}: {e}"));
         let header = reader.header();
         let want = |field: &str| oracle_header_u64(&headers, name, field);
+        let want_signed = |field: &str| oracle_header_i64(&headers, name, field);
+        let (min_lon, min_lat, max_lon, max_lat) = header.bounds_degrees();
+        let (center_lon, center_lat) = header.center_degrees();
 
+        let mut covered: Vec<&str> = Vec::new();
         for (field, ours) in [
             ("root_offset", header.root_offset),
             ("root_length", header.root_length),
@@ -416,6 +571,17 @@ fn our_header_decoding_matches_the_reference_field_for_field() {
             ("tile_contents_count", header.tile_contents_count),
             ("min_zoom", u64::from(header.min_zoom)),
             ("max_zoom", u64::from(header.max_zoom)),
+            ("center_zoom", u64::from(header.center_zoom)),
+            ("clustered", u64::from(header.clustered)),
+            (
+                "internal_compression",
+                u64::from(header.internal_compression.to_byte()),
+            ),
+            (
+                "tile_compression",
+                u64::from(header.tile_compression.to_byte()),
+            ),
+            ("tile_type", u64::from(header.tile_type.to_byte())),
         ] {
             assert_eq!(
                 ours,
@@ -423,14 +589,189 @@ fn our_header_decoding_matches_the_reference_field_for_field() {
                 "{name}: we decode {field} as {ours}, go-pmtiles decoded it as {}",
                 want(field)
             );
+            covered.push(field);
             compared += 1;
         }
+
+        // The six positions are stored as `i32` hundred-nanodegrees. Comparing
+        // the accessors' degrees back at that scale is exact, and it is the
+        // accessor rather than the raw field that a caller ever sees.
+        for (field, ours) in [
+            ("min_lon_e7", min_lon),
+            ("min_lat_e7", min_lat),
+            ("max_lon_e7", max_lon),
+            ("max_lat_e7", max_lat),
+            ("center_lon_e7", center_lon),
+            ("center_lat_e7", center_lat),
+        ] {
+            let ours_e7 = (ours * 1e7).round() as i64;
+            assert_eq!(
+                ours_e7,
+                want_signed(field),
+                "{name}: our accessor reports {field} as {ours} degrees, which \
+                 is {ours_e7} at e7, and go-pmtiles decoded {}",
+                want_signed(field)
+            );
+            covered.push(field);
+            compared += 1;
+        }
+
+        // `spec_version` is not in the list above and is not an omission.
+        // `Header` carries no decoded spec-version field: the byte is checked
+        // against SPEC_VERSION while decoding (`header.rs`, `try_decode`) and a
+        // wrong one is a refusal rather than a value. Comparing our constant 3
+        // against the reference's 3 would be a comparison no change to our
+        // decoder could fail, and counting it would be what let this guard
+        // report all 25 fields covered.
+        let decoded_elsewhere = ["spec_version"];
+        let reported = oracle_header_fields(&headers, name);
+        let missing: Vec<&String> = reported
+            .iter()
+            .filter(|f| !covered.contains(&f.as_str()) && !decoded_elsewhere.contains(&f.as_str()))
+            .collect();
+        assert_eq!(
+            covered.len() + decoded_elsewhere.len(),
+            reported.len(),
+            "{name}: {} fields compared plus {} accounted for elsewhere does \
+             not add up to the {} go-pmtiles decoded",
+            covered.len(),
+            decoded_elsewhere.len(),
+            reported.len()
+        );
+
+        // The spec version is still pinned, through the refusal rather than
+        // through a comparison: an archive whose byte 7 is not 3 does not open.
+        assert_eq!(
+            SPEC_VERSION, 3,
+            "the crate's spec version constant moved, and every committed \
+             golden is a v3 archive"
+        );
+        assert!(
+            missing.is_empty(),
+            "{name}: go-pmtiles decoded {} header fields and this compares {}. \
+             Not compared: {missing:?}. Every one of those is a field a decoding \
+             mistake can live in unobserved, which is how a big-endian i32 left \
+             the whole suite green.",
+            reported.len(),
+            covered.len(),
+        );
     }
 
-    assert!(
-        compared >= 39,
-        "only {compared} header fields were compared across three archives, so \
-         the sweep is dropping rows"
+    assert_eq!(
+        compared,
+        GOLDENS.len() * 24,
+        "{compared} header fields were compared and the five goldens carry 24 \
+         comparable fields each, so the sweep is dropping rows"
+    );
+}
+
+/// The accessors the format defines on top of the raw fields have to agree
+/// with the reference's own rendering of them.
+///
+/// `header.json` carries what `DeserializeHeader` returned. This reads what
+/// `pmtiles show` prints, which is the reference putting those numbers through
+/// its own accessors, so the two files disagree if we match the fields and
+/// still compute bounds, the centre or the leaf flag from them differently.
+///
+/// `header-mvt-z2z4` is the fixture that makes this able to fail. In the other
+/// goldens the bounds are the symmetric whole world, the centre is `0,0`, and
+/// the tile type and the two compressions sit at neighbouring byte values, so half
+/// a dozen distinct mistakes are all the identity. Three of the four start at
+/// zoom 0 as well; `distinct-z0z7` starts at 1.
+#[test]
+fn our_header_accessors_match_what_the_reference_prints() {
+    let shown = show_vectors();
+    let mut compared = 0usize;
+
+    for (name, digest) in GOLDENS {
+        let reader = Reader::try_open(golden_path(name, digest))
+            .unwrap_or_else(|e| panic!("open {name}: {e}"));
+        let header = reader.header();
+        let want = |field: &str| oracle_shown(&shown, name, field);
+
+        let (min_lon, min_lat, max_lon, max_lat) = header.bounds_degrees();
+        let bounds = oracle_shown_numbers(&shown, name, "bounds");
+        assert_eq!(bounds.len(), 4, "{name}: the reference printed {bounds:?}");
+        for (label, ours, theirs) in [
+            ("west", min_lon, bounds[0]),
+            ("south", min_lat, bounds[1]),
+            ("east", max_lon, bounds[2]),
+            ("north", max_lat, bounds[3]),
+        ] {
+            assert!(
+                (ours - theirs).abs() < 1e-6,
+                "{name}: our {label} bound is {ours}, `pmtiles show` printed \
+                 {theirs}"
+            );
+            compared += 1;
+        }
+
+        let (center_lon, center_lat) = header.center_degrees();
+        let centre = oracle_shown_numbers(&shown, name, "center");
+        assert_eq!(centre.len(), 2, "{name}: the reference printed {centre:?}");
+        assert!(
+            (center_lon - centre[0]).abs() < 1e-6 && (center_lat - centre[1]).abs() < 1e-6,
+            "{name}: our centre is ({center_lon}, {center_lat}), `pmtiles show` \
+             printed ({}, {})",
+            centre[0],
+            centre[1]
+        );
+        compared += 2;
+
+        for (label, ours, theirs) in [
+            (
+                "tile type",
+                format!("{:?}", header.tile_type).to_lowercase(),
+                want("tile type"),
+            ),
+            (
+                "internal compression",
+                format!("{:?}", header.internal_compression).to_lowercase(),
+                want("internal compression"),
+            ),
+            (
+                "tile compression",
+                format!("{:?}", header.tile_compression).to_lowercase(),
+                want("tile compression"),
+            ),
+            ("clustered", header.clustered.to_string(), want("clustered")),
+            ("min zoom", header.min_zoom.to_string(), want("min zoom")),
+            ("max zoom", header.max_zoom.to_string(), want("max zoom")),
+            (
+                "center zoom",
+                header.center_zoom.to_string(),
+                want("center zoom"),
+            ),
+        ] {
+            assert_eq!(
+                ours, theirs,
+                "{name}: we report {label} as {ours:?}, `pmtiles show` printed \
+                 {theirs:?}"
+            );
+            compared += 1;
+        }
+
+        assert_header_positions_are_in_range(header, name);
+        compared += 1;
+
+        // `has_leaves` is ours alone, so the reference's leaf length is the
+        // control for it.
+        let leaf_length = oracle_header_u64(&header_vectors(), name, "leaf_directory_length");
+        assert_eq!(
+            header.has_leaves(),
+            leaf_length > 0,
+            "{name}: has_leaves() says {} and the reference reports a \
+             {leaf_length}-byte leaf section",
+            header.has_leaves()
+        );
+        compared += 1;
+    }
+
+    assert_eq!(
+        compared,
+        GOLDENS.len() * 15,
+        "{compared} accessor readings were compared and the five goldens carry \
+         15 each, so the sweep is dropping rows"
     );
 }
 
@@ -513,16 +854,40 @@ fn go_pmtiles_bin() -> Option<PathBuf> {
     Some(candidate)
 }
 
-/// Write a small pyramid into an archive and hand back its path.
-fn libviprs_archive(dir: &Path) -> (PathBuf, PyramidPlan) {
-    let plan = PyramidPlanner::new(512, 512, 128, 0, Layout::Xyz)
+/// Generate one pyramid twice: into a directory tree and into an archive.
+///
+/// Both come back, because the directory tree is what the external comparison
+/// checks the archive against. The tree is addressed by literal path, so
+/// nothing about it goes through the tile-id function, which is the whole
+/// reason it is the right side of that comparison.
+fn libviprs_pyramid(
+    dir: &Path,
+    width: u32,
+    height: u32,
+    tile: u32,
+) -> (PathBuf, PathBuf, PyramidPlan) {
+    let plan = PyramidPlanner::new(width, height, tile, 0, Layout::Xyz)
         .expect("a valid ZXY plan")
         .plan();
-    let src = canonical_raster_scaled(512, 512);
-    let path = dir.join("libviprs.pmtiles");
-    let sink = PmTilesSink::builder(&path)
+    let src = canonical_raster_scaled(width, height);
+
+    let tree = dir.join("tiles");
+    let fs_sink = FsSink::new(&tree, plan.clone()).with_format(TileFormat::Png);
+    EngineBuilder::new(&src, plan.clone(), &fs_sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_config(EngineConfig::default())
+        .run()
+        .expect("generate into FsSink");
+
+    let archive = dir.join("libviprs.pmtiles");
+    let sink = PmTilesSink::builder(&archive)
         .plan(plan.clone())
         .tile_format(TileFormat::Png)
+        .writer_options(
+            WriterOptions::default()
+                .with_bounds_degrees(WRITTEN_BOUNDS)
+                .with_center_degrees(WRITTEN_CENTRE.0, WRITTEN_CENTRE.1),
+        )
         .build()
         .expect("build a PmTilesSink");
     EngineBuilder::new(&src, plan.clone(), &sink)
@@ -535,32 +900,128 @@ fn libviprs_archive(dir: &Path) -> (PathBuf, PyramidPlan) {
         "the sink never published a header, so there is no archive to hand to \
          go-pmtiles"
     );
-    (path, plan)
+
+    (archive, tree, plan)
 }
 
-/// The reference has to accept what we write, and read the same bytes out of it.
+/// The bounds every archive written here carries.
 ///
-/// `pmtiles verify` walks the directories and checks the invariants it knows
-/// about. It is not a complete check (it never compares `offset + length`
-/// against the archive size, which is how it walks past a root offset of 999999
-/// in an 1878-byte file), so exit 0 is necessary and not sufficient. The tile
-/// comparison after it is the part that says the bytes are in the right place.
-#[test]
-fn go_pmtiles_accepts_and_reads_an_archive_libviprs_wrote() {
-    let Some(bin) = go_pmtiles_bin() else {
-        eprintln!(
-            "skipping: no pinned go-pmtiles reachable. Set GO_PMTILES_BIN, or \
-             VIPRS_REQUIRE_GO_PMTILES=1 to make this a failure."
+/// Deliberately not the symmetric whole world, and deliberately not its own
+/// mirror image under any of the mistakes worth catching: west and south
+/// differ, east and north differ, and no pair is the negation of another. A
+/// fixture whose values sit on the identity element of the operation under test
+/// is the whole reason this PR exists, and it would be a poor joke to repeat it
+/// here.
+const WRITTEN_BOUNDS: [f64; 4] = [-12.25, 4.5, 33.75, 51.125];
+/// The centre those bounds carry, inside them and on neither axis of symmetry.
+const WRITTEN_CENTRE: (f64, f64) = (7.5, 22.25);
+
+/// What `pmtiles show --header-json` reports for an archive, parsed.
+fn oracle_header_json(bin: &Path, archive: &Path) -> serde_json::Value {
+    let out = Command::new(bin)
+        .args(["show", "--header-json"])
+        .arg(archive)
+        .output()
+        .expect("run pmtiles show --header-json");
+    assert!(
+        out.status.success(),
+        "`pmtiles show --header-json` exited {}: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!(
+            "`pmtiles show --header-json` did not print JSON: {e}\n{}",
+            String::from_utf8_lossy(&out.stdout)
+        )
+    })
+}
+
+/// The reference has to read back the header we wrote, not the one we meant.
+///
+/// # The hole this closes
+///
+/// Every other header assertion in this file reads a **committed golden**, so
+/// all of them pin our decoder and none of them pins our encoder. Measured: the
+/// writer can exchange latitude and longitude in the header of every archive
+/// libviprs produces and the entire suite passes, `pmtiles verify` at exit 0
+/// included, because our reader and the reference read the same bytes the same
+/// way and agree about the swapped values. Every consumer of the archive would
+/// render the wrong extent.
+///
+/// So this configures bounds the sink could not have guessed and asks the
+/// reference what it sees. `assert_header_positions_are_in_range` catches the
+/// swap on its own; this catches the rest of the class, a field written to the
+/// wrong offset or at the wrong scale.
+fn assert_the_oracle_reads_back_the_header_we_wrote(bin: &Path, archive: &Path) {
+    let shown = oracle_header_json(bin, archive);
+    let bounds = shown
+        .get("bounds")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("`show --header-json` printed no bounds: {shown}"));
+    assert_eq!(bounds.len(), 4, "bounds came back as {bounds:?}");
+
+    for (index, label) in ["west", "south", "east", "north"].iter().enumerate() {
+        let theirs = bounds[index]
+            .as_f64()
+            .unwrap_or_else(|| panic!("{label} came back as {:?}", bounds[index]));
+        let ours = WRITTEN_BOUNDS[index];
+        assert!(
+            (ours - theirs).abs() < 1e-6,
+            "we asked the writer for a {label} bound of {ours} and go-pmtiles \
+             read {theirs} out of the archive it produced"
         );
-        return;
-    };
+    }
 
-    let dir = tempfile::tempdir().unwrap();
-    let (archive, plan) = libviprs_archive(dir.path());
+    let centre = shown
+        .get("center")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("`show --header-json` printed no center: {shown}"));
+    assert!(
+        centre.len() >= 2,
+        "the centre came back as {centre:?}, which has no longitude and latitude"
+    );
+    let (lon, lat) = (
+        centre[0].as_f64().expect("a centre longitude"),
+        centre[1].as_f64().expect("a centre latitude"),
+    );
+    assert!(
+        (lon - WRITTEN_CENTRE.0).abs() < 1e-6 && (lat - WRITTEN_CENTRE.1).abs() < 1e-6,
+        "we asked the writer for a centre of {WRITTEN_CENTRE:?} and go-pmtiles \
+         read ({lon}, {lat})"
+    );
+}
 
-    let verify = Command::new(&bin)
+/// `pmtiles tile <archive> z x y`, as bytes. Empty means the reference could
+/// not find it, which is how it reports absence.
+fn oracle_tile(bin: &Path, archive: &Path, z: u8, x: u32, y: u32) -> Vec<u8> {
+    let out = Command::new(bin)
+        .args(["tile", "--quiet"])
+        .arg(archive)
+        .arg(z.to_string())
+        .arg(x.to_string())
+        .arg(y.to_string())
+        .output()
+        .expect("run pmtiles tile");
+    assert!(
+        out.status.success(),
+        "`pmtiles tile {z} {x} {y}` exited {}: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+    out.stdout
+}
+
+/// `pmtiles verify` has to accept what we write.
+///
+/// Necessary and nowhere near sufficient. It never compares `offset + length`
+/// against the archive size, which is how it walks past a root offset of 999999
+/// in an 1878-byte file, so exit 0 on its own says very little. The tile
+/// comparisons are what say the bytes are in the right place.
+fn assert_oracle_verifies(bin: &Path, archive: &Path) {
+    let verify = Command::new(bin)
         .arg("verify")
-        .arg(&archive)
+        .arg(archive)
         .output()
         .expect("run pmtiles verify");
     assert!(
@@ -571,43 +1032,235 @@ fn go_pmtiles_accepts_and_reads_an_archive_libviprs_wrote() {
         String::from_utf8_lossy(&verify.stdout),
         String::from_utf8_lossy(&verify.stderr),
     );
+}
 
-    let reader = Reader::try_open(&archive).expect("open our own archive");
+/// The reference has to find every tile where the directory backend put it.
+///
+/// # Why this compares against the directory tree and not our own reader
+///
+/// It used to compare `pmtiles tile z x y` against `reader.get_tile(z, x, y)`,
+/// and that comparison cannot fail for the reason it exists. Our reader and our
+/// writer share one tile-id function, so a misreading of the spec moves both
+/// sides by the same permutation and cancels out. The directory backend
+/// addresses tiles by literal path, `z/x/y.png`, with no id arithmetic
+/// anywhere, so it is the only thing in this repo that can hold the archive to
+/// the coordinate the planner actually named.
+///
+/// # Why every cell, and not a handful
+///
+/// The handful it used to probe were `(0,0)`, `(1,0)`, `(0,1)` and the far
+/// corner of a 4x4 level, and every one of those is a fixed point of every
+/// plausible tile-id mistake. Ten of the sixteen cells on that level would have
+/// caught a dropped rotation and none of the four was one of them, so three
+/// separate mutations of the writer left this test green with `pmtiles verify`
+/// reporting exit 0 over a transposed archive. The plan is small enough to
+/// sweep whole, so it gets swept whole, and
+/// [`assert_probes_discriminate`](pmtiles_support::assert_probes_discriminate)
+/// refuses the sweep if the cells in it could not tell the difference.
+///
+/// The source is deliberately not square. On a square level a transposition is
+/// a bijection onto itself and half the coordinates land on a tile that happens
+/// to be there.
+#[test]
+fn go_pmtiles_finds_every_tile_where_the_directory_backend_put_it() {
+    let Some(bin) = go_pmtiles_bin() else {
+        eprintln!(
+            "skipping: no pinned go-pmtiles reachable. Set GO_PMTILES_BIN, or \
+             VIPRS_REQUIRE_GO_PMTILES=1 to make this a failure."
+        );
+        return;
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let (archive, tree, plan) = libviprs_pyramid(dir.path(), 512, 384, 128);
+    assert_oracle_verifies(&bin, &archive);
+
+    // The header of an archive we wrote, rather than one we were given. Every
+    // other header assertion in this file reads a committed golden, so a
+    // mistake the writer makes is invisible to all of them: measured, the
+    // writer can exchange latitude and longitude in every archive it produces
+    // and the whole suite passes, `pmtiles verify` included, because our reader
+    // and the reference read the same bytes the same way and agree.
+    let written = Reader::try_open(&archive).expect("open the archive we just wrote");
+    assert_header_positions_are_in_range(written.header(), "the archive libviprs wrote");
+    assert_the_oracle_reads_back_the_header_we_wrote(&bin, &archive);
+
     let top = plan.levels.last().expect("a plan has levels");
     let z = u8::try_from(top.level).expect("a test plan stays inside u8 zooms");
+    let probes: Vec<(u32, u32)> = plan
+        .tile_coords()
+        .filter(|c| c.level == top.level)
+        .map(|c| (c.col, c.row))
+        .collect();
+    // The grid the permutation is computed over is the whole zoom level, which
+    // is wider than the plan where the source is not a full world.
+    assert_probes_discriminate(z, 1u32 << z, &probes, "the external go-pmtiles comparison");
 
     let mut compared = 0usize;
-    for (x, y) in [(0, 0), (1, 0), (0, 1), (top.cols - 1, top.rows - 1)] {
-        let out = Command::new(&bin)
-            .args(["tile", "--quiet"])
-            .arg(&archive)
-            .arg(z.to_string())
-            .arg(x.to_string())
-            .arg(y.to_string())
-            .output()
-            .expect("run pmtiles tile");
+    for coord in plan.tile_coords() {
+        let rel = plan
+            .tile_path(coord, "png")
+            .expect("the plan has a path for its own coordinate");
+        let on_disk = std::fs::read(tree.join(&rel))
+            .unwrap_or_else(|e| panic!("the directory backend has no {rel}: {e}"));
+        let z = u8::try_from(coord.level).expect("a test plan stays inside u8 zooms");
+        let from_oracle = oracle_tile(&bin, &archive, z, coord.col, coord.row);
         assert!(
-            out.status.success(),
-            "`pmtiles tile {z} {x} {y}` exited {}: {}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr)
+            !from_oracle.is_empty(),
+            "`pmtiles tile {z} {} {}` wrote nothing, which is how go-pmtiles \
+             reports a tile it cannot find. The directory backend put {rel} \
+             there.",
+            coord.col,
+            coord.row
         );
-        assert!(
-            !out.stdout.is_empty(),
-            "`pmtiles tile {z} {x} {y}` wrote nothing, which is how go-pmtiles \
-             reports a tile it cannot find. libviprs wrote one there."
-        );
-        let ours = reader
-            .get_tile(z, x, y)
-            .expect("read our own archive")
-            .unwrap_or_else(|| panic!("we have no tile at ({z}, {x}, {y})"));
         assert_eq!(
-            sha256_hex(&out.stdout),
-            sha256_hex(&ours),
-            "go-pmtiles and libviprs read different bytes for ({z}, {x}, {y}) \
-             out of the same archive"
+            sha256_hex(&from_oracle),
+            sha256_hex(&on_disk),
+            "go-pmtiles read different bytes out of the archive at ({z}, {}, \
+             {}) than the directory backend wrote to {rel}. The two backends \
+             ran off one plan, so this is the archive addressing that tile \
+             somewhere other than where the planner named it.",
+            coord.col,
+            coord.row
         );
         compared += 1;
     }
-    assert_eq!(compared, 4, "not every coordinate was compared");
+
+    assert_eq!(
+        compared as u64,
+        plan.total_tile_count(),
+        "only {compared} of {} coordinates reached the reference",
+        plan.total_tile_count()
+    );
+}
+
+/// The reference has to read a libviprs archive that spilled into leaves.
+///
+/// Nothing anywhere had ever asked it to. Every interop archive in this repo
+/// and in the core crate is root-only, and the leaf-entry base is the one
+/// mistake the epic itself flagged as invisible to a shared misreading: our
+/// reader and our writer would agree on a wrong base and the archive would look
+/// perfect from inside. An outside implementation walking our leaves is the
+/// only check that closes it.
+///
+/// The writer spills when the directory will not fit 16384 entries or 16257
+/// bytes, so the plan is sized past the entry ceiling with small tiles rather
+/// than a large raster. Every cell of one middle zoom is swept, plus the first
+/// and last coordinate of every level, which is where an off-by-one in the leaf
+/// boundary lands.
+#[test]
+fn go_pmtiles_reads_a_libviprs_archive_that_spilled_into_leaves() {
+    let Some(bin) = go_pmtiles_bin() else {
+        eprintln!(
+            "skipping: no pinned go-pmtiles reachable. Set GO_PMTILES_BIN, or \
+             VIPRS_REQUIRE_GO_PMTILES=1 to make this a failure."
+        );
+        return;
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let (archive, tree, plan) = libviprs_pyramid(dir.path(), 4096, 3072, 16);
+
+    let reader = Reader::try_open(&archive).expect("open the archive we just wrote");
+    assert_header_positions_are_in_range(reader.header(), "the leaf archive libviprs wrote");
+    assert_the_oracle_reads_back_the_header_we_wrote(&bin, &archive);
+    assert!(
+        reader.header().has_leaves(),
+        "this plan produced {} entries in a root-only archive, so the leaf path \
+         it exists to exercise was never taken. The writer spills above 16384 \
+         entries; raise the plan until it does.",
+        reader.header().tile_entries_count
+    );
+    assert_oracle_verifies(&bin, &archive);
+
+    // One whole zoom, which is what makes this able to fail: a wrong leaf base
+    // moves every entry behind a leaf pointer at once, and a wrong convention
+    // moves most cells of any level wide enough to have leaves behind it.
+    //
+    // The smallest level that is at least 16 by 16, named that way rather than
+    // taken as the first match, because `plan.levels` runs coarsest first and
+    // "the first one big enough" silently becomes "the biggest one" if that
+    // ever reverses. The biggest here is 256x192, which is 49152 cells and one
+    // `pmtiles` process each, so the difference between the two readings is a
+    // test that takes six seconds and one that takes an hour.
+    let sweep_level = plan
+        .levels
+        .iter()
+        .filter(|l| l.cols >= 16 && l.rows >= 16)
+        .min_by_key(|l| l.cols * l.rows)
+        .expect("a plan this size has a level at least 16 wide");
+    assert!(
+        sweep_level.cols * sweep_level.rows <= 2048,
+        "the level picked for the sweep is {}x{}, which is {} subprocess calls. \
+         The planner's level shape has changed and this test wants the smallest \
+         level of at least 16 by 16.",
+        sweep_level.cols,
+        sweep_level.rows,
+        sweep_level.cols * sweep_level.rows
+    );
+    let z = u8::try_from(sweep_level.level).expect("a test plan stays inside u8 zooms");
+    let probes: Vec<(u32, u32)> = plan
+        .tile_coords()
+        .filter(|c| c.level == sweep_level.level)
+        .map(|c| (c.col, c.row))
+        .collect();
+    assert_probes_discriminate(z, 1u32 << z, &probes, "the leaf-directory sweep");
+
+    let mut edges: Vec<libviprs::planner::TileCoord> = Vec::new();
+    for level in plan.levels.iter().filter(|l| l.level != sweep_level.level) {
+        let mut on_level: Vec<_> = plan
+            .tile_coords()
+            .filter(|c| c.level == level.level)
+            .collect();
+        on_level.sort_by_key(|c| (c.row, c.col));
+        if let Some(first) = on_level.first() {
+            edges.push(*first);
+        }
+        if let Some(last) = on_level.last() {
+            edges.push(*last);
+        }
+    }
+
+    let edge_count = edges.len();
+    let mut compared = 0usize;
+    let mut swept = 0usize;
+    for coord in plan
+        .tile_coords()
+        .filter(|c| c.level == sweep_level.level)
+        .chain(edges)
+    {
+        let rel = plan
+            .tile_path(coord, "png")
+            .expect("the plan has a path for its own coordinate");
+        let on_disk = std::fs::read(tree.join(&rel))
+            .unwrap_or_else(|e| panic!("the directory backend has no {rel}: {e}"));
+        let z = u8::try_from(coord.level).expect("a test plan stays inside u8 zooms");
+        let from_oracle = oracle_tile(&bin, &archive, z, coord.col, coord.row);
+        assert_eq!(
+            sha256_hex(&from_oracle),
+            sha256_hex(&on_disk),
+            "go-pmtiles walked our leaf directories to ({z}, {}, {}) and came \
+             back with bytes the directory backend did not write to {rel}",
+            coord.col,
+            coord.row
+        );
+        compared += 1;
+        if coord.level == sweep_level.level {
+            swept += 1;
+        }
+    }
+
+    let on_level = u64::from(sweep_level.cols) * u64::from(sweep_level.rows);
+    assert_eq!(
+        swept as u64, on_level,
+        "{swept} cells of zoom {z} reached the reference and the level holds \
+         {on_level}"
+    );
+    assert_eq!(
+        compared,
+        swept + edge_count,
+        "{compared} coordinates reached the reference, and the sweep plus the \
+         per-level edges is {}",
+        swept + edge_count
+    );
 }

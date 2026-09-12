@@ -11,7 +11,10 @@
 use std::path::{Path, PathBuf};
 
 mod common;
-use common::workflows::read_workflow;
+use common::workflows::{Workflow, read_workflow, workflow};
+
+/// The job that builds `viprs` and runs the differential cells against it.
+const CLI_JOB: &str = "cli-differential";
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
@@ -91,13 +94,83 @@ fn ci_clones_pinned_cli_counterpart_with_no_branch_fallback() {
 /// The `cli-differential` job must hard-fail rather than skip to a false green
 /// when it cannot actually run `viprs` (F1): it sets `VIPRS_REQUIRE_CLI: 1`,
 /// which makes the harness panic instead of skipping when the CLI is absent.
+///
+/// # Why this reads the step and not the file
+///
+/// It used to ask whether `VIPRS_REQUIRE_CLI: 1` appeared anywhere in
+/// `ci.yml`, and `ci.yml` contains that line on the `hook-mirror` job as well.
+/// Measured: delete it from the `cli-differential` step and this guard stays
+/// green, carried by the other job's copy, while all 17 differential binaries
+/// run somewhere they can skip every assertion and report a pass. A guard that
+/// another job can satisfy is not a guard for this one.
 #[test]
 fn cli_differential_job_requires_the_cli_to_run() {
-    let ci = read_workflow("ci.yml");
+    let ci = workflow("ci.yml");
+    let job = ci.job(CLI_JOB);
+    let runner = job
+        .steps
+        .iter()
+        .find(|s| s.run().contains("cargo test"))
+        .unwrap_or_else(|| panic!("no step of `{CLI_JOB}` runs `cargo test`"));
+    let set = runner.env_value("VIPRS_REQUIRE_CLI");
+    assert_eq!(
+        set,
+        Some("1"),
+        "the step of `{CLI_JOB}` that runs the differential cells sets \
+         VIPRS_REQUIRE_CLI to {set:?}. It has to be 1, on this step, so a \
+         failure to lay the CLI down hard-fails instead of skipping to a false \
+         green (F1). The same line elsewhere in the file says nothing about \
+         this job."
+    );
+}
+
+/// The same edit the guard above now catches, applied to the real workflow, so
+/// the claim above is a measurement rather than a description.
+#[test]
+fn the_require_variable_on_another_job_does_not_satisfy_this_one() {
+    let text = read_workflow("ci.yml");
+    let job_at = text
+        .find(&format!("  {CLI_JOB}:"))
+        .unwrap_or_else(|| panic!("no `{CLI_JOB}` job in ci.yml"));
+    // The next job header, which is a line at exactly two spaces of indent. A
+    // plain search for "\n  " finds this job's own keys, which are indented
+    // further, and slices the job down to its first line.
+    let next_job = text[job_at + 1..]
+        .match_indices("\n  ")
+        .find(|(i, _)| {
+            text[job_at + 1 + i + 3..]
+                .chars()
+                .next()
+                .is_some_and(|c| !c.is_whitespace())
+        })
+        .map(|(i, _)| job_at + 1 + i)
+        .unwrap_or(text.len());
+    let job_text = &text[job_at..next_job];
+    let stripped = job_text.replace("          VIPRS_REQUIRE_CLI: 1\n", "");
+    assert_ne!(
+        stripped, job_text,
+        "the `{CLI_JOB}` job no longer carries `VIPRS_REQUIRE_CLI: 1` at the \
+         indent this test edits, so the row below proves nothing"
+    );
+    let mutated = format!("{}{}{}", &text[..job_at], stripped, &text[next_job..]);
     assert!(
-        ci.contains("VIPRS_REQUIRE_CLI: 1") || ci.contains("VIPRS_REQUIRE_CLI: \"1\""),
-        "the cli-differential job must set VIPRS_REQUIRE_CLI=1 so a failure to lay \
-         the CLI down hard-fails instead of skipping to a false green (F1)"
+        mutated.contains("VIPRS_REQUIRE_CLI: 1"),
+        "another job's copy has to survive the edit, or this test is measuring \
+         a whole-file search rather than a job-scoped one"
+    );
+
+    let ci = Workflow::parse(&mutated);
+    let runner = ci
+        .job(CLI_JOB)
+        .steps
+        .iter()
+        .find(|s| s.run().contains("cargo test"))
+        .expect("the job still runs cargo test");
+    assert_ne!(
+        runner.env_value("VIPRS_REQUIRE_CLI"),
+        Some("1"),
+        "with the variable deleted from this job's step, a job-scoped reading \
+         still found it, which means the reading is not job-scoped"
     );
 }
 
