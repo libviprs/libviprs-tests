@@ -99,7 +99,11 @@ const RECORDED_TOOLS: &[&str] = &["cargo", "node", "shellcheck", "ruff", "pytest
 
 /// Scripts the generated hooks reach by a path relative to the repo, so a
 /// stand-in has to sit at that path rather than on `PATH`.
-const RECORDED_SCRIPTS: &[&str] = &["tools/run_ported_cells.sh", "cli/tools/sync-cli-src.sh"];
+const RECORDED_SCRIPTS: &[&str] = &[
+    "tools/run_ported_cells.sh",
+    "cli/tools/sync-cli-src.sh",
+    "tools/shellcheck-all.sh",
+];
 
 /// Where the real `git` is, resolved once so the recording `git` can hand the
 /// plumbing calls on to it.
@@ -504,10 +508,15 @@ fn mirrored_commands(repo: &str, c: &RepoContract, jobs: &[Job], dir: &Path) -> 
 
             let mut cmd = run.trim().to_string();
             if let Some(prefix) = &c.checkout_path {
+                // CI checks this repo out into a named subdirectory, so paths
+                // in its commands carry that prefix while locally the repo is
+                // the working directory. The prefix sits wherever a path does,
+                // which is not always the start: `node libviprs-org/cli/...`
+                // puts it after the interpreter, and stripping only a leading
+                // occurrence left that step looking like one the hook does not
+                // run.
                 let with_slash = format!("{prefix}/");
-                if let Some(rest) = cmd.strip_prefix(&with_slash) {
-                    cmd = rest.to_string();
-                }
+                cmd = cmd.replace(&with_slash, "");
             }
             if let Some(wd) = &step.working_directory {
                 let local = match &c.checkout_path {
