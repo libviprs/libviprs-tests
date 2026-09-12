@@ -199,7 +199,7 @@ Settings: `Layout::DeepZoom`, `tile_size=64`, `overlap=0`, `TileFormat::Raw`.
 
 Reference for `tests/resample_premultiplied_alpha_reference.rs`, the
 vips-differential regression for the premultiplied-alpha resampler follow-ups
-(libviprs/libviprs #406–#413, #415; part of #348). libviprs' averaging
+(libviprs/libviprs –,; part of). libviprs' averaging
 resamplers (`reduce` / `shrink` / `resize`) deliberately premultiply alpha once
 into a float working buffer around the whole separable pipeline and
 un-premultiply once at the end, so they match a **premultiplied** vips pipeline,
