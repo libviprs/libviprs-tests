@@ -1,8 +1,10 @@
 //! Shared helpers for the PMTiles black-box suite (libviprs-tests#202).
 //!
-//! Three test binaries use this: `phase_pmtiles.rs` for cross-backend
-//! equivalence, `pmtiles_interop.rs` for the committed go-pmtiles goldens, and
-//! `pmtiles_bounded.rs` for the offset arithmetic and the bounded-read proof.
+//! Five test binaries use this: `phase_pmtiles.rs` for cross-backend
+//! equivalence, `pmtiles_interop.rs` for the committed go-pmtiles goldens,
+//! `pmtiles_bounded.rs` for the offset arithmetic and the bounded-read proof,
+//! `pmtiles_sweep.rs` for the whole-grid comparison against the reference, and
+//! `cli_pmtiles.rs` for the CLI-driven cells.
 //!
 //! # Why this is not registered in `tests/common/mod.rs`
 //!
@@ -100,9 +102,47 @@ pub const LEAVES_GOLDEN: &str = "leaves-z0z7.pmtiles";
 pub const LEAVES_GOLDEN_SHA256: &str =
     "fe5c9636be61abc60046d7f13837f8a3efb20ce3c38303644dac0cbec8248b8d";
 
-/// Every committed golden, with its digest. Used so a test can sweep all three
-/// rather than naming them one at a time and quietly dropping one.
+/// The distinct golden: a payload per tile, so nothing about it is symmetric.
+///
+/// `leaves-z0z7` was the only fixture with leaf directories and it cannot see
+/// any of it. Its two payloads alternate by `(x + y) % 2` and every plausible
+/// tile-id mistake preserves that parity at every zoom, so all 21845 cells come
+/// back identical under five wrong conventions, measured. Its leaves all start
+/// at offset 0 as well, which makes the wrong leaf-entry base the identity.
+/// This one has 19843 distinct payloads and leaves starting at 49164, 98324,
+/// 147497 and 196597, so both mistakes move bytes.
+pub const DISTINCT_GOLDEN: &str = "distinct-z0z7.pmtiles";
+/// sha256 of [`DISTINCT_GOLDEN`].
+pub const DISTINCT_GOLDEN_SHA256: &str =
+    "a32dce77a93a304dbd27b80d72160b29455446931b477b5b1b7a84155ecd2dd5";
+
+/// The header golden: vector tiles, gzip payloads, and nothing symmetric.
+///
+/// The other four all carry the symmetric whole-world bounds, a centre of
+/// `0, 0`, a minimum zoom of 0, and `tile_type` and the two compressions at
+/// neighbouring byte values, so a lat/lon transposition, a swapped pair of
+/// compression bytes and a dropped minimum zoom are all the identity in them.
+pub const HEADER_MVT_GOLDEN: &str = "header-mvt-z2z4.pmtiles";
+/// sha256 of [`HEADER_MVT_GOLDEN`].
+pub const HEADER_MVT_GOLDEN_SHA256: &str =
+    "d15ece2e0cd6517817529a96fc6767e8df448a197e59bcabf6c1456c3bc3eba7";
+
+/// Every committed golden, with its digest. Used so a test can sweep all of
+/// them rather than naming them one at a time and quietly dropping one.
 pub const GOLDENS: &[(&str, &str)] = &[
+    (RASTER_GOLDEN, RASTER_GOLDEN_SHA256),
+    (DUPES_GOLDEN, DUPES_GOLDEN_SHA256),
+    (LEAVES_GOLDEN, LEAVES_GOLDEN_SHA256),
+    (DISTINCT_GOLDEN, DISTINCT_GOLDEN_SHA256),
+    (HEADER_MVT_GOLDEN, HEADER_MVT_GOLDEN_SHA256),
+];
+
+/// The goldens `vectors/tiles.json` carries hand-picked rows for.
+///
+/// The two added later are covered by `vectors/sweep.json` instead, which holds
+/// every cell rather than a chosen few, so there is nothing for them to have a
+/// row in.
+pub const TILES_VECTOR_GOLDENS: &[(&str, &str)] = &[
     (RASTER_GOLDEN, RASTER_GOLDEN_SHA256),
     (DUPES_GOLDEN, DUPES_GOLDEN_SHA256),
     (LEAVES_GOLDEN, LEAVES_GOLDEN_SHA256),
@@ -113,7 +153,13 @@ pub const TILES_JSON_SHA256: &str =
     "efaebeee9399d9e1e6e0395059caf38c659f134353442bfe29fd0065e5ae6581";
 /// sha256 of `vectors/header.json`.
 pub const HEADER_JSON_SHA256: &str =
-    "99258d11ea1fa9cd99c8b28a74ea1bf217e0dea87b4ee00776a6b0c1ea36f1c3";
+    "c815b35da91b639c6daace98551dfa9e2e5ff07c561537fd3e50a3f747e9908e";
+/// sha256 of `vectors/show.json`.
+pub const SHOW_JSON_SHA256: &str =
+    "42dfdd7ef763885ce61eb4128db7ae472d29997f0429abe018d141540fd1536a";
+/// sha256 of `vectors/sweep.json`.
+pub const SWEEP_JSON_SHA256: &str =
+    "719cbc55d3a6ca1432786b4bf546d5525d6a1a484da824c3e931f573ad662df9";
 
 /// `tests/fixtures/pmtiles/`, absolute.
 pub fn fixtures_dir() -> PathBuf {
@@ -199,6 +245,50 @@ pub fn tiles_vectors() -> Value {
 /// The whole of `vectors/header.json`.
 pub fn header_vectors() -> Value {
     vectors("header.json", HEADER_JSON_SHA256)
+}
+
+/// The whole of `vectors/show.json`.
+pub fn show_vectors() -> Value {
+    vectors("show.json", SHOW_JSON_SHA256)
+}
+
+/// The whole of `vectors/sweep.json`.
+pub fn sweep_vectors() -> Value {
+    vectors("sweep.json", SWEEP_JSON_SHA256)
+}
+
+/// One field as `pmtiles show` printed it, as a string.
+pub fn oracle_shown(vectors: &Value, archive: &str, field: &str) -> String {
+    let fields = archive_block(vectors, archive)
+        .get("fields")
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| panic!("{archive} has no fields block in show.json"));
+    fields
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            let have: Vec<&str> = fields.keys().map(String::as_str).collect();
+            panic!("{archive}'s show output has no string {field:?}; it has {have:?}")
+        })
+}
+
+/// One field as `pmtiles show` printed it, as the numbers it rendered.
+pub fn oracle_shown_numbers(vectors: &Value, archive: &str, field: &str) -> Vec<f64> {
+    let fields = archive_block(vectors, archive)
+        .get("fields")
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| panic!("{archive} has no fields block in show.json"));
+    fields
+        .get(field)
+        .and_then(Value::as_array)
+        .unwrap_or_else(|| panic!("{archive}'s show output has no numeric {field:?}"))
+        .iter()
+        .map(|v| {
+            v.as_f64()
+                .unwrap_or_else(|| panic!("{archive}: {field} holds {v:?}, which is not a number"))
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -341,13 +431,53 @@ pub fn oracle_header_u64(vectors: &Value, archive: &str, field: &str) -> u64 {
         .get("decoded_by_pmtiles_DeserializeHeader")
         .and_then(Value::as_object)
         .unwrap_or_else(|| panic!("{archive} has no decoded_by_pmtiles_DeserializeHeader block"));
+    let raw = decoded.get(field).unwrap_or_else(|| {
+        let have: Vec<&str> = decoded.keys().map(String::as_str).collect();
+        panic!("{archive}'s decoded header has no {field:?}; it has {have:?}")
+    });
+    // `clustered` comes back as a JSON bool because that is what Go's encoder
+    // does with a Go bool. It is a byte in the header, so it compares as one.
+    match raw {
+        Value::Bool(b) => u64::from(*b),
+        other => other.as_u64().unwrap_or_else(|| {
+            panic!("{archive}'s {field:?} is {other:?}, which is not a number or a bool")
+        }),
+    }
+}
+
+/// The same, for a field the reference decodes as signed. The four bounds and
+/// the two centre positions are `i32` in the header and negative in every
+/// golden that covers the whole world, so reading them through
+/// [`oracle_header_u64`] panics rather than comparing.
+pub fn oracle_header_i64(vectors: &Value, archive: &str, field: &str) -> i64 {
+    let decoded = archive_block(vectors, archive)
+        .get("decoded_by_pmtiles_DeserializeHeader")
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| panic!("{archive} has no decoded_by_pmtiles_DeserializeHeader block"));
     decoded
         .get(field)
-        .and_then(Value::as_u64)
+        .and_then(Value::as_i64)
         .unwrap_or_else(|| {
             let have: Vec<&str> = decoded.keys().map(String::as_str).collect();
-            panic!("{archive}'s decoded header has no unsigned {field:?}; it has {have:?}")
+            panic!("{archive}'s decoded header has no signed {field:?}; it has {have:?}")
         })
+}
+
+/// Every field name the reference reported for `archive`, so a comparison can
+/// be held to covering all of them.
+///
+/// A header test that names the fields it checks silently stops covering each
+/// new one, and this header has 25. Thirteen of them were compared and the
+/// twelve that were not are where a big-endian `i32` or a lat/lon transposition
+/// hides: measured, both leave the whole PMTiles suite green.
+pub fn oracle_header_fields(vectors: &Value, archive: &str) -> Vec<String> {
+    archive_block(vectors, archive)
+        .get("decoded_by_pmtiles_DeserializeHeader")
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| panic!("{archive} has no decoded_by_pmtiles_DeserializeHeader block"))
+        .keys()
+        .cloned()
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -663,5 +793,174 @@ pub fn assert_decoded_tiles_equal(
                 want_px[at], got_px[at]
             );
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Proving a probe set can fail
+// ---------------------------------------------------------------------------
+
+/// The tile-id conventions a writer could plausibly land on by misreading the
+/// spec, and the arithmetic for each.
+///
+/// This is deliberately a second implementation rather than a call into
+/// `libviprs::pmtiles`. Its whole job is to say which coordinates a mistake
+/// would move, and a copy of the code under test cannot answer that: it would
+/// report that nothing moves, which is the answer that makes a probe set look
+/// fine.
+///
+/// The spec's Hilbert step is `rotate`: when `ry == 0`, reflect the quadrant if
+/// `rx == 1`, then swap x and y. Each variant below drops or alters one piece
+/// of that, which is the shape of every published implementation error I could
+/// find. `NoReflect` in particular is the one that matters most here, because
+/// it preserves `(x + y) % 2` at every zoom, so a fixture whose payloads
+/// alternate on that parity cannot see it at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WrongConvention {
+    /// The whole rotation dropped.
+    NoRotation,
+    /// Reflection kept, the x/y swap dropped.
+    NoSwap,
+    /// Swap kept, the corner reflection dropped.
+    NoReflect,
+    /// x and y exchanged going in, which is what a column/row mix-up produces.
+    Transpose,
+}
+
+impl WrongConvention {
+    /// Every variant, so a sweep cannot quietly drop one.
+    pub const ALL: &'static [WrongConvention] = &[
+        WrongConvention::NoRotation,
+        WrongConvention::NoSwap,
+        WrongConvention::NoReflect,
+        WrongConvention::Transpose,
+    ];
+
+    /// The name this variant reports itself by in a failure.
+    pub fn name(self) -> &'static str {
+        match self {
+            WrongConvention::NoRotation => "no rotation",
+            WrongConvention::NoSwap => "no x/y swap",
+            WrongConvention::NoReflect => "no corner reflection",
+            WrongConvention::Transpose => "x and y exchanged",
+        }
+    }
+}
+
+fn hilbert_rotate(n: u64, x: &mut u64, y: &mut u64, rx: u64, ry: u64, reflect: bool, swap: bool) {
+    if ry == 0 {
+        if rx == 1 && reflect {
+            *x = n - 1 - *x;
+            *y = n - 1 - *y;
+        }
+        if swap {
+            std::mem::swap(x, y);
+        }
+    }
+}
+
+/// The position within the zoom level, under `wrong` or, for `None`, correctly.
+///
+/// The level base is left off because every comparison here is within one
+/// zoom, and leaving it off keeps this from looking like a tile-id function
+/// anything should call.
+fn hilbert_d(z: u8, x: u32, y: u32, wrong: Option<WrongConvention>) -> u64 {
+    let n: u64 = 1 << z;
+    let (mut tx, mut ty) = match wrong {
+        Some(WrongConvention::Transpose) => (u64::from(y), u64::from(x)),
+        _ => (u64::from(x), u64::from(y)),
+    };
+    let mut d: u64 = 0;
+    let mut s: u64 = n >> 1;
+    while s > 0 {
+        let rx = u64::from((tx & s) > 0);
+        let ry = u64::from((ty & s) > 0);
+        d += s * s * ((3 * rx) ^ ry);
+        match wrong {
+            Some(WrongConvention::NoRotation) => {}
+            Some(WrongConvention::NoSwap) => {
+                hilbert_rotate(n, &mut tx, &mut ty, rx, ry, true, false);
+            }
+            Some(WrongConvention::NoReflect) => {
+                hilbert_rotate(n, &mut tx, &mut ty, rx, ry, false, true);
+            }
+            _ => hilbert_rotate(n, &mut tx, &mut ty, rx, ry, true, true),
+        }
+        s >>= 1;
+    }
+    d
+}
+
+/// For every cell of a `side` x `side` zoom level, the cell whose payload a
+/// correct reader finds there when the writer used `wrong`.
+///
+/// A writer with the wrong convention stores `(x, y)` at `wrong(x, y)`. A
+/// correct reader asking for `(x, y)` looks at `correct(x, y)` and finds
+/// whichever coordinate the writer sent there. Where that is `(x, y)` itself
+/// the mistake is invisible at that cell, however many tiles the archive holds.
+pub fn what_a_correct_reader_finds(
+    z: u8,
+    side: u32,
+    wrong: WrongConvention,
+) -> std::collections::HashMap<(u32, u32), (u32, u32)> {
+    let mut placed = std::collections::HashMap::new();
+    for y in 0..side {
+        for x in 0..side {
+            placed.insert(hilbert_d(z, x, y, Some(wrong)), (x, y));
+        }
+    }
+    let mut found = std::collections::HashMap::with_capacity(placed.len());
+    for y in 0..side {
+        for x in 0..side {
+            let at = placed[&hilbert_d(z, x, y, None)];
+            found.insert((x, y), at);
+        }
+    }
+    found
+}
+
+/// The cells of a `side` x `side` zoom level whose bytes a writer using
+/// `wrong` would put somewhere a correct reader does not look.
+pub fn cells_a_wrong_convention_moves(z: u8, side: u32, wrong: WrongConvention) -> Vec<(u32, u32)> {
+    let mut moved: Vec<(u32, u32)> = what_a_correct_reader_finds(z, side, wrong)
+        .into_iter()
+        .filter(|(asked, found)| asked != found)
+        .map(|(asked, _)| asked)
+        .collect();
+    moved.sort_unstable();
+    moved
+}
+
+/// Refuse a probe set that no tile-id mistake would show up in.
+///
+/// This is the check the epic's own external interop cell was missing. It
+/// probed `(0,0)`, `(1,0)`, `(0,1)` and the far corner of a 4x4 level, and all
+/// four are fixed points of all four permutations above, so the one place an
+/// outside implementation checked our writer could not fail for the reason it
+/// existed. A probe set is worth having only if some wrong answer lands in it.
+pub fn assert_probes_discriminate(z: u8, side: u32, probes: &[(u32, u32)], what: &str) {
+    for wrong in WrongConvention::ALL {
+        let moved = cells_a_wrong_convention_moves(z, side, *wrong);
+        if moved.is_empty() {
+            // Nothing to catch at this zoom: z0 has one cell and every
+            // permutation is the identity on it.
+            continue;
+        }
+        let caught: Vec<(u32, u32)> = probes
+            .iter()
+            .copied()
+            .filter(|p| moved.contains(p))
+            .collect();
+        assert!(
+            !caught.is_empty(),
+            "{what}: none of the {} probed cells at zoom {z} is one of the {} \
+             cells that `{}` moves, so this comparison passes whether or not \
+             the archive was written with that convention. The cells it would \
+             catch are {:?}",
+            probes.len(),
+            moved.len(),
+            wrong.name(),
+            &moved[..moved.len().min(12)],
+        );
     }
 }
