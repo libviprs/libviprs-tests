@@ -45,12 +45,13 @@ use common::fixtures::canonical_raster_scaled;
 mod pmtiles_support;
 use pmtiles_support::{
     DISTINCT_GOLDEN, DISTINCT_GOLDEN_SHA256, GOLDENS, ORACLE_RELEASE_TAG, TILES_VECTOR_GOLDENS,
-    assert_probes_discriminate, golden_path, header_vectors, oracle_header_fields,
-    oracle_header_i64, oracle_header_u64, oracle_shown, oracle_shown_numbers, read_checked,
-    sha256_hex, show_vectors, sweep_vectors, tile_rows, tiles_vectors, vector_archive_names,
-    vector_golden_sha256,
+    assert_header_positions_are_in_range, assert_probes_discriminate, golden_path, header_vectors,
+    oracle_header_fields, oracle_header_i64, oracle_header_u64, oracle_shown, oracle_shown_numbers,
+    read_checked, sha256_hex, show_vectors, sweep_vectors, tile_rows, tiles_vectors,
+    vector_archive_names, vector_golden_sha256,
 };
 
+use libviprs::pmtiles::WriterOptions;
 use libviprs::pmtiles::directory::deserialize_entries;
 use libviprs::pmtiles::header::SPEC_VERSION;
 use libviprs::pmtiles::{Compression, Entry, Reader, tileid_to_zxy};
@@ -329,9 +330,31 @@ fn leaf_entries_resolve_against_tile_data_not_against_any_other_base() {
     let archive = read_checked(DISTINCT_GOLDEN, DISTINCT_GOLDEN_SHA256);
     let reader = Reader::try_open(golden_path(DISTINCT_GOLDEN, DISTINCT_GOLDEN_SHA256))
         .expect("open the distinct golden");
-    assert_eq!(reader.header().leaf_directories_offset, leaf_offset);
-    assert_eq!(reader.header().leaf_directories_length, leaf_length);
-    assert_eq!(reader.header().tile_data_offset, data_offset);
+    // Our reader has to agree with the reference about where the sections are
+    // before anything below means anything.
+    for (field, ours, theirs) in [
+        (
+            "leaf_directories_offset",
+            reader.header().leaf_directories_offset,
+            leaf_offset,
+        ),
+        (
+            "leaf_directories_length",
+            reader.header().leaf_directories_length,
+            leaf_length,
+        ),
+        (
+            "tile_data_offset",
+            reader.header().tile_data_offset,
+            data_offset,
+        ),
+    ] {
+        assert_eq!(
+            ours, theirs,
+            "{DISTINCT_GOLDEN}: we decode {field} as {ours}, go-pmtiles decoded \
+             it as {theirs}, so nothing below is about the entry base"
+        );
+    }
 
     // Walk the root for leaf pointers, which carry a run length of zero and
     // nothing else that marks them, then read the entries behind each one.
@@ -549,7 +572,6 @@ fn our_header_decoding_matches_the_reference_field_for_field() {
             ("min_zoom", u64::from(header.min_zoom)),
             ("max_zoom", u64::from(header.max_zoom)),
             ("center_zoom", u64::from(header.center_zoom)),
-            ("spec_version", u64::from(SPEC_VERSION)),
             ("clustered", u64::from(header.clustered)),
             (
                 "internal_compression",
@@ -594,11 +616,36 @@ fn our_header_decoding_matches_the_reference_field_for_field() {
             compared += 1;
         }
 
+        // `spec_version` is not in the list above and is not an omission.
+        // `Header` carries no decoded spec-version field: the byte is checked
+        // against SPEC_VERSION while decoding (`header.rs`, `try_decode`) and a
+        // wrong one is a refusal rather than a value. Comparing our constant 3
+        // against the reference's 3 would be a comparison no change to our
+        // decoder could fail, and counting it would be what let this guard
+        // report all 25 fields covered.
+        let decoded_elsewhere = ["spec_version"];
         let reported = oracle_header_fields(&headers, name);
         let missing: Vec<&String> = reported
             .iter()
-            .filter(|f| !covered.contains(&f.as_str()))
+            .filter(|f| !covered.contains(&f.as_str()) && !decoded_elsewhere.contains(&f.as_str()))
             .collect();
+        assert_eq!(
+            covered.len() + decoded_elsewhere.len(),
+            reported.len(),
+            "{name}: {} fields compared plus {} accounted for elsewhere does \
+             not add up to the {} go-pmtiles decoded",
+            covered.len(),
+            decoded_elsewhere.len(),
+            reported.len()
+        );
+
+        // The spec version is still pinned, through the refusal rather than
+        // through a comparison: an archive whose byte 7 is not 3 does not open.
+        assert_eq!(
+            SPEC_VERSION, 3,
+            "the crate's spec version constant moved, and every committed \
+             golden is a v3 archive"
+        );
         assert!(
             missing.is_empty(),
             "{name}: go-pmtiles decoded {} header fields and this compares {}. \
@@ -610,10 +657,11 @@ fn our_header_decoding_matches_the_reference_field_for_field() {
         );
     }
 
-    assert!(
-        compared >= 75,
-        "only {compared} header fields were compared across the goldens, so the \
-         sweep is dropping rows"
+    assert_eq!(
+        compared,
+        GOLDENS.len() * 24,
+        "{compared} header fields were compared and the five goldens carry 24 \
+         comparable fields each, so the sweep is dropping rows"
     );
 }
 
@@ -626,9 +674,10 @@ fn our_header_decoding_matches_the_reference_field_for_field() {
 /// still compute bounds, the centre or the leaf flag from them differently.
 ///
 /// `header-mvt-z2z4` is the fixture that makes this able to fail. In the other
-/// goldens the bounds are the symmetric whole world, the centre is `0,0`, the
-/// tile type and the two compressions sit at neighbouring byte values and the
-/// minimum zoom is 0, so half a dozen distinct mistakes are all the identity.
+/// goldens the bounds are the symmetric whole world, the centre is `0,0`, and
+/// the tile type and the two compressions sit at neighbouring byte values, so half
+/// a dozen distinct mistakes are all the identity. Three of the four start at
+/// zoom 0 as well; `distinct-z0z7` starts at 1.
 #[test]
 fn our_header_accessors_match_what_the_reference_prints() {
     let shown = show_vectors();
@@ -702,6 +751,9 @@ fn our_header_accessors_match_what_the_reference_prints() {
             compared += 1;
         }
 
+        assert_header_positions_are_in_range(header, name);
+        compared += 1;
+
         // `has_leaves` is ours alone, so the reference's leaf length is the
         // control for it.
         let leaf_length = oracle_header_u64(&header_vectors(), name, "leaf_directory_length");
@@ -715,10 +767,11 @@ fn our_header_accessors_match_what_the_reference_prints() {
         compared += 1;
     }
 
-    assert!(
-        compared >= 70,
-        "only {compared} accessor readings were compared, so the sweep is \
-         dropping rows"
+    assert_eq!(
+        compared,
+        GOLDENS.len() * 15,
+        "{compared} accessor readings were compared and the five goldens carry \
+         15 each, so the sweep is dropping rows"
     );
 }
 
@@ -830,6 +883,11 @@ fn libviprs_pyramid(
     let sink = PmTilesSink::builder(&archive)
         .plan(plan.clone())
         .tile_format(TileFormat::Png)
+        .writer_options(
+            WriterOptions::default()
+                .with_bounds_degrees(WRITTEN_BOUNDS)
+                .with_center_degrees(WRITTEN_CENTRE.0, WRITTEN_CENTRE.1),
+        )
         .build()
         .expect("build a PmTilesSink");
     EngineBuilder::new(&src, plan.clone(), &sink)
@@ -844,6 +902,94 @@ fn libviprs_pyramid(
     );
 
     (archive, tree, plan)
+}
+
+/// The bounds every archive written here carries.
+///
+/// Deliberately not the symmetric whole world, and deliberately not its own
+/// mirror image under any of the mistakes worth catching: west and south
+/// differ, east and north differ, and no pair is the negation of another. A
+/// fixture whose values sit on the identity element of the operation under test
+/// is the whole reason this PR exists, and it would be a poor joke to repeat it
+/// here.
+const WRITTEN_BOUNDS: [f64; 4] = [-12.25, 4.5, 33.75, 51.125];
+/// The centre those bounds carry, inside them and on neither axis of symmetry.
+const WRITTEN_CENTRE: (f64, f64) = (7.5, 22.25);
+
+/// What `pmtiles show --header-json` reports for an archive, parsed.
+fn oracle_header_json(bin: &Path, archive: &Path) -> serde_json::Value {
+    let out = Command::new(bin)
+        .args(["show", "--header-json"])
+        .arg(archive)
+        .output()
+        .expect("run pmtiles show --header-json");
+    assert!(
+        out.status.success(),
+        "`pmtiles show --header-json` exited {}: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!(
+            "`pmtiles show --header-json` did not print JSON: {e}\n{}",
+            String::from_utf8_lossy(&out.stdout)
+        )
+    })
+}
+
+/// The reference has to read back the header we wrote, not the one we meant.
+///
+/// # The hole this closes
+///
+/// Every other header assertion in this file reads a **committed golden**, so
+/// all of them pin our decoder and none of them pins our encoder. Measured: the
+/// writer can exchange latitude and longitude in the header of every archive
+/// libviprs produces and the entire suite passes, `pmtiles verify` at exit 0
+/// included, because our reader and the reference read the same bytes the same
+/// way and agree about the swapped values. Every consumer of the archive would
+/// render the wrong extent.
+///
+/// So this configures bounds the sink could not have guessed and asks the
+/// reference what it sees. `assert_header_positions_are_in_range` catches the
+/// swap on its own; this catches the rest of the class, a field written to the
+/// wrong offset or at the wrong scale.
+fn assert_the_oracle_reads_back_the_header_we_wrote(bin: &Path, archive: &Path) {
+    let shown = oracle_header_json(bin, archive);
+    let bounds = shown
+        .get("bounds")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("`show --header-json` printed no bounds: {shown}"));
+    assert_eq!(bounds.len(), 4, "bounds came back as {bounds:?}");
+
+    for (index, label) in ["west", "south", "east", "north"].iter().enumerate() {
+        let theirs = bounds[index]
+            .as_f64()
+            .unwrap_or_else(|| panic!("{label} came back as {:?}", bounds[index]));
+        let ours = WRITTEN_BOUNDS[index];
+        assert!(
+            (ours - theirs).abs() < 1e-6,
+            "we asked the writer for a {label} bound of {ours} and go-pmtiles \
+             read {theirs} out of the archive it produced"
+        );
+    }
+
+    let centre = shown
+        .get("center")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("`show --header-json` printed no center: {shown}"));
+    assert!(
+        centre.len() >= 2,
+        "the centre came back as {centre:?}, which has no longitude and latitude"
+    );
+    let (lon, lat) = (
+        centre[0].as_f64().expect("a centre longitude"),
+        centre[1].as_f64().expect("a centre latitude"),
+    );
+    assert!(
+        (lon - WRITTEN_CENTRE.0).abs() < 1e-6 && (lat - WRITTEN_CENTRE.1).abs() < 1e-6,
+        "we asked the writer for a centre of {WRITTEN_CENTRE:?} and go-pmtiles \
+         read ({lon}, {lat})"
+    );
 }
 
 /// `pmtiles tile <archive> z x y`, as bytes. Empty means the reference could
@@ -929,6 +1075,16 @@ fn go_pmtiles_finds_every_tile_where_the_directory_backend_put_it() {
     let (archive, tree, plan) = libviprs_pyramid(dir.path(), 512, 384, 128);
     assert_oracle_verifies(&bin, &archive);
 
+    // The header of an archive we wrote, rather than one we were given. Every
+    // other header assertion in this file reads a committed golden, so a
+    // mistake the writer makes is invisible to all of them: measured, the
+    // writer can exchange latitude and longitude in every archive it produces
+    // and the whole suite passes, `pmtiles verify` included, because our reader
+    // and the reference read the same bytes the same way and agree.
+    let written = Reader::try_open(&archive).expect("open the archive we just wrote");
+    assert_header_positions_are_in_range(written.header(), "the archive libviprs wrote");
+    assert_the_oracle_reads_back_the_header_we_wrote(&bin, &archive);
+
     let top = plan.levels.last().expect("a plan has levels");
     let z = u8::try_from(top.level).expect("a test plan stays inside u8 zooms");
     let probes: Vec<(u32, u32)> = plan
@@ -1006,6 +1162,8 @@ fn go_pmtiles_reads_a_libviprs_archive_that_spilled_into_leaves() {
     let (archive, tree, plan) = libviprs_pyramid(dir.path(), 4096, 3072, 16);
 
     let reader = Reader::try_open(&archive).expect("open the archive we just wrote");
+    assert_header_positions_are_in_range(reader.header(), "the leaf archive libviprs wrote");
+    assert_the_oracle_reads_back_the_header_we_wrote(&bin, &archive);
     assert!(
         reader.header().has_leaves(),
         "this plan produced {} entries in a root-only archive, so the leaf path \
@@ -1018,11 +1176,28 @@ fn go_pmtiles_reads_a_libviprs_archive_that_spilled_into_leaves() {
     // One whole zoom, which is what makes this able to fail: a wrong leaf base
     // moves every entry behind a leaf pointer at once, and a wrong convention
     // moves most cells of any level wide enough to have leaves behind it.
+    //
+    // The smallest level that is at least 16 by 16, named that way rather than
+    // taken as the first match, because `plan.levels` runs coarsest first and
+    // "the first one big enough" silently becomes "the biggest one" if that
+    // ever reverses. The biggest here is 256x192, which is 49152 cells and one
+    // `pmtiles` process each, so the difference between the two readings is a
+    // test that takes six seconds and one that takes an hour.
     let sweep_level = plan
         .levels
         .iter()
-        .find(|l| l.cols >= 16 && l.rows >= 16)
+        .filter(|l| l.cols >= 16 && l.rows >= 16)
+        .min_by_key(|l| l.cols * l.rows)
         .expect("a plan this size has a level at least 16 wide");
+    assert!(
+        sweep_level.cols * sweep_level.rows <= 2048,
+        "the level picked for the sweep is {}x{}, which is {} subprocess calls. \
+         The planner's level shape has changed and this test wants the smallest \
+         level of at least 16 by 16.",
+        sweep_level.cols,
+        sweep_level.rows,
+        sweep_level.cols * sweep_level.rows
+    );
     let z = u8::try_from(sweep_level.level).expect("a test plan stays inside u8 zooms");
     let probes: Vec<(u32, u32)> = plan
         .tile_coords()
@@ -1032,7 +1207,7 @@ fn go_pmtiles_reads_a_libviprs_archive_that_spilled_into_leaves() {
     assert_probes_discriminate(z, 1u32 << z, &probes, "the leaf-directory sweep");
 
     let mut edges: Vec<libviprs::planner::TileCoord> = Vec::new();
-    for level in &plan.levels {
+    for level in plan.levels.iter().filter(|l| l.level != sweep_level.level) {
         let mut on_level: Vec<_> = plan
             .tile_coords()
             .filter(|c| c.level == level.level)
@@ -1046,8 +1221,9 @@ fn go_pmtiles_reads_a_libviprs_archive_that_spilled_into_leaves() {
         }
     }
 
+    let edge_count = edges.len();
     let mut compared = 0usize;
-    let mut leaf_served = 0usize;
+    let mut swept = 0usize;
     for coord in plan
         .tile_coords()
         .filter(|c| c.level == sweep_level.level)
@@ -1070,17 +1246,21 @@ fn go_pmtiles_reads_a_libviprs_archive_that_spilled_into_leaves() {
         );
         compared += 1;
         if coord.level == sweep_level.level {
-            leaf_served += 1;
+            swept += 1;
         }
     }
 
-    assert!(
-        compared > 256,
-        "only {compared} coordinates reached the reference, which is not a \
-         sweep of anything"
+    let on_level = u64::from(sweep_level.cols) * u64::from(sweep_level.rows);
+    assert_eq!(
+        swept as u64, on_level,
+        "{swept} cells of zoom {z} reached the reference and the level holds \
+         {on_level}"
     );
-    assert!(
-        leaf_served >= 256,
-        "only {leaf_served} cells of zoom {z} were swept"
+    assert_eq!(
+        compared,
+        swept + edge_count,
+        "{compared} coordinates reached the reference, and the sweep plus the \
+         per-level edges is {}",
+        swept + edge_count
     );
 }

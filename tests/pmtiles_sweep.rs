@@ -22,7 +22,7 @@
 //!
 //! So this walks every cell of every zoom each archive declares, in one pass,
 //! and compares a digest per zoom against one the reference produced. What it
-//! costs is a 15 KB vector file; what it buys is that no future edit can
+//! costs is a 66 KB vector file; what it buys is that no future edit can
 //! quietly narrow the coverage, because the coverage is "all of it".
 //!
 //! # What the digests are
@@ -30,7 +30,7 @@
 //! For each zoom, every cell in raster order contributes one line: `z/x/y` then
 //! either `absent` or the sha256 of the payload. The digest is the sha256 of
 //! those lines. `vectors/sweep.json` holds one per zoom, produced by running
-//! `pmtiles tile` against the committed archive for all 44174 cells, so a
+//! `pmtiles tile` against the committed archive for all 44131 cells, so a
 //! disagreement is a disagreement with the reference and not with a number this
 //! repository made up.
 //!
@@ -41,12 +41,11 @@
 
 use std::collections::BTreeMap;
 
-mod common;
-
 #[path = "common/pmtiles.rs"]
 mod pmtiles_support;
 use pmtiles_support::{
-    GOLDENS, WrongConvention, golden_path, sha256_hex, sweep_vectors, what_a_correct_reader_finds,
+    GOLDENS, WrongConvention, assert_the_hilbert_model_matches_the_reference, golden_path,
+    sha256_hex, sweep_vectors, what_a_correct_reader_finds,
 };
 
 use libviprs::pmtiles::{FileRangeReader, Reader};
@@ -87,6 +86,8 @@ fn every_cell_of_every_golden_answers_what_the_reference_answered() {
     let sweep = sweep_vectors();
     let mut cells = 0u64;
     let mut zooms = 0usize;
+    let mut expected_cells = 0u64;
+    let mut expected_zooms = 0usize;
 
     for (name, digest) in GOLDENS {
         let reader = Reader::try_open(golden_path(name, digest))
@@ -102,19 +103,11 @@ fn every_cell_of_every_golden_answers_what_the_reference_answered() {
             header.min_zoom,
             header.max_zoom
         );
+        expected_zooms += recorded.len();
+        expected_cells += recorded.values().map(|z| z.cells).sum::<u64>();
 
         for (z, want) in &recorded {
             let (level, got) = walk(&reader, *z);
-            assert_eq!(
-                &got,
-                &want.digest,
-                "{name} zoom {z}: the {} cells of this level do not answer what \
-                 the reference answered. {} of them hold a tile here and the \
-                 reference recorded {}.",
-                1u64 << (2 * u32::from(*z)),
-                level.len(),
-                want.present
-            );
             assert_eq!(
                 level.len() as u64,
                 want.present,
@@ -122,16 +115,110 @@ fn every_cell_of_every_golden_answers_what_the_reference_answered() {
                 level.len(),
                 want.present
             );
-            cells += 1u64 << (2 * u32::from(*z));
+            if got != want.digest {
+                panic!(
+                    "{name} zoom {z}: the {} cells of this level do not answer \
+                     what the reference answered.\n{}",
+                    want.cells,
+                    localise(&sweep, name, *z, &level)
+                );
+            }
+            // The same rows, on a green run, so the diagnostic path above is
+            // not the only thing that ever reads them.
+            let localised = localise(&sweep, name, *z, &level);
+            assert!(
+                localised.is_empty() || localised.contains("no discriminating rows"),
+                "{name} zoom {z}: the digest matched and a discriminating row \
+                 did not, which cannot both be true:\n{localised}"
+            );
+            cells += want.cells;
             zooms += 1;
         }
     }
 
-    assert!(
-        zooms >= 24 && cells >= 40_000,
-        "the sweep covered {cells} cells over {zooms} zooms, which is less than \
-         the committed goldens declare"
+    assert_eq!(
+        (zooms, cells),
+        (expected_zooms, expected_cells),
+        "the sweep walked {cells} cells over {zooms} zooms and the vector file \
+         declares {expected_cells} over {expected_zooms}"
     );
+}
+
+/// The first `discriminating` row of this archive and zoom that disagrees with
+/// what we just read, named, or the empty string when they all agree.
+///
+/// This is what a per-zoom digest buys back. Without it a mismatch says only
+/// which zoom, and the two counts it can report agree under any permutation, so
+/// the failure reads almost like a pass.
+fn localise(sweep: &serde_json::Value, archive: &str, z: u8, level: &Level) -> String {
+    let rows = sweep
+        .get("archives")
+        .and_then(|a| a.get(archive))
+        .and_then(|b| b.get("discriminating"))
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("{archive} has no discriminating rows in sweep.json"));
+
+    if rows.is_empty() {
+        return format!(
+            "  {archive} has no discriminating rows at all, which is itself the \
+             finding: no cell of it changes under any wrong tile-id convention, \
+             so there is no coordinate to name."
+        );
+    }
+
+    for row in rows {
+        let num = |key: &str| row.get(key).and_then(serde_json::Value::as_u64);
+        if num("z") != Some(u64::from(z)) {
+            continue;
+        }
+        let (x, y) = (num("x").expect("x") as u32, num("y").expect("y") as u32);
+        let want = row
+            .get("sha256")
+            .and_then(serde_json::Value::as_str)
+            .expect("sha256");
+        // A cell with no entry is absent, which is what the reference records
+        // as the literal string. Conflating "we hold nothing" with "we have no
+        // row" would make every absent cell read as a disagreement.
+        let got = level.get(&(x, y)).map(String::as_str).unwrap_or("absent");
+        if got == want {
+            continue;
+        }
+        let wrong = row
+            .get("a_wrong_reader_would_find")
+            .expect("the paired row");
+        let wrong_at = (
+            wrong
+                .get("x")
+                .and_then(serde_json::Value::as_u64)
+                .expect("x"),
+            wrong
+                .get("y")
+                .and_then(serde_json::Value::as_u64)
+                .expect("y"),
+        );
+        let wrong_sha = wrong
+            .get("sha256")
+            .and_then(serde_json::Value::as_str)
+            .expect("sha256");
+        let caught_by = row
+            .get("caught_by")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("an unnamed convention");
+        let note = if got == wrong_sha {
+            format!(
+                " That is exactly the payload the reference recorded at ({}, {}), \
+                 which is where `{caught_by}` sends it.",
+                wrong_at.0, wrong_at.1
+            )
+        } else {
+            String::new()
+        };
+        return format!(
+            "  ({z}, {x}, {y}): we answered {got}, the reference answered \
+             {want}.{note}"
+        );
+    }
+    String::new()
 }
 
 /// Some committed golden has to be able to see each wrong tile-id convention,
@@ -142,7 +229,8 @@ fn every_cell_of_every_golden_answers_what_the_reference_answered() {
 /// `leaves-z0z7` was the only golden with leaf directories, and it cannot see
 /// any tile-id mistake at all. Its two payloads alternate by `(x + y) % 2`, and
 /// every symmetric convention error preserves that parity at every zoom, so all
-/// 21845 cells come back identical under five wrong conventions. A fixture with
+/// 21845 cells come back identical under all four of the conventions modelled
+/// here. A fixture with
 /// 21845 tiles that proves nothing about where any of them is reads as thorough
 /// coverage right up until somebody checks.
 ///
@@ -154,8 +242,21 @@ fn every_cell_of_every_golden_answers_what_the_reference_answered() {
 /// separately for archives with leaves and archives without, because the leaf
 /// lookup path is the one where a wrong convention and a wrong leaf base are
 /// hard to tell apart.
+///
+/// # Both halves of "insists"
+///
+/// Checking that no populated slot is blind is not enough. The map is only
+/// populated from goldens that exist, so removing every archive with leaves
+/// leaves four slots instead of eight and the check passes over the four that
+/// remain. Measured, in both directions: narrowed to the three archives `main`
+/// committed it fails naming all four conventions, and narrowed to the
+/// root-only three it passes. So the slots are required to exist first.
 #[test]
 fn a_golden_of_each_shape_can_see_every_wrong_tile_id_convention() {
+    // The instrument first. Everything below is computed from the model, and a
+    // model that has drifted reports whatever it likes.
+    assert_the_hilbert_model_matches_the_reference();
+
     let mut best: BTreeMap<(bool, &str), (usize, &str)> = BTreeMap::new();
 
     for (name, digest) in GOLDENS {
@@ -183,6 +284,28 @@ fn a_golden_of_each_shape_can_see_every_wrong_tile_id_convention() {
         }
     }
 
+    let mut missing = Vec::new();
+    for has_leaves in [false, true] {
+        for wrong in WrongConvention::ALL {
+            let shape = if has_leaves {
+                "with leaf directories"
+            } else {
+                "root-only"
+            };
+            if !best.contains_key(&(has_leaves, wrong.name())) {
+                missing.push(format!(
+                    "{shape}: no committed golden has this shape at all"
+                ));
+            }
+        }
+    }
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "{missing:#?}\nA shape with no golden asserts nothing, and the check \
+         below would pass over the slots that remain."
+    );
+
     let mut blind = Vec::new();
     for ((has_leaves, wrong), (caught, name)) in &best {
         let shape = if *has_leaves {
@@ -207,6 +330,7 @@ fn a_golden_of_each_shape_can_see_every_wrong_tile_id_convention() {
 struct Zoom {
     digest: String,
     present: u64,
+    cells: u64,
 }
 
 fn sweep_zooms(vectors: &serde_json::Value, archive: &str) -> BTreeMap<u8, Zoom> {
@@ -234,6 +358,10 @@ fn sweep_zooms(vectors: &serde_json::Value, archive: &str) -> BTreeMap<u8, Zoom>
                         .get("present")
                         .and_then(serde_json::Value::as_u64)
                         .expect("present"),
+                    cells: row
+                        .get("cells")
+                        .and_then(serde_json::Value::as_u64)
+                        .expect("cells"),
                 },
             )
         })

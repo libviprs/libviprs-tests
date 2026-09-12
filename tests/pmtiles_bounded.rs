@@ -431,3 +431,186 @@ fn pmtiles_streaming_memory_bounded() {
         "the streamed archive does not address every tile the run produced"
     );
 }
+
+/// A directory that inflates past the ceiling has to be refused, not inflated.
+///
+/// # The hole this closes
+///
+/// Every other cell in this file measures what a *well-formed* archive costs to
+/// read. None of them measures what a hostile one costs, and the difference is
+/// not academic: an adversarial review deleted the reader's gzip ceiling
+/// outright, `MAX_DIRECTORY_BYTES` and the `take` that enforces it, and all
+/// thirty tests in the PMTiles suite stayed green. The one thing standing
+/// between a hostile archive and an unbounded inflate was guarded by nothing,
+/// in the file whose whole subject is that a hostile header cannot make a
+/// reader pull gigabytes.
+///
+/// A gzip stream of zeros is about a thousand to one, so a root directory of a
+/// few kilobytes inflates to several mebibytes. The archive is otherwise valid:
+/// a real header, a real length, and a root that starts with the gzip magic the
+/// reader expects, so it gets all the way to the decompressor before anything
+/// says no.
+///
+/// The counting reader is the other half. Refusing is only interesting if the
+/// refusal happens before the bytes are pulled, so the test asserts the reader
+/// asked for the root once and stopped.
+#[test]
+fn a_directory_that_inflates_past_the_ceiling_is_refused_rather_than_inflated() {
+    use libviprs::pmtiles::PmTilesError;
+    use libviprs::pmtiles::header::{Compression, Header, TileType};
+    use libviprs::pmtiles::reader::{MAX_DIRECTORY_BYTES, MAX_ROOT_SPAN};
+
+    // Past MAX_DIRECTORY_BYTES and, compressed, still inside MAX_ROOT_SPAN.
+    // Both halves matter. The first time I wrote this the bomb compressed to
+    // 16 KB, the root then ran past the 16384-byte span the format allows, and
+    // the reader refused it for that instead: the test passed with the
+    // decompression ceiling deleted. A test that passes for the wrong reason is
+    // the thing this whole PR is about.
+    let bomb_plain = vec![0u8; 8 * 1024 * 1024];
+    let bomb = Compression::Gzip
+        .compress(&bomb_plain)
+        .expect("gzip a run of zeros");
+    assert!(
+        bomb_plain.len() > MAX_DIRECTORY_BYTES,
+        "the bomb inflates to {} bytes and the ceiling is {MAX_DIRECTORY_BYTES}, \
+         so there is nothing for the reader to refuse",
+        bomb_plain.len()
+    );
+    assert!(
+        127 + bomb.len() as u64 <= MAX_ROOT_SPAN,
+        "the bomb compresses to {} bytes, so the root runs past the \
+         {MAX_ROOT_SPAN}-byte span the format allows and the reader refuses it \
+         for that rather than for inflating. That refusal happens with the \
+         decompression ceiling deleted, so this test would pass without it.",
+        bomb.len()
+    );
+
+    let metadata = Compression::Gzip
+        .compress(br#"{"name":"bomb"}"#)
+        .expect("gzip the metadata");
+
+    let mut header = Header {
+        root_offset: 127,
+        root_length: bomb.len() as u64,
+        metadata_offset: 127 + bomb.len() as u64,
+        metadata_length: metadata.len() as u64,
+        leaf_directories_offset: 127 + bomb.len() as u64 + metadata.len() as u64,
+        leaf_directories_length: 0,
+        tile_data_offset: 127 + bomb.len() as u64 + metadata.len() as u64,
+        tile_data_length: 0,
+        addressed_tiles_count: 0,
+        tile_entries_count: 0,
+        tile_contents_count: 0,
+        clustered: true,
+        internal_compression: Compression::Gzip,
+        tile_compression: Compression::None,
+        tile_type: TileType::Png,
+        min_zoom: 0,
+        max_zoom: 0,
+        center_zoom: 0,
+        ..Header::default()
+    };
+    header.set_bounds_degrees(-180.0, -85.0, 180.0, 85.0);
+    header.set_center_degrees(0.0, 0.0);
+
+    let mut bytes = header.encode().to_vec();
+    bytes.extend_from_slice(&bomb);
+    bytes.extend_from_slice(&metadata);
+    let size = bytes.len() as u64;
+
+    let counting = CountingRangeReader::new(WholeArchive { bytes, size });
+    let opened = Reader::try_new(counting);
+    let Err(refused) = opened else {
+        panic!(
+            "a root directory that inflates to {} MiB was accepted. The reader's \
+             decompression ceiling is the only thing between a hostile archive \
+             and an unbounded inflate.",
+            bomb_plain.len() / (1024 * 1024)
+        );
+    };
+    assert!(
+        matches!(refused, PmTilesError::DecompressionLimit { .. }),
+        "the archive was refused, and not for inflating past the ceiling: \
+         {refused:?}. Any other refusal means this cell is measuring something \
+         else and would survive the ceiling being deleted."
+    );
+}
+
+/// The whole archive in memory, served by range.
+struct WholeArchive {
+    bytes: Vec<u8>,
+    size: u64,
+}
+
+impl RangeReader for WholeArchive {
+    fn read_range(&self, offset: u64, len: usize) -> std::io::Result<Vec<u8>> {
+        let at = usize::try_from(offset).map_err(std::io::Error::other)?;
+        let end = at
+            .checked_add(len)
+            .ok_or_else(|| std::io::Error::other("overflow"))?;
+        if end > self.bytes.len() {
+            return Err(std::io::Error::other("past the end"));
+        }
+        Ok(self.bytes[at..end].to_vec())
+    }
+
+    fn size(&self) -> std::io::Result<Option<u64>> {
+        Ok(Some(self.size))
+    }
+}
+
+/// A varint that overflows a `u64` has to be refused, not wrapped.
+///
+/// The twin of the cell above, and it was open for the same reason: both
+/// goldens are well formed, so no committed byte ever reaches this branch, and
+/// deleting the guard left the whole PMTiles suite green.
+///
+/// Every offset and length in a directory arrives as one of these. A decoder
+/// that wraps instead of refusing turns a hostile ten-byte varint into a small
+/// number that passes every bounds check downstream, which is the shape where a
+/// refusal one layer up stops being a refusal at all.
+///
+/// This is the one fixture in this file with no oracle behind it, and that is
+/// fine: the claim is that these bytes do not decode, not that they decode to
+/// something in particular. The positive control is the line above it, a
+/// ten-byte varint that is exactly representable and has to come back.
+#[test]
+fn a_varint_that_overflows_a_u64_is_refused_rather_than_wrapped() {
+    use libviprs::pmtiles::varint::{MAX_UVARINT_LEN, decode_uvarint, encode_uvarint};
+
+    // The control. u64::MAX is ten bytes and its last byte is the bare 1 the
+    // format allows, so it has to round-trip.
+    let mut largest = Vec::new();
+    encode_uvarint(u64::MAX, &mut largest);
+    assert_eq!(
+        largest.len(),
+        MAX_UVARINT_LEN,
+        "u64::MAX should encode to {MAX_UVARINT_LEN} bytes"
+    );
+    assert_eq!(
+        decode_uvarint(&largest, 0).expect("u64::MAX decodes"),
+        (u64::MAX, MAX_UVARINT_LEN),
+        "the largest representable varint has to come back, or the refusal \
+         below is refusing everything rather than refusing an overflow"
+    );
+
+    // The same shape with 2 in the top byte, which is one bit past a u64.
+    let mut overflowing = largest.clone();
+    *overflowing.last_mut().expect("ten bytes") = 2;
+    let refused = decode_uvarint(&overflowing, 0);
+    assert!(
+        refused.is_err(),
+        "a ten-byte varint carrying bit 64 decoded to {refused:?} instead of \
+         being refused. It wraps, and every offset and length in a directory \
+         arrives through this decoder, so a wrapped value passes every bounds \
+         check downstream."
+    );
+
+    // And a run of continuation bytes that never ends.
+    let never_ends = vec![0xFFu8; MAX_UVARINT_LEN + 4];
+    assert!(
+        decode_uvarint(&never_ends, 0).is_err(),
+        "a varint of {} continuation bytes was accepted",
+        never_ends.len()
+    );
+}
