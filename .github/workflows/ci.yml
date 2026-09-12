@@ -105,7 +105,7 @@ jobs:
       - run: cargo clippy --all-targets --features ${{ matrix.feature }} -- -D warnings
 
   cli-differential:
-    name: CLI Differential (all 17 op families)
+    name: CLI Differential (17 op families, and the PMTiles group)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -127,7 +127,13 @@ jobs:
         # pre-commit hook is compared against the cli's own CI, and it can only
         # run where the sibling is laid down, which is here
         # (libviprs/libviprs#715).
-        run: cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff
+        # cli_pmtiles is not a vips-differential cell and is not named
+        # `cli_*_diff.rs` for that reason: PMTiles has no vips oracle, so there
+        # is nothing to be differential against. It is here because this is the
+        # only job that lays the CLI sibling down, and because VIPRS_REQUIRE_CLI
+        # above is what stops its skip becoming a false green
+        # (tests/pmtiles_ci_wiring.rs holds CI to both halves of that).
+        run: cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff --test cli_pmtiles
 
   hook-mirror:
     name: Hook Mirror (every repo in the org)
@@ -168,6 +174,49 @@ jobs:
           VIPRS_REQUIRE_SIBLINGS: 1
           VIPRS_REQUIRE_CLI: 1
         run: cargo test --test install_hooks_mirror_ci --test install_hooks_pdfium_scope --test install_hooks_pre_push_slots --test install_hooks_localci_selection --test install_hooks_localci_worktree
+
+  pmtiles-interop:
+    name: PMTiles Interop (go-pmtiles)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/clone-counterpart
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install go-pmtiles
+        # Provenance: the pinned release every fixture under
+        # tests/fixtures/pmtiles/ was produced by, per that directory's
+        # PROVENANCE.md. `tests/pmtiles_ci_wiring.rs` reads the release tag and
+        # the digest out of the committed vector files and compares them with
+        # what this block pins, so the two cannot drift apart quietly.
+        #
+        # Runners are x86_64, so this is the x86_64 tarball. The release carries
+        # no checksums.txt, so both digests below are measurements. The inner
+        # binary is verified as well as the tarball, which is one more check
+        # than the pdfium block above makes: a tarball digest says the download
+        # arrived intact, not that the thing inside it is the binary that wrote
+        # the goldens.
+        env:
+          GO_PMTILES_VERSION: 1.31.2
+          GO_PMTILES_TARBALL_SHA256: 3ed7dbf4ec2e6dfe5e25b6f70d1ffc932729f93c86db353bf514dd71010a312f
+          GO_PMTILES_BINARY_SHA256: a7e9ae10184d109c83f456ccdf6df4f3e2a64ba6cf69d9ed0f9f1840305055c1
+        run: |
+          set -euo pipefail
+          curl -fsSL -o go-pmtiles.tgz \
+            "https://github.com/protomaps/go-pmtiles/releases/download/v${GO_PMTILES_VERSION}/go-pmtiles_${GO_PMTILES_VERSION}_Linux_x86_64.tar.gz"
+          echo "${GO_PMTILES_TARBALL_SHA256}  go-pmtiles.tgz" | sha256sum -c -
+          mkdir -p go-pmtiles
+          tar xzf go-pmtiles.tgz -C go-pmtiles pmtiles
+          echo "${GO_PMTILES_BINARY_SHA256}  go-pmtiles/pmtiles" | sha256sum -c -
+          sudo install -m 0755 go-pmtiles/pmtiles /usr/local/bin/pmtiles
+          pmtiles version
+      # VIPRS_REQUIRE_GO_PMTILES=1 turns a would-be silent skip into a hard
+      # panic, the same shape VIPRS_REQUIRE_CLI has on cli-differential. Without
+      # it this job goes green on a runner where the download failed, for
+      # exactly the reason a dev machine goes green: it never ran the binary.
+      - env:
+          VIPRS_REQUIRE_GO_PMTILES: 1
+        run: cargo test --test pmtiles_interop --test phase_pmtiles --test pmtiles_bounded --test pmtiles_ci_wiring
 
   lint:
     name: Lint
