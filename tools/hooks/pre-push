@@ -91,6 +91,24 @@ fi
 # #56). A .gitignore-only push is exactly the push that can drop those
 # patterns, so it is the last one that should skip the guard on them.
 #
+# The second half of the answer is not a pattern at all. `docs/*` says "this
+# is not code", which is not the same as "nothing reads it", and the day a
+# test pulled a doc in the two stopped meaning the same thing:
+# libviprs/libviprs#1010 adds docs/pmtiles-benchmarks.md and reads it from
+# tests/pmtiles_release_readiness.rs with include_str!, with two cells
+# asserting on its columns and on the test names it quotes. A push changing
+# only that file was skipping the suite and failing in CI instead. So for the
+# patterns that claim nothing reads the file, go and look: scan the pushed
+# tree's tests/ for include_str! literals, and anything one of them names is
+# read, whatever the path looks like. docs/streaming-pdf-rotation.md has no
+# reference anywhere in either repo and stays inert on the strength of that
+# scan rather than on the strength of this comment.
+#
+# What the scan can see is include_str!, which resolves at compile time and
+# names a file relative to the source that pulls it in. It does not see a
+# runtime read, which is how this suite reads its own .gitignore and
+# workflows, and that is what the per-repo entries above are for.
+#
 # tests/prepush_gate_cost_controls.rs runs every tracked path in both repos
 # through this function for real and pins the set that comes back inert, so
 # adding an entry here fails there with the files it would newly exempt.
@@ -100,15 +118,55 @@ fi
 inert_path() {
     case "$1" in
         .github/*|.gitignore)
-            [ "$REPO_NAME" != "libviprs-tests" ]
+            if [ "$REPO_NAME" = "libviprs-tests" ]; then
+                return 1
+            fi
+            return 0
             ;;
         docs/*|.gitattributes|.editorconfig|LICENSE|LICENSE-*)
-            true
+            : # decided by the include_str! scan below
             ;;
         *)
-            false
+            return 1
             ;;
     esac
+
+    # Every include_str! literal under the pushed tree's tests/, normalised to
+    # a tree-relative path by dropping the leading ./ and ../ steps. Computed
+    # once: the guard feeds every tracked path in the repo through here.
+    if [ -z "${INCLUDED_BY_A_TEST+set}" ]; then
+        INCLUDED_BY_A_TEST=""
+        if [ -n "${TREE:-}" ] && [ -d "$TREE/tests" ]; then
+            INCLUDED_BY_A_TEST="$(
+                { find "$TREE/tests" -type f -name '*.rs' \
+                    -exec grep -ho 'include_str!("[^"]*")' {} + 2>/dev/null || true; } |
+                sed -e 's/^include_str!("//' -e 's/")$//' |
+                while IFS= read -r literal; do
+                    while :; do
+                        case "$literal" in
+                            ./*)  literal="${literal#./}" ;;
+                            ../*) literal="${literal#../}" ;;
+                            *)    break ;;
+                        esac
+                    done
+                    printf '%s\n' "$literal"
+                done
+            )" || true
+        fi
+    fi
+
+    while IFS= read -r included; do
+        [ -n "$included" ] || continue
+        # The tail form catches a literal that reached out of its own repo, so
+        # a cross-checkout include is read rather than quietly inert.
+        case "$included" in
+            "$1"|*"/$1") return 1 ;;
+        esac
+    done <<INCLUDED
+$INCLUDED_BY_A_TEST
+INCLUDED
+
+    return 0
 }
 
 REF_UPDATES="$(cat)"
