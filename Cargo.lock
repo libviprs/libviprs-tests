@@ -1133,7 +1133,7 @@ dependencies = [
  "jxl-oxide",
  "lopdf",
  "moxcms 0.8.1",
- "pdfium-render 0.9.3 (git+https://github.com/libviprs/pdfium-render.git?rev=3b03093295b85486c2e42f514cef9647eb629c63)",
+ "pdfium-render",
  "rustfft",
  "serde",
  "serde_json",
@@ -1156,7 +1156,7 @@ dependencies = [
  "image",
  "libviprs",
  "lopdf",
- "pdfium-render 0.9.3 (git+https://github.com/libviprs/pdfium-render.git?branch=libviprs%2Fintegration)",
+ "pdfium-render",
  "proptest",
  "serde_json",
  "sha2 0.10.9",
@@ -1376,33 +1376,9 @@ dependencies = [
 
 [[package]]
 name = "pdfium-render"
-version = "0.9.3"
-source = "git+https://github.com/libviprs/pdfium-render.git?branch=libviprs%2Fintegration#1000a1aff1888425004c11432b376d2c36a4d3f2"
-dependencies = [
- "bitflags",
- "bytemuck",
- "bytes",
- "chrono",
- "console_error_panic_hook",
- "console_log",
- "image",
- "itertools",
- "js-sys",
- "libloading",
- "log",
- "maybe-owned",
- "once_cell",
- "utf16string",
- "vecmath",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "pdfium-render"
-version = "0.9.3"
-source = "git+https://github.com/libviprs/pdfium-render.git?rev=3b03093295b85486c2e42f514cef9647eb629c63#3b03093295b85486c2e42f514cef9647eb629c63"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8948a803616a9e936b15a6637af2cd48c5fb8ae0fcdeb3c32eac3a540e255a19"
 dependencies = [
  "bitflags",
  "bytemuck",
