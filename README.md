@@ -140,10 +140,19 @@ docker run --rm libviprs-tests cargo test --features pdfium -- --ignored pdfium_
 
 ## Git Hooks
 
-`install-hooks.sh` installs the pre-commit hook into all seven repos in the
-org (libviprs, libviprs-cli, libviprs-tests, libviprs-bench, libviprs-org,
-libviprs-dep, pdfium-render) and the pre-push hook into the two the suite can
-see. The `REPOS=(...)` array in `tools/install-hooks.sh` is the list:
+`install-hooks.sh` installs the pre-commit hook into the seven repos its
+`REPOS=(...)` array lists (libviprs, libviprs-cli, libviprs-tests,
+libviprs-bench, libviprs-org, libviprs-dep, pdfium-render) and the pre-push
+hook into the two the suite can see. That array is the list, and it is the
+thing to read rather than any count written into prose:
+
+**The org is nine repos, not seven.** `acadsharp-rs` and `acadsharp-rs-tests`
+were added on 2026-09-12 and are in neither `REPOS` nor `STANDIN_REPOS`, so
+they have no installed hook and the mirror job does not check them. That is a
+gap rather than a decision. Adding them needs three things in one change, or
+`every_repo_the_installer_visits_has_a_test_here` fails: the two arrays, a
+`the_hook_mirrors_the_<repo>_ci` test, and a `mirror_jobs` / `deferred_jobs`
+entry for each.
 
 ```bash
 # From libviprs-tests/
@@ -212,9 +221,12 @@ first, because `--no-verify` is how the gate stopped protecting anything.
 ### Changing `ci.yml` anywhere in the org: the pairing rule
 
 `Hook Mirror (every repo in the org)` is a required check on `main` here. That
-job lays all seven repos down beside this one and compares each repo's
-installed pre-commit hook against that repo's own CI, so it is the one place a
-hook that has drifted from the workflow it stands in for cannot skip.
+job lays the seven repos in `REPOS` down beside this one and compares each
+repo's installed pre-commit hook against that repo's own CI, so it is the one
+place a hook that has drifted from the workflow it stands in for cannot skip.
+
+Its name overpromises as of 2026-09-12: the org is nine repos and this job
+covers seven. See the note under Git Hooks.
 
 The consequence people keep getting caught by: **a `ci.yml` change merged in
 another repo turns this repo's `main` red the moment it lands.** Four of the
@@ -229,7 +241,7 @@ drift is loud:
 Whatever is on those repos' `main` right now is what the job reads. So:
 
 1. **Pair every workflow change with a PR here.** A change to
-   `.github/workflows/ci.yml` in any of the seven repos, or to `build_test.yml`
+   `.github/workflows/ci.yml` in any repo `REPOS` lists, or to `build_test.yml`
    in pdfium-render, needs a PR here that updates `mirror_jobs`,
    `deferred_jobs`, `exempt_steps` or the step lists in
    `tools/install-hooks.sh` to match.
@@ -241,7 +253,8 @@ Whatever is on those repos' `main` right now is what the job reads. So:
    are cloned at `COUNTERPART_REV` and `CLI_COUNTERPART_REV`, so the PR here
    that bumps the pin is the same PR that updates the hook contract, and the
    two land together.
-4. **Never leave the pair half landed.** CI is required on all seven repos, so
+4. **Never leave the pair half landed.** CI is required on every repo in the
+   org, so
    the window between the two merges blocks every unrelated PR here on the
    plain merge path. On 2026-09-12 that window ran from 16:40 to 21:09 UTC
    across three merges.
