@@ -34,8 +34,11 @@ fn read_core_manifest() -> String {
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("failed to read {}: {e}", p.display()))
 }
 
-/// Path to this (tests) crate's own manifest, which carries the
-/// `[patch.crates-io]` override that mirrors the core crate's pdfium fork.
+/// Path to this (tests) crate's own manifest. It used to carry a
+/// `[patch.crates-io]` override mirroring the core crate's pdfium fork. The
+/// fork is retired and the override is gone, and
+/// `no_patch_table_redirects_pdfium_render` below is what keeps it gone, in
+/// this manifest and the core's both.
 fn tests_manifest_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")
 }
