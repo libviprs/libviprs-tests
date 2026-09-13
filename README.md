@@ -140,9 +140,19 @@ docker run --rm libviprs-tests cargo test --features pdfium -- --ignored pdfium_
 
 ## Git Hooks
 
-`install-hooks.sh` installs the pre-commit hook into all four repos
-(libviprs, libviprs-cli, libviprs-tests, pdfium-render) and the pre-push hook
-into the two the suite can see:
+`install-hooks.sh` installs the pre-commit hook into the seven repos its
+`REPOS=(...)` array lists (libviprs, libviprs-cli, libviprs-tests,
+libviprs-bench, libviprs-org, libviprs-dep, pdfium-render) and the pre-push
+hook into the two the suite can see. That array is the list, and it is the
+thing to read rather than any count written into prose:
+
+**The org is nine repos, not seven.** `acadsharp-rs` and `acadsharp-rs-tests`
+were added on 2026-09-12 and are in neither `REPOS` nor `STANDIN_REPOS`, so
+they have no installed hook and the mirror job does not check them. That is a
+gap rather than a decision. Adding them needs three things in one change, or
+`every_repo_the_installer_visits_has_a_test_here` fails: the two arrays, a
+`the_hook_mirrors_the_<repo>_ci` test, and a `mirror_jobs` / `deferred_jobs`
+entry for each.
 
 ```bash
 # From libviprs-tests/
@@ -207,6 +217,52 @@ used; it is not a test failure, whatever test name printed last.
 To bypass in emergencies: `git commit --no-verify` or `git push --no-verify`.
 For a pre-push you think is skipping wrongly, reach for `LIBVIPRS_PREPUSH_ALL=1`
 first, because `--no-verify` is how the gate stopped protecting anything.
+
+### Changing `ci.yml` anywhere in the org: the pairing rule
+
+`Hook Mirror (every repo in the org)` is a required check on `main` here. That
+job lays the seven repos in `REPOS` down beside this one and compares each
+repo's installed pre-commit hook against that repo's own CI, so it is the one
+place a hook that has drifted from the workflow it stands in for cannot skip.
+
+Its name overpromises as of 2026-09-12: the org is nine repos and this job
+covers seven. See the note under Git Hooks.
+
+The consequence people keep getting caught by: **a `ci.yml` change merged in
+another repo turns this repo's `main` red the moment it lands.** Four of the
+seven carry no pin and are cloned at their default branch, precisely so that
+drift is loud:
+
+- `libviprs-bench`
+- `libviprs-org`
+- `libviprs-dep`
+- `pdfium-render` (its workflow is `build_test.yml`, not `ci.yml`)
+
+Whatever is on those repos' `main` right now is what the job reads. So:
+
+1. **Pair every workflow change with a PR here.** A change to
+   `.github/workflows/ci.yml` in any repo `REPOS` lists, or to `build_test.yml`
+   in pdfium-render, needs a PR here that updates `mirror_jobs`,
+   `deferred_jobs`, `exempt_steps` or the step lists in
+   `tools/install-hooks.sh` to match.
+2. **For the four unpinned repos, merge the other repo first**, then merge the
+   pairing PR here immediately. The pairing PR cannot go green before the other
+   merge, because this job reads that repo's `main`. That is not a broken PR,
+   it is the chicken-and-egg, so admin-merge here if the red blocks it.
+3. **For libviprs and libviprs-cli the pairing PR is the pin bump.** Those two
+   are cloned at `COUNTERPART_REV` and `CLI_COUNTERPART_REV`, so the PR here
+   that bumps the pin is the same PR that updates the hook contract, and the
+   two land together.
+4. **Never leave the pair half landed.** CI is required on every repo in the
+   org, so
+   the window between the two merges blocks every unrelated PR here on the
+   plain merge path. On 2026-09-12 that window ran from 16:40 to 21:09 UTC
+   across three merges.
+
+No arrangement removes the window. Pinning the four would trade a loud red for
+silent drift, and running the mirror test inside the other repo's CI hits the
+same chicken-and-egg from the other side. Keeping the window to minutes is the
+whole of the fix.
 
 ## Test Suites
 
