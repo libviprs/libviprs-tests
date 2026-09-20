@@ -158,24 +158,28 @@ fn core_root() -> PathBuf {
 /// the one push that must not skip the guard on it.
 const INERT_IN_LIBVIPRS_TESTS: &[&str] = &["LICENSE"];
 
-/// The same for the core checkout, where `.github/` and `.gitignore` are inert
-/// because nothing in either repo reads the core's copies of them.
+/// The same for the core checkout, where `.gitignore` is inert because nothing
+/// in either repo opens the core's copy of it.
 ///
-/// `docs/` is not on this list as a directory and must not go on it. Whether a
-/// doc is inert is a question about the tree, not about the path:
+/// `.github/` is not on this list as a directory and no longer answers on the
+/// prefix. It used to, and three workflow files sat here as a result:
+/// `ci.yml`, `merge-gate.yml` and `publish.yml` were pinned inert while the
+/// core's own guards pulled all three in with `include_str!`
+/// (`tests/ci_feature_coverage.rs`, `tests/local_gate_is_the_job_list.rs`,
+/// `tests/doc_link_gate.rs`, `tests/miri_invocation_parity.rs`,
+/// `tests/pmtiles_release_readiness.rs`). A push editing only a workflow
+/// skipped the guard that reads it, which is #214's `docs/*` bug wearing a
+/// different prefix, and libviprs/libviprs#1117's EPIC issue form is what
+/// finally made this guard say so.
+///
+/// `docs/` is not on this list as a directory either, and for the same reason.
+/// Whether a doc is inert is a question about the tree, not about the path:
 /// `docs/streaming-pdf-rotation.md` is inert because nothing pulls it in, and
 /// libviprs/libviprs#1010's `docs/pmtiles-benchmarks.md` is not, because
 /// `tests/pmtiles_release_readiness.rs` reads it with `include_str!` and
 /// asserts on its columns and on the test names it quotes. `inert_path()` goes
 /// and looks, which is why only the first of those two is named here.
-const INERT_IN_LIBVIPRS: &[&str] = &[
-    ".github/workflows/ci.yml",
-    ".github/workflows/merge-gate.yml",
-    ".github/workflows/publish.yml",
-    ".gitignore",
-    "LICENSE",
-    "docs/streaming-pdf-rotation.md",
-];
+const INERT_IN_LIBVIPRS: &[&str] = &[".gitignore", "LICENSE", "docs/streaming-pdf-rotation.md"];
 
 /// The skip list may only hold paths nothing reads, and the only way to know
 /// that is to run every path there is through it.
@@ -430,7 +434,11 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
             ".github/workflows/ci.yml",
             "name: ci\njobs: {}\n",
             false,
-            "no test reads the core checkout's workflows",
+            "nothing in THIS stand-in tree pulls it in. The real core checkout \
+             is the other way round, and deliberately so: its own guards read \
+             all three of its workflows with include_str!, so there the same \
+             push runs the suite. Both answers come from the scan rather than \
+             from the .github/ prefix, which is the whole point",
         ),
         (
             "libviprs",

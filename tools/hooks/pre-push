@@ -83,13 +83,39 @@ fi
 # README.md and CHANGELOG.md are NOT on it. This suite's documentation guards
 # read both, and they read them out of the *core* checkout as well as its own
 # (tests/feature_rename_docs_present.rs), so a docs-only push to either repo
-# can genuinely fail. Two entries are per-repo for the same reason: .github/
-# and .gitignore are inert for a libviprs push and read by a libviprs-tests
-# one, whose pinning guards read .github/workflows/*.yml (tests/common/
-# workflows.rs, tests/counterpart_pinning.rs) and whose provenance guard reads
-# .gitignore for the native-binary patterns (tests/pdfium_provenance.rs, issue
-# #56). A .gitignore-only push is exactly the push that can drop those
-# patterns, so it is the last one that should skip the guard on them.
+# can genuinely fail.
+#
+# .gitignore is per-repo. It is inert for a libviprs push, because nothing in
+# either repo opens the core checkout's copy, and read for a libviprs-tests
+# one, whose provenance guard reads it for the native-binary patterns
+# (tests/pdfium_provenance.rs, issue #56). A .gitignore-only push is exactly
+# the push that can drop those patterns, so it is the last one that should
+# skip the guard on them.
+#
+# .github/ used to be per-repo in the same breath, and the libviprs half of
+# that was wrong from the day it was written. It answered "inert" on the
+# strength of the prefix without ever looking at the tree, and the core
+# checkout's own tests pull four of its .github/ files in with include_str!:
+# ci.yml (tests/ci_feature_coverage.rs, tests/local_gate_is_the_job_list.rs,
+# tests/doc_link_gate.rs), merge-gate.yml (tests/local_gate_is_the_job_list.rs,
+# tests/miri_invocation_parity.rs), publish.yml
+# (tests/pmtiles_release_readiness.rs) and the EPIC issue form
+# (tests/epic_template.rs). So a push editing only a core workflow skipped the
+# guard that reads it and failed in CI instead, which is #214's docs/* bug
+# wearing a different prefix. .github/ now falls through to the scan for
+# libviprs and is decided by what the tree actually reads.
+#
+# Only the libviprs-tests half of .github/ still answers on the path alone,
+# and it has to. This repo's pinning guards open .github/workflows/*.yml and
+# .github/actions/*/action.yml at RUN time out of CARGO_MANIFEST_DIR
+# (tests/common/workflows.rs, tests/counterpart_pinning.rs,
+# tests/cli_counterpart_pinning.rs), and a run-time read leaves no include_str!
+# literal behind for the scan to find. That is the same blind spot the
+# .gitignore entry above covers, and it is why both of them are named in the
+# libviprs-tests block at the top of the function rather than trusted to the
+# scan. The blind spot itself is issue #224: the prefix is doing work here
+# that the scan cannot yet do, so narrowing this block the way the libviprs
+# half was narrowed would reopen the hole rather than close it.
 #
 # The second half of the answer is not a pattern at all. `docs/*` says "this
 # is not code", which is not the same as "nothing reads it", and the day a
@@ -116,14 +142,23 @@ fi
 # Set LIBVIPRS_PREPUSH_ALL=1 to run the suite whatever the paths say.
 
 inert_path() {
-    case "$1" in
-        .github/*|.gitignore)
-            if [ "$REPO_NAME" = "libviprs-tests" ]; then
+    # The two this repo reads at run time, where the scan below is blind and
+    # the path has to answer on its own. See the .github/ and .gitignore
+    # paragraphs above for which guard reads which.
+    if [ "$REPO_NAME" = "libviprs-tests" ]; then
+        case "$1" in
+            .github/*|.gitignore)
                 return 1
-            fi
+                ;;
+        esac
+    fi
+
+    case "$1" in
+        .gitignore)
+            # Nothing opens the core checkout's copy.
             return 0
             ;;
-        docs/*|.gitattributes|.editorconfig|LICENSE|LICENSE-*)
+        .github/*|docs/*|.gitattributes|.editorconfig|LICENSE|LICENSE-*)
             : # decided by the include_str! scan below
             ;;
         *)
