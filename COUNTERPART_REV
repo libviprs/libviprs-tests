@@ -229,4 +229,46 @@
 # resolution until that patch is gone. It is gone in the same commit, along with
 # the reason it was a problem beyond the version: the patch meant this suite
 # exercised pdfium-render code the core crate did not ship.
-18b7c8b4f9d9bb8b50490e2a54ff9bb94f4e604a
+#
+# Bumped to 410af443, libviprs main's tip, and this is the unusual one: it
+# carries no product change of its own. Nothing in this suite needed a newer
+# core to compile or to pass. The pin moves because the pre-push gate fix in
+# this same PR changed what the pin MEANS.
+#
+# Before that fix, `inert_path()` answered "inert" for every `.github/` path in
+# a core push on the strength of the prefix, so the answer did not depend on
+# the core tree at all. Now the include_str! scan decides, and the scan reads
+# the core checkout's own tests. That makes tests/prepush_gate_cost_controls.rs
+# INERT_IN_LIBVIPRS a statement about a particular core revision rather than
+# about libviprs in general, and the two revisions disagreed:
+# tests/pmtiles_release_readiness.rs is what reads .github/workflows/publish.yml
+# and it does not exist at 18b7c8b4, so publish.yml was genuinely inert there
+# and genuinely read on main. INERT_IN_LIBVIPRS is an exact set, so one list
+# could not be true of both trees, and the guard said so by name.
+#
+# The alternative was to relax the half of that assertion which fires when a
+# pinned path stops being inert. That half fails in the safe direction, so it
+# was tempting. It was rejected because a pinned entry could then go stale with
+# nothing noticing, and a list nobody re-derives going stale is the exact defect
+# this PR exists to fix. Moving the pin lets both halves stay exact.
+#
+# 37 commits since 18b7c8b4. The crate version does not move (0.5.0 either
+# side), so Cargo.lock is unchanged.
+#
+# Because no product change rides along, the justification for the move is the
+# suite run rather than an argument, and the results are in the PR that carries
+# this bump. 57 of the counterpart's 58 test binaries pass against this pin.
+#
+# The one that does not is tests/pmtiles_benchmarks.rs, and it is worth reading
+# before anyone treats it as this pin being bad. It fails ONLY through
+# tools/run-tests.sh, whose stage_git_index deliberately stages the counterpart
+# without .git/objects; the same binary at the same commit in the same image
+# passes 16/16 when the checkout has a real .git. The core's own CI is green on
+# it at this commit.
+#
+# That makes it the sixth counterpart binary to ask git a question the staged
+# context cannot answer. #205 found the first five and #1005 taught
+# changelog_release_claims to tell "deliberately staged" from "broken
+# invocation"; the benchmark envelope arrived later (core #1022) and has not
+# been taught the same thing. It is filed rather than worked around here.
+410af4434452142e1074432cdd2527093aa2143b
