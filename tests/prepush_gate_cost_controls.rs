@@ -71,7 +71,14 @@ fn inert_paths(repo_name: &str, tree: &Path, paths: &[String]) -> BTreeSet<Strin
     let script = dir.path().join("inert_path.sh");
     std::fs::write(&script, inert_path_driver()).expect("write the inert_path driver");
 
-    let mut child = Command::new("sh")
+    // `bash`, not `sh`. The hook's shebang is `/usr/bin/env bash` and
+    // `tests/common/hooks.rs` drives the whole thing with `bash`, so a driver
+    // that reached for `sh` was certifying this function under an interpreter
+    // it never runs on. On macOS that gap is bash 3.2.57 versus bash 5, and it
+    // is not cosmetic: 3.2 cannot parse a `case` inside `"$( ... )"`, so the
+    // scan below used to die there, come back empty and answer inert for
+    // everything, and this guard could not see it.
+    let mut child = Command::new("bash")
         .arg(&script)
         .arg(repo_name)
         .arg(tree)
@@ -158,24 +165,40 @@ fn core_root() -> PathBuf {
 /// the one push that must not skip the guard on it.
 const INERT_IN_LIBVIPRS_TESTS: &[&str] = &["LICENSE"];
 
-/// The same for the core checkout, where `.github/` and `.gitignore` are inert
-/// because nothing in either repo reads the core's copies of them.
+/// The same for the core checkout, where `.gitignore` is inert because nothing
+/// in either repo opens the core's copy of it.
 ///
-/// `docs/` is not on this list as a directory and must not go on it. Whether a
-/// doc is inert is a question about the tree, not about the path:
+/// `.github/` is not on this list as a directory and no longer answers on the
+/// prefix. It used to, and three workflow files sat here as a result:
+/// `ci.yml`, `merge-gate.yml` and `publish.yml` were pinned inert while the
+/// core's own guards pulled all three in with `include_str!`
+/// (`tests/ci_feature_coverage.rs`, `tests/local_gate_is_the_job_list.rs`,
+/// `tests/doc_link_gate.rs`, `tests/miri_invocation_parity.rs`,
+/// `tests/pmtiles_release_readiness.rs`). A push editing only a workflow
+/// skipped the guard that reads it, which is #214's `docs/*` bug wearing a
+/// different prefix, and libviprs/libviprs#1117's EPIC issue form is what
+/// finally made this guard say so.
+///
+/// `docs/` is not on this list as a directory either, and for the same reason.
+/// Whether a doc is inert is a question about the tree, not about the path:
 /// `docs/streaming-pdf-rotation.md` is inert because nothing pulls it in, and
 /// libviprs/libviprs#1010's `docs/pmtiles-benchmarks.md` is not, because
 /// `tests/pmtiles_release_readiness.rs` reads it with `include_str!` and
 /// asserts on its columns and on the test names it quotes. `inert_path()` goes
 /// and looks, which is why only the first of those two is named here.
-const INERT_IN_LIBVIPRS: &[&str] = &[
-    ".github/workflows/ci.yml",
-    ".github/workflows/merge-gate.yml",
-    ".github/workflows/publish.yml",
-    ".gitignore",
-    "LICENSE",
-    "docs/streaming-pdf-rotation.md",
-];
+///
+/// A standing obligation comes with that, and it is the cost of deciding on the
+/// tree rather than on the path. This list is now measured against three
+/// different core trees, and it has to be true of all three at once: the pinned
+/// `COUNTERPART_REV` that this repo's CI clones, the PR head that libviprs' own
+/// Integration Tests job checks out, and whatever sits at `../libviprs` locally
+/// when the hook runs at pre-push time. They agree today. They stop agreeing
+/// the moment the pin lags `main` across a commit that changes whether a
+/// `.github/` or `docs/` path is read, because then one tree says inert and
+/// another says read while this list can only say one of them. So a commit that
+/// adds or drops an `include_str!` on one of those paths has to move the pin in
+/// the same wave rather than after it.
+const INERT_IN_LIBVIPRS: &[&str] = &[".gitignore", "LICENSE", "docs/streaming-pdf-rotation.md"];
 
 /// The skip list may only hold paths nothing reads, and the only way to know
 /// that is to run every path there is through it.
@@ -373,8 +396,14 @@ fn a_doc_a_test_includes_is_read_and_one_nothing_includes_is_inert() {
 /// The skip list decides nothing on its own; the hook does. So install the
 /// hook, push at it, and read the answer off the run.
 ///
-/// These are the six rows the PR body reported by hand, in the tree, where a
+/// These are the rows the PR body used to report by hand, in the tree, where a
 /// change to `inert_path` has to face them.
+///
+/// The `.github/` pair is load-bearing and easy to drop as redundant. One row
+/// expects a workflow nothing reads to skip and the next expects a workflow a
+/// test reads to run, and only the second one can tell this hook apart from a
+/// revert to deciding `.github/` on the prefix, because a prefix rule agrees
+/// with the first row.
 #[test]
 fn the_hook_skips_and_runs_the_way_the_list_says() {
     let ws = Workspace::new();
@@ -389,6 +418,20 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
         (
             "tests/reads_a_doc.rs",
             "const DOC: &str = include_str!(\"../docs/read-by-a-test.md\");\n",
+        ),
+        // The same pairing for `.github/`, and it is the row that tells this
+        // PR's hook apart from the one it replaces. Without a test in the tree
+        // pulling a workflow in, every `.github/` row here expects
+        // `should_run=false`, which a hook that answers "inert" on the prefix
+        // alone also says, so reverting the fix left this whole test green.
+        (
+            ".github/workflows/read-by-a-test.yml",
+            "name: read-by-a-test\n",
+        ),
+        (
+            "tests/reads_a_workflow.rs",
+            "const WORKFLOW: &str = \
+             include_str!(\"../.github/workflows/read-by-a-test.yml\");\n",
         ),
         ("src/lib.rs", "// stand-in\n"),
         ("tools/run-tests.sh", STUB_RUN_TESTS),
@@ -430,7 +473,23 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
             ".github/workflows/ci.yml",
             "name: ci\njobs: {}\n",
             false,
-            "no test reads the core checkout's workflows",
+            "nothing in THIS stand-in tree pulls it in. The real core checkout \
+             is the other way round, and deliberately so: its own guards read \
+             all three of its workflows with include_str!, so there the same \
+             push runs the suite. Both answers come from the scan rather than \
+             from the .github/ prefix, which is the whole point",
+        ),
+        (
+            "libviprs",
+            ".github/workflows/read-by-a-test.yml",
+            "name: read-by-a-test\njobs: {}\n",
+            true,
+            "tests/reads_a_workflow.rs pulls it in with include_str!, which is \
+             the shape of the real core checkout, where ci.yml, merge-gate.yml \
+             and publish.yml are all read that way. This is the row that fails \
+             if .github/ goes back to answering inert on the prefix: the row \
+             above it says false and a prefix rule says false too, so the two \
+             hooks are indistinguishable without this one",
         ),
         (
             "libviprs",
