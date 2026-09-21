@@ -23,6 +23,33 @@ set -euo pipefail
 # not trust, LIBVIPRS_PREPUSH_ALL=1 first.
 # ---------------------------------------------------------------------------
 
+# bash 3.2.57 is still both /bin/bash and /bin/sh on macOS, and its command
+# substitution scanner cannot parse a `case` inside "$( ... )": the `)` that
+# closes a pattern closes the substitution instead. This hook was bitten by
+# exactly that. The `./*)` and `../*)` patterns that used to live inside the
+# include_str! scan killed the substitution, the variable came back holding the
+# error text, and every path in the falling-through arm answered inert, so a
+# core push touching only .github/ or docs/ skipped the suite. That is issue
+# #223 all over again, on the file that exists to stop it.
+#
+# The scan no longer has a `case` in it, so the parse is fixed rather than
+# worked around. The floor stays because the failure mode is the problem: the
+# substitution died silently, `|| true` swallowed the status, and the hook went
+# on to give confident wrong answers. A hook that cannot do its job has to say
+# so and stop, not pass.
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+    echo "pre-push: this hook needs bash 4 or newer, and it is running under" >&2
+    echo "  ${BASH_VERSION:-an unknown shell}" >&2
+    echo "" >&2
+    echo "bash 3.2 mis-parses constructs this hook relies on and fails silently" >&2
+    echo "when it does, which makes every skip decision below untrustworthy." >&2
+    echo "Refusing the push rather than guessing." >&2
+    echo "" >&2
+    echo "Install a newer bash (brew install bash) and make sure it comes first" >&2
+    echo "on PATH, since the shebang here is /usr/bin/env bash." >&2
+    exit 1
+fi
+
 # A repo's main checkout and all of its linked worktrees share one hooks
 # directory, and git invokes the hook with $0 inside that shared directory.
 # Anything resolved from $0 is therefore the main checkout, whichever tree is
@@ -172,20 +199,14 @@ inert_path() {
     if [ -z "${INCLUDED_BY_A_TEST+set}" ]; then
         INCLUDED_BY_A_TEST=""
         if [ -n "${TREE:-}" ] && [ -d "$TREE/tests" ]; then
+            # The leading ./ and ../ steps come off in the sed, not in a shell
+            # loop. A `case` here would be inside "$( ... )", which bash 3.2
+            # cannot parse: see the version floor at the top of this file for
+            # what that cost.
             INCLUDED_BY_A_TEST="$(
                 { find "$TREE/tests" -type f -name '*.rs' \
                     -exec grep -ho 'include_str!("[^"]*")' {} + 2>/dev/null || true; } |
-                sed -e 's/^include_str!("//' -e 's/")$//' |
-                while IFS= read -r literal; do
-                    while :; do
-                        case "$literal" in
-                            ./*)  literal="${literal#./}" ;;
-                            ../*) literal="${literal#../}" ;;
-                            *)    break ;;
-                        esac
-                    done
-                    printf '%s\n' "$literal"
-                done
+                sed -e 's/^include_str!("//' -e 's/")$//' -e 's|^\(\.\{1,2\}/\)*||'
             )" || true
         fi
     fi
