@@ -116,8 +116,6 @@ case "$ARCH" in
         exit 1
         ;;
 esac
-
-IMAGE_NAME="libviprs-tests:local"
 # ---------------------------------------------------------------------------
 # Resolve the trees under test
 # ---------------------------------------------------------------------------
@@ -178,15 +176,29 @@ TESTS_DIR="$(cd "$TESTS_DIR" && pwd -P)"
 # several trees can be gated side by side. So the name carries a suffix derived
 # from the trees under test, and RUN_TESTS_CONTAINER_NAME overrides it outright.
 #
-# The image tag is still shared, which is a real remaining collision: two runs
-# over different trees build into `libviprs-tests:local` and the second wins.
-# Left alone here because it wants more thought than a name suffix.
-CONTAINER_NAME="${RUN_TESTS_CONTAINER_NAME:-}"
-if [ -z "$CONTAINER_NAME" ]; then
-    _tree_tag="$(printf '%s\n%s\n' "${LIBVIPRS_DIR:-}" "${TESTS_DIR:-}" \
-        | cksum | cut -d' ' -f1)"
-    CONTAINER_NAME="libviprs-tests-run-${_tree_tag}"
-fi
+# The image tag and the build context needed exactly the same treatment, and
+# for a while only the container name had it. That gap was not theoretical: in
+# a four-lane campaign the shared context held one lane's tree while two others
+# were mid-gate against it, and a third lane's new test file was not staged at
+# all. `rsync -a --delete` means the last run to stage owns the source and the
+# rest silently test it.
+#
+# What makes it worse than a collision is that nothing looks wrong. The plan
+# prints the caller's own path and sha, so a contaminated run is attributed to
+# the right commit and its green is indistinguishable from a real one.
+#
+# The image tag is not optional to fix once the context is fixed, because the
+# image is built FROM the context. Sharing the tag re-shares the source through
+# the back door, so a caller who sets RUN_TESTS_CONTEXT_DIR and nothing else is
+# still exposed.
+#
+# All three are derived from one tag over the two tree paths, so they move
+# together and a warm run over the same trees still finds its own cache.
+_tree_tag="$(printf '%s\n%s\n' "${LIBVIPRS_DIR:-}" "${TESTS_DIR:-}" \
+    | cksum | cut -d' ' -f1)"
+CONTAINER_NAME="${RUN_TESTS_CONTAINER_NAME:-libviprs-tests-run-${_tree_tag}}"
+IMAGE_NAME="${RUN_TESTS_IMAGE_NAME:-libviprs-tests:local-${_tree_tag}}"
+CONTEXT_ROOT="${RUN_TESTS_CONTEXT_DIR:-$SELF_DIR/tmp/build-context-${_tree_tag}}"
 
 if [ ! -f "$TESTS_DIR/Dockerfile" ]; then
     echo "Error: Dockerfile not found at $TESTS_DIR/Dockerfile"
@@ -329,6 +341,8 @@ fi
 echo "Test plan (${ARCH_LABEL}):"
 print_trees
 echo "  image:          $IMAGE_NAME"
+echo "  container:      $CONTAINER_NAME"
+echo "  context:        $CONTEXT_ROOT"
 echo "  budget:         --memory=$DOCKER_MEMORY, $BUILD_JOBS cargo build job(s)$MEMORY_NOTE"
 
 if [ "$PRINT_PLAN" = true ]; then
@@ -382,7 +396,8 @@ fi
 # reads it from next to the -f Dockerfile, which comes from the tree under
 # test.
 
-CONTEXT_ROOT="${RUN_TESTS_CONTEXT_DIR:-$SELF_DIR/tmp/build-context}"
+# CONTEXT_ROOT is resolved next to CONTAINER_NAME and IMAGE_NAME above, so the
+# three cannot drift apart.
 
 stage_tree() {
     local src="$1"
