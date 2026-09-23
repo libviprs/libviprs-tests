@@ -40,6 +40,25 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates shellcheck \
  && rm -rf /var/lib/apt/lists/*
 
+# rustfmt and clippy are here for the same reason as shellcheck above, and they
+# are the sharper version of it. `rust:latest` used to ship both in its default
+# profile, so nothing in this file ever had to ask, and the omission was not a
+# decision anybody made. It stopped shipping them: 1.98.1 installs exactly
+# `cargo`, `rust-std` and `rustc`.
+#
+# CI never saw it, because libviprs' ci.yml uses `dtolnay/rust-toolchain@stable`
+# and that action installs both. So the local mirror and CI quietly disagreed
+# about what a toolchain contains, which is the one thing this image exists not
+# to do. What it looked like from the outside was `install_hooks_pdfium_scope`
+# failing 6 of 7 cells on every tree, ours included, with `'cargo-fmt' is not
+# installed for the toolchain`, because the hook that test drives runs
+# `cargo fmt -- --check`. A gate that cannot pass for any input is not a gate.
+#
+# Pinning the tag instead would hide the next drift rather than catch it. The
+# components are named here so the image says what it needs, and
+# tests/image_has_the_toolchain_the_hooks_run.rs holds it to that.
+RUN rustup component add rustfmt clippy
+
 # Install PDFium shared library
 COPY --from=pdfium /opt/pdfium/lib/libpdfium.so /usr/local/lib/libpdfium.so
 RUN ldconfig
