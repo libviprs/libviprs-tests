@@ -58,7 +58,8 @@ fn tests_root() -> PathBuf {
 /// reads fall back to `0`. So this runs the same in the CI image and on a
 /// laptop, which a test about concurrency had better do.
 fn fake_tree(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("viprs-gate-isolation-{tag}-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("viprs-gate-isolation-{tag}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create fake tree");
     fs::write(
