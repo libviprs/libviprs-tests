@@ -198,7 +198,22 @@ const INERT_IN_LIBVIPRS_TESTS: &[&str] = &["LICENSE"];
 /// another says read while this list can only say one of them. So a commit that
 /// adds or drops an `include_str!` on one of those paths has to move the pin in
 /// the same wave rather than after it.
-const INERT_IN_LIBVIPRS: &[&str] = &[".gitignore", "LICENSE", "docs/streaming-pdf-rotation.md"];
+const INERT_IN_LIBVIPRS: &[&str] = &[
+    ".gitignore",
+    "LICENSE",
+    "docs/streaming-pdf-rotation.md",
+    // Added by the chroma-gate work. Nothing reads it: `encode_jpeg.rs`
+    // mentions it in two doc comments and no test pulls it in, so a push
+    // that changes only this file genuinely runs nothing that could fail.
+    //
+    // Worth knowing that its sibling is not in this position.
+    // `docs/pmtiles-benchmarks.md` comes in through `include_str!` in
+    // `pmtiles_release_readiness.rs`, where four cells hold it to naming
+    // tests that exist and documenting every exported column. This file
+    // has no such guard, so its numbers can go stale silently. Pinning it
+    // here records that as a deliberate gap rather than closing it.
+    "docs/tile-codec-benchmarks.md",
+];
 
 /// The skip list may only hold paths nothing reads, and the only way to know
 /// that is to run every path there is through it.
