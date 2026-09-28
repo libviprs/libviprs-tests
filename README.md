@@ -164,7 +164,8 @@ entry for each.
 - Every `cargo clippy` pass that repo's `ci.yml` runs, feature matrix
   expanded, so a feature-gated regression cannot pass locally and fail
   remotely. For this repo that is the default cell plus `object-store-sink`,
-  `packfile`, `tracing` and `jxl`, then `./tools/run_ported_cells.sh --clippy`.
+  `packfile`, `tracing`, `jxl`, `avif`, `svg`, `jp2k` and `pdfium-static`,
+  then `./tools/run_ported_cells.sh --clippy`.
 - The lockstep is enforced rather than asked for:
   `tests/install_hooks_mirror_ci.rs` runs the generated hook with a recording
   stand-in for `cargo` and compares what it invokes against the workflow

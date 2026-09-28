@@ -51,6 +51,21 @@ tracing = ["libviprs/tracing"]
 # whether anything is pinned at all. `tools/run_ported_cells.sh` runs it both
 # ways, the same shape `test_dz_zip` uses for `packfile`.
 jxl = ["libviprs/jxl"]
+# The rest of the core's capability-bearing features, forwarded under the same
+# names so this suite can be built with any decoder the core can be built with
+# (libviprs/libviprs-cli#64). Before these existed there was no way to compile
+# the suite with an AVIF, SVG or JPEG 2000 decoder at all, which is why nothing
+# here noticed the CLI could not reach them either. `tests/cli_features.rs`
+# builds the CLI with each of them; the codec cells that drive the library
+# directly arrive with libviprs/libviprs-tests#230.
+avif = ["libviprs/avif"]
+svg = ["libviprs/svg"]
+jp2k = ["libviprs/jp2k"]
+# Links PDFium statically instead of binding `libpdfium.so` at runtime. Implies
+# `pdfium`, as the core's own `pdfium-static` does. Linking a test binary under
+# it needs a static `libpdfium.a` and `PDFIUM_STATIC_LIB_PATH`, which no job
+# here has, so CI lints it (clippy compiles without linking) and runs nothing.
+pdfium-static = ["pdfium", "libviprs/pdfium-static"]
 
 [dependencies]
 libviprs = { path = "../libviprs" }

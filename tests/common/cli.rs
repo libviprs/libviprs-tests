@@ -228,6 +228,174 @@ fn cli_sources_newer_than(bin: &Path, cli: &Path) -> bool {
     newer
 }
 
+// ---------------------------------------------------------------------------
+// Builds with an explicit feature set (libviprs/libviprs-cli#64).
+// ---------------------------------------------------------------------------
+
+/// Whether the CLI *source* is laid down, which is what [`viprs_bin_for`]
+/// needs: a pre-built `$VIPRS_BIN` is one configuration, and a cell that asks
+/// for a particular feature set cannot be answered by it.
+///
+/// Same false-green guard as [`cli_available`]: under `$VIPRS_REQUIRE_CLI=1`
+/// an absent sibling panics instead of skipping.
+pub fn cli_source_available() -> bool {
+    if cli_dir().join("Cargo.toml").is_file() {
+        return true;
+    }
+    if require_cli() {
+        panic!(
+            "VIPRS_REQUIRE_CLI=1 but the libviprs-cli sibling is absent at {}: the \
+             feature-configuration cells build the CLI themselves and would SKIP to a \
+             false green. $VIPRS_BIN does not help here, because it is one build and \
+             these cells need several.",
+            cli_dir().display(),
+        );
+    }
+    false
+}
+
+/// The feature names `libviprs-cli/Cargo.toml` declares, `default` included.
+///
+/// Read before building so that a cell asking for a feature the CLI does not
+/// have fails on an assertion naming it, rather than on a `cargo build` exit
+/// status with the reason buried in its stderr.
+pub fn cli_declared_features() -> Vec<String> {
+    let manifest = cli_dir().join("Cargo.toml");
+    let text = fs::read_to_string(&manifest)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", manifest.display()));
+    let mut out = Vec::new();
+    let mut inside = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            inside = trimmed == "[features]";
+            continue;
+        }
+        if !inside || trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some((name, _)) = trimmed.split_once('=') {
+            out.push(name.trim().to_string());
+        }
+    }
+    out
+}
+
+/// Build `viprs` with an explicit feature set and return the path of a copy
+/// kept for that configuration alone.
+///
+/// `default_features` false means `--no-default-features`; `features` is
+/// passed as one `--features` list. Each configuration is built at most once
+/// per test process, and across processes the copy is reused until a CLI
+/// source is newer than it, the same rule [`viprs_bin`] follows.
+///
+/// These builds go to `<cli>/target/feature-builds`, never to the
+/// `<cli>/target` [`viprs_bin`] uses. Cargo writes every configuration to the
+/// same `release/viprs` path, so building a `full` binary where the shared
+/// one lives would replace the `--no-default-features` binary every other CLI
+/// cell runs, and the mtime check in [`viprs_bin`] would then take the
+/// replacement for an up-to-date build.
+///
+/// # Panics
+///
+/// If the CLI is absent (call [`cli_source_available`] first), if it does
+/// not declare one of `features`, or if the build fails.
+pub fn viprs_bin_for(default_features: bool, features: &[&str]) -> PathBuf {
+    static BINS: OnceLock<std::sync::Mutex<std::collections::BTreeMap<String, PathBuf>>> =
+        OnceLock::new();
+    let key = config_key(default_features, features);
+    // Held across the build on purpose: two cells asking for the same
+    // configuration must not both build it, and builds serialise on cargo's
+    // target lock anyway.
+    let mut bins = BINS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(bin) = bins.get(&key) {
+        return bin.clone();
+    }
+    let bin = build_viprs_config(default_features, features, &key);
+    bins.insert(key, bin.clone());
+    bin
+}
+
+/// A file-name-safe name for one feature configuration: `default` or `bare`,
+/// then `+feature` for each requested feature in the order given.
+fn config_key(default_features: bool, features: &[&str]) -> String {
+    let mut key = String::from(if default_features { "default" } else { "bare" });
+    for f in features {
+        key.push('+');
+        key.push_str(f);
+    }
+    key
+}
+
+fn build_viprs_config(default_features: bool, features: &[&str], key: &str) -> PathBuf {
+    let cli = cli_dir();
+    let manifest = cli.join("Cargo.toml");
+    assert!(
+        manifest.is_file(),
+        "libviprs-cli not found at {} (set $VIPRS_CLI_DIR); call \
+         cli_source_available() to skip when the sibling checkout is absent",
+        cli.display()
+    );
+    let declared = cli_declared_features();
+    for f in features {
+        assert!(
+            declared.iter().any(|d| d == f),
+            "libviprs-cli at {} declares no `{f}` feature, so a viprs built with it \
+             cannot exist. Declared: {declared:?}",
+            cli.display()
+        );
+    }
+
+    let target_dir = cli.join("target/feature-builds");
+    let bin = target_dir.join("bins").join(format!("viprs-{key}"));
+    let _lock = BuildLock::acquire(target_dir.join(".viprs-build.lock"));
+    if bin.is_file() && !cli_sources_newer_than(&bin, &cli) {
+        return bin;
+    }
+
+    let mut cmd = Command::new(cargo_bin());
+    cmd.args(["build", "--release", "--bin", "viprs"])
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .arg("--target-dir")
+        .arg(&target_dir);
+    if !default_features {
+        cmd.arg("--no-default-features");
+    }
+    if !features.is_empty() {
+        cmd.arg("--features").arg(features.join(","));
+    }
+    // Same reason as `build_viprs_once`: not this crate's lints to enforce.
+    let status = cmd
+        .env_remove("RUSTFLAGS")
+        .status()
+        .unwrap_or_else(|e| panic!("failed to spawn `cargo build` for viprs-{key}: {e}"));
+    assert!(
+        status.success(),
+        "`cargo build` of viprs-{key} failed: {status}"
+    );
+
+    let built = target_dir.join("release/viprs");
+    let staged = bin.with_extension("partial");
+    fs::create_dir_all(bin.parent().expect("bins dir has a parent"))
+        .unwrap_or_else(|e| panic!("cannot create {}: {e}", target_dir.display()));
+    fs::copy(&built, &staged)
+        .unwrap_or_else(|e| panic!("cannot copy {} aside: {e}", built.display()));
+    fs::rename(&staged, &bin).unwrap_or_else(|e| panic!("cannot move viprs-{key} into place: {e}"));
+    bin
+}
+
+/// Run a specific `viprs` binary and capture its [`Output`].
+pub fn run_bin(bin: &Path, args: &[&str]) -> Output {
+    Command::new(bin)
+        .args(args)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run {} {args:?}: {e}", bin.display()))
+}
+
 /// Run `viprs <args…>` and capture its [`Output`]. Callers pass absolute paths
 /// so the child's working directory is irrelevant.
 pub fn run_viprs(args: &[&str]) -> Output {

@@ -1298,3 +1298,48 @@ reconcile them.
 | `arithb/complex_conj_expected.v` | FOURIER (eps 1e-6) | `vips complex cpx_c.v cconj.v conj` then reinterpret |
 | `arithb/complexget_real_expected.v` | FOURIER (eps 1e-6) | `vips complexget cpx_c.v complexget_real_expected.v real` |
 | `arithb/complexget_imag_expected.v` | FOURIER (eps 1e-6) | `vips complexget cpx_c.v complexget_imag_expected.v imag` |
+
+---
+
+# feature-gated codec fixtures (`features/`)
+
+These four files are **inputs**, not references. `tests/cli_features.rs`
+(libviprs/libviprs-cli#64) hands each one to a `viprs` built without the
+matching cargo feature, which has to refuse it naming the feature, and to one
+built with only that feature, which has to decode it. Three of them are
+lossless encodes of `tests/fixtures/canonical_input.png` (256×256 RGBA8), so
+the decode is checked pixel for pixel against that PNG at tolerance 0. SVG has
+no lossless route from a raster, so that one is written by hand.
+
+I generated them on 2026-09-27 in a throw-away `alpine:edge` container on a
+native x86_64 host, with nothing installed but what the commands need.
+
+- **Tool**: `vips-8.18.7` (Alpine `vips-tools`, `vips-heif`, `vips-jxl`
+  8.18.7-r0), with libheif 1.23.4 + aom 3.15.1 behind `heifsave`, libjxl
+  0.11.2 behind `jxlsave`, OpenJPEG 2.5.4 behind `jp2ksave`.
+- **Cross-check**: librsvg 2.62.3 behind `svgload`.
+
+## Exact commands
+
+```
+apk add vips-tools vips-heif vips-jxl libheif-aom libheif-dav1d
+vips copy canonical_input.png "features/canonical.avif[lossless,keep=none]"
+vips copy canonical_input.png "features/canonical.jxl[lossless,keep=none]"
+vips copy canonical_input.png "features/canonical.jp2[lossless,keep=none]"
+printf '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48" viewBox="0 0 64 48"><rect width="64" height="48" fill="#ff0000"/><rect x="16" y="8" width="32" height="16" fill="#0000ff"/></svg>\n' > features/canonical.svg
+```
+
+`libheif-aom` is not optional: without an AV1 encoder plugin `heifsave`
+fails with "Unsupported compression".
+
+## What I measured before committing them
+
+| file | bytes | sha256 | check |
+|---|---|---|---|
+| `features/canonical.avif` | 3251 | `3087a733e98ecd0082c113fe1166553e6cb716739f26b0275dfdff8b0f5b9720` | `vips` reads it back as 256×256 uchar 4-band, max abs diff 0 against `canonical_input.png` |
+| `features/canonical.jxl` | 252 | `46c816fe2688b6a06c2a4029d0480aee9f44211dbf53832ac68cbd391d1f0912` | same, max abs diff 0 |
+| `features/canonical.jp2` | 6977 | `0482781c6e3aa55fd2e362c9dd2106bf57352c2efb8d3b0c6d23cf99cdeed993` | same, max abs diff 0 |
+| `features/canonical.svg` | 193 | `fac44f76c0fb9adb3bd1ebfd0d7af5824dc51c31f239e8e7f1831009af601396` | `vips getpoint` gives red at (4,4), (15,7) and (48,24), blue at (32,16), (16,8) and (47,23), so every rectangle edge is on a pixel boundary and there is no antialiasing to tolerate |
+
+The max abs diff is `vips subtract` of the two decodes, then `vips abs`, then
+`vips max`.

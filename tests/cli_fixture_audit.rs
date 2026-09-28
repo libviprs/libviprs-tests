@@ -637,6 +637,14 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "iocleanup/copy_pgm16_expected.pgm",
     // #37 16-bit PNG save-path reference (decode-compare).
     "iocleanup/copy_png16_expected.png",
+    // ---- feature-gated codec inputs (cli_features.rs), libviprs-cli#64 ----
+    // Lossless encodes of tests/fixtures/canonical_input.png, plus one
+    // hand-written SVG. Inputs rather than references: each is what a build
+    // without its feature must refuse and a build with it must decode.
+    "features/canonical.avif",
+    "features/canonical.jxl",
+    "features/canonical.jp2",
+    "features/canonical.svg",
 ];
 
 #[test]
