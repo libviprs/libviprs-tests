@@ -193,6 +193,53 @@ const EXPECTED: &[(&str, Coverage)] = &[
              `--features 'ported_tests jxl'` (libviprs#500)",
         ),
     ),
+    (
+        "avif",
+        cov(
+            true,
+            None,
+            false,
+            "forwards the core's AVIF decoder so the suite can be built with \
+             it (libviprs/libviprs-cli#64). Nothing here is gated on it yet, \
+             so the lint cell is the whole of what it needs; the codec cells \
+             that run under it arrive with #230",
+        ),
+    ),
+    (
+        "svg",
+        cov(
+            true,
+            None,
+            false,
+            "forwards the core's SVG rasteriser, same shape as `avif`: \
+             nothing gated on it yet, so a lint cell and no run cell until \
+             #230's codec cells need one",
+        ),
+    ),
+    (
+        "jp2k",
+        cov(
+            true,
+            None,
+            false,
+            "forwards the core's JPEG 2000 codec, same shape as `avif`: \
+             nothing gated on it yet, so a lint cell and no run cell until \
+             #230's codec cells need one",
+        ),
+    ),
+    (
+        "pdfium-static",
+        cov(
+            true,
+            None,
+            false,
+            "links PDFium statically, which needs a static libpdfium.a and \
+             PDFIUM_STATIC_LIB_PATH that no job has, so nothing can link a \
+             test binary under it. clippy compiles every target without \
+             linking, so the lint cell still type-checks everything the \
+             feature turns on, and that is all CI can honestly claim",
+        ),
+    ),
 ];
 
 /// The feature names declared in `Cargo.toml`'s `[features]` table, in

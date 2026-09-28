@@ -94,7 +94,7 @@ jobs:
         # feature-gated module can no longer ship green just because the default
         # harness never compiled that code. `-Dwarnings` means every gated test
         # target is fully type-checked and linted here.
-        feature: [object-store-sink, packfile, tracing, jxl]
+        feature: [object-store-sink, packfile, tracing, jxl, avif, svg, jp2k, pdfium-static]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/clone-counterpart
@@ -133,7 +133,11 @@ jobs:
         # only job that lays the CLI sibling down, and because VIPRS_REQUIRE_CLI
         # above is what stops its skip becoming a false green
         # (tests/pmtiles_ci_wiring.rs holds CI to both halves of that).
-        run: cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff --test cli_pmtiles
+        # cli_features is here for the same reason. It builds the CLI seven
+        # times, once per feature configuration it checks, into a target dir of
+        # its own, so it never replaces the --no-default-features binary the
+        # cells above share (libviprs/libviprs-cli#64).
+        run: cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff --test cli_pmtiles --test cli_features
 
   hook-mirror:
     name: Hook Mirror (every repo in the org)
