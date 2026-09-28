@@ -88,7 +88,7 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 # ===========================================================================
-# FOREIGN (codec load/save) references — tests/cli_foreign_diff.rs,
+# FOREIGN (codec load/save) references for tests/cli_foreign_diff.rs,
 # libviprs/libviprs-cli#65.
 #
 # Defined up here, and called at the very end of the script, so that
