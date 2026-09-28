@@ -87,6 +87,195 @@ novector_vips() { VIPS_NOVECTOR=1 "$VIPS" "$@"; }
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# ===========================================================================
+# FOREIGN (codec load/save) references — tests/cli_foreign_diff.rs,
+# libviprs/libviprs-cli#65.
+#
+# Defined up here, and called at the very end of the script, so that
+# `GEN_ONLY=foreign ./tools/gen_cli_expected.sh` can mint just these without
+# regenerating every other family's references against whatever vips happens
+# to be installed today. The other families say 8.18.4; this section was first
+# generated with 8.18.6 and records whichever version ran it.
+#
+# Every command runs through `fx_run`, which executes it from inside
+# tests/fixtures/cli/ and appends it, verbatim, to the provenance section, so
+# the recorded commands are the ones that ran rather than a copy of them.
+# ===========================================================================
+gen_foreign() {
+    local FOR="$FIX_ROOT/foreign"
+    local CMDS="$TMP/foreign-commands.txt"
+    local CORE_DIR="${VIPRS_CORE_DIR:-$REPO_ROOT/../libviprs}"
+    local CORE_REV
+    CORE_REV="$(git -C "$CORE_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+    mkdir -p "$FOR"
+    : > "$CMDS"
+
+    fx_run() {
+        printf '%s\n' "$*" >> "$CMDS"
+        (cd "$FIX_ROOT" && eval "$*")
+    }
+
+    # Drop the `#vips2ppm - <timestamp>` comment vips writes into a PPM header,
+    # and nothing else, so the committed reference is deterministic.
+    fx_strip_ppm_comment() {
+        python3 - "$1" "$2" <<'PY'
+import sys
+lines = open(sys.argv[1], "rb").read().split(b"\n")
+kept = [l for i, l in enumerate(lines) if not (i < 3 and l.startswith(b"#"))]
+assert len(kept) == len(lines) - 1, "expected exactly one header comment"
+open(sys.argv[2], "wb").write(b"\n".join(kept))
+PY
+    }
+
+    echo "==> [foreign] inputs derived from canonical_input.png"
+    # rgb32: a 32x32 window of the canonical input straddling all four
+    # quadrants, alpha dropped. The uncompressed containers (TIFF strips, FITS,
+    # PPM, CSV, matrix) are written from this so no reference is 256 KiB.
+    fx_run "\"$VIPS\" extract_area ../canonical_input.png $TMP/win.v 112 112 32 32"
+    fx_run "\"$VIPS\" extract_band $TMP/win.v foreign/rgb32.png 0 --n 3"
+    fx_run "\"$VIPS\" colourspace foreign/rgb32.png foreign/gray32.png b-w"
+    fx_run "\"$VIPS\" colourspace foreign/rgb32.png foreign/scrgb32.v scrgb"
+    # float32: the same window as sRGB-tagged float. radsave gets this rather
+    # than scrgb32, because vips converts an scRGB image to sRGB before it
+    # writes one and that conversion is not what the saver cell is about.
+    fx_run "\"$VIPS\" cast foreign/rgb32.png foreign/float32.v float"
+    # Three distinct 32x32 pages for the page/frame cells: the window, its
+    # 90-degree rotation and its horizontal flip, stacked 32x96.
+    fx_run "\"$VIPS\" rot foreign/rgb32.png $TMP/p1.v d90"
+    fx_run "\"$VIPS\" flip foreign/rgb32.png $TMP/p2.v horizontal"
+    fx_run "\"$VIPS\" arrayjoin \"foreign/rgb32.png $TMP/p1.v $TMP/p2.v\" $TMP/pages.v --across 1"
+
+    echo "==> [foreign] save references"
+    fx_run "\"$VIPS\" jpegsave ../canonical_input.png foreign/jpegsave_default.jpg --keep none"
+    fx_run "\"$VIPS\" jpegsave ../canonical_input.png foreign/jpegsave_q95.jpg --Q 95 --keep none"
+    fx_run "\"$VIPS\" jpegsave ../canonical_input.png foreign/jpegsave_q50_444.jpg --Q 50 --subsample-mode off --keep none"
+    fx_run "\"$VIPS\" pngsave ../canonical_input.png foreign/pngsave_default.png --keep none"
+    fx_run "\"$VIPS\" pngsave ../canonical_input.png foreign/pngsave_interlace.png --interlace --keep none"
+    fx_run "\"$VIPS\" pngsave ../canonical_input.png foreign/pngsave_palette.png --palette --keep none"
+    fx_run "\"$VIPS\" pngsave ../canonical_input.png foreign/pngsave_palette_bd2.png --palette --bitdepth 2 --keep none"
+    fx_run "\"$VIPS\" tiffsave ../canonical_input.png foreign/tiffsave_deflate.tif --compression deflate --keep none"
+    fx_run "\"$VIPS\" webpsave ../canonical_input.png foreign/webpsave_lossless.webp --lossless --keep none"
+    fx_run "\"$VIPS\" gifsave ../canonical_input.png foreign/gifsave_default.gif --keep none"
+    fx_run "\"$VIPS\" gifsave ../canonical_input.png foreign/gifsave_bd2.gif --bitdepth 2 --keep none"
+    fx_run "\"$VIPS\" gifsave ../canonical_input.png foreign/gifsave_dither0.gif --dither 0 --keep none"
+    fx_run "\"$VIPS\" jxlsave ../canonical_input.png foreign/jxlsave_lossless.jxl --lossless --keep none"
+    fx_run "\"$VIPS\" jp2ksave ../canonical_input.png foreign/jp2ksave_lossless.jp2 --lossless --keep none"
+    fx_run "\"$VIPS\" jp2ksave ../canonical_input.png foreign/jp2ksave_tile64x128.jp2 --lossless --tile-width 64 --tile-height 128 --keep none"
+    fx_run "\"$VIPS\" fitssave foreign/rgb32.png foreign/fitssave.fits"
+    fx_run "\"$VIPS\" radsave foreign/float32.v foreign/radsave.hdr"
+    fx_run "\"$VIPS\" uhdrsave foreign/scrgb32.v foreign/uhdrsave.jpg"
+    fx_run "\"$VIPS\" csvsave foreign/gray32.png foreign/csvsave.csv"
+    fx_run "\"$VIPS\" matrixsave foreign/gray32.png foreign/matrixsave.mat"
+    fx_run "\"$VIPS\" ppmsave foreign/rgb32.png $TMP/ppmsave_raw.ppm"
+    # Only the `#vips2ppm - <timestamp>` comment line goes, so the committed
+    # reference is deterministic; every other byte is vips's.
+    fx_run "fx_strip_ppm_comment $TMP/ppmsave_raw.ppm foreign/ppmsave.ppm"
+
+    echo "==> [foreign] multi-page sources"
+    fx_run "\"$VIPS\" tiffsave $TMP/pages.v foreign/pages.tif --page-height 32 --compression lzw --keep none"
+    fx_run "\"$VIPS\" gifsave $TMP/pages.v foreign/pages.gif --page-height 32 --keep none"
+    fx_run "\"$VIPS\" webpsave $TMP/pages.v foreign/pages.webp --page-height 32 --lossless --keep none"
+
+    echo "==> [foreign] inputs copied from the core's oracle captures ($CORE_REV)"
+    fx_run "cp \"$CORE_DIR/oracle-captures/foreign-exr/fixtures/rgba_half_zip.exr\" foreign/openexr_rgba_half.exr"
+    fx_run "cp \"$CORE_DIR/oracle-captures/foreign-nifti/fixtures/dt2_uint8.nii\" foreign/nifti_uint8.nii"
+    fx_run "cp \"$CORE_DIR/oracle-captures/foreign-analyze/fixtures/base_2d_uchar.hdr\" foreign/analyze_uchar.hdr"
+    fx_run "cp \"$CORE_DIR/oracle-captures/foreign-analyze/fixtures/base_2d_uchar.img\" foreign/analyze_uchar.img"
+    fx_run "cp \"$CORE_DIR/oracle-captures/foreign-mat/fixtures/base_2x3_uint8.mat\" foreign/matlab_uint8.mat"
+    fx_run "cp \"$CORE_DIR/oracle-captures/foreign-uhdr/fixtures/uhdr.jpg\" foreign/uhdr_source.jpg"
+
+    echo "==> [foreign] load references"
+    # Written with every PNG row filter tried and maximum deflate. The pixels
+    # are what matter and they do not change; the files get up to 20x smaller.
+    fx_run "\"$VIPS\" copy foreign/jpegsave_default.jpg 'foreign/jpegload_expected.png[compression=9,filter=all]'"
+    fx_run "\"$VIPS\" jpegload foreign/jpegsave_default.jpg 'foreign/jpegload_shrink2_expected.png[compression=9,filter=all]' --shrink 2"
+    fx_run "\"$VIPS\" copy foreign/pngsave_default.png 'foreign/pngload_expected.png[compression=9,filter=all]'"
+    fx_run "\"$VIPS\" tiffload foreign/pages.tif 'foreign/tiffload_p0_expected.png[compression=9,filter=all]'"
+    fx_run "\"$VIPS\" tiffload foreign/pages.tif 'foreign/tiffload_p2_expected.png[compression=9,filter=all]' --page 2"
+    fx_run "\"$VIPS\" gifload foreign/pages.gif 'foreign/gifload_p1_expected.png[compression=9,filter=all]' --page 1"
+    fx_run "\"$VIPS\" gifload foreign/pages.gif 'foreign/gifload_all_expected.png[compression=9,filter=all]' --n -1"
+    fx_run "\"$VIPS\" webpload foreign/pages.webp 'foreign/webpload_p1_expected.png[compression=9,filter=all]' --page 1"
+    fx_run "\"$VIPS\" webpload foreign/pages.webp 'foreign/webpload_all_expected.png[compression=9,filter=all]' --n -1"
+    fx_run "\"$VIPS\" copy foreign/webpsave_lossless.webp 'foreign/webpload_expected.png[compression=9,filter=all]'"
+    fx_run "\"$VIPS\" copy features/canonical.jxl 'foreign/jxlload_expected.png[compression=9,filter=all]'"
+    fx_run "\"$VIPS\" copy features/canonical.jp2 'foreign/jp2kload_expected.png[compression=9,filter=all]'"
+    fx_run "\"$VIPS\" heifload features/canonical.avif 'foreign/heifload_expected.png[compression=9,filter=all]'"
+    fx_run "\"$VIPS\" svgload features/canonical.svg 'foreign/svgload_scale2_expected.png[compression=9,filter=all]' --scale 2"
+    fx_run "\"$VIPS\" svgload features/canonical.svg 'foreign/svgload_dpi144_expected.png[compression=9,filter=all]' --dpi 144"
+    fx_run "\"$VIPS\" copy foreign/fitssave.fits 'foreign/fitsload_expected.png[compression=9,filter=all]'"
+    fx_run "\"$VIPS\" rad2float foreign/radsave.hdr foreign/radload_expected.v"
+    fx_run "\"$VIPS\" csvload foreign/csvsave.csv $TMP/csv.v"
+    fx_run "\"$VIPS\" cast $TMP/csv.v foreign/csvload_expected.v float"
+    fx_run "\"$VIPS\" matrixload foreign/matrixsave.mat $TMP/mat.v"
+    fx_run "\"$VIPS\" cast $TMP/mat.v foreign/matrixload_expected.v float"
+    fx_run "\"$VIPS\" copy foreign/ppmsave.ppm 'foreign/ppmload_expected.png[compression=9,filter=all]'"
+    fx_run "\"$VIPS\" copy foreign/openexr_rgba_half.exr foreign/openexrload_expected.v"
+    fx_run "\"$VIPS\" analyzeload foreign/analyze_uchar.hdr 'foreign/analyzeload_expected.png[compression=9,filter=all]'"
+    fx_run "\"$VIPS\" matload foreign/matlab_uint8.mat 'foreign/matload_expected.png[compression=9,filter=all]'"
+    fx_run "\"$VIPS\" uhdrload foreign/uhdr_source.jpg 'foreign/uhdrload_expected.png[compression=9,filter=all]'"
+    # vips 8.18 has no niftiload (\`vips -l\` lists none, here or in the Debian
+    # and Alpine builds), so the NIfTI reference is the voxel list nifti_clib
+    # printed for this exact file in the core's capture
+    # (oracle-captures/foreign-nifti/oracle.json, datatype_roundtrip, code 2:
+    # "128 129 130 131 132 133", nx=2, ny=3), written through a text matrix.
+    fx_run "printf '2 3\\n128 129\\n130 131\\n132 133\\n' > $TMP/nifti.mat"
+    fx_run "\"$VIPS\" cast $TMP/nifti.mat 'foreign/niftiload_expected.png[compression=9,filter=all]' uchar"
+
+    echo "==> [provenance] foreign section of $FIX_ROOT/PROVENANCE.md"
+    local PROV="$FIX_ROOT/PROVENANCE.md"
+    # Replace this section in place rather than appending a second copy, so a
+    # rerun of GEN_ONLY=foreign leaves one.
+    if grep -q '^<!-- foreign:begin -->$' "$PROV" 2>/dev/null; then
+        awk '/^<!-- foreign:begin -->$/{skip=1} !skip{print} /^<!-- foreign:end -->$/{skip=0}' \
+            "$PROV" > "$TMP/prov.md"
+        cat "$TMP/prov.md" > "$PROV"
+    fi
+    {
+        echo '<!-- foreign:begin -->'
+        echo
+        echo '---'
+        echo
+        echo '# codec load/save references (`foreign/`)'
+        echo
+        echo 'Consumed by `tests/cli_foreign_diff.rs` (libviprs/libviprs-cli#65). Generated by'
+        echo '`GEN_ONLY=foreign ./tools/gen_cli_expected.sh`, which runs only this section.'
+        echo
+        echo "- **Oracle**: \`$VIPS_VERSION\` (\`$VIPS\`), NOT the 8.18.4 the families above"
+        echo '  were made with. Only this section was regenerated.'
+        echo "- **Core inputs** copied from libviprs \`$CORE_REV\`, \`oracle-captures/\`."
+        echo '- **NIfTI**: vips 8.18 has no `niftiload` in any build I could reach (Homebrew,'
+        echo '  Debian trixie 8.16.1, Alpine edge 8.18.7), so `niftiload_expected.png` holds'
+        echo '  the voxels nifti_clib printed for that file in the core capture; vips only'
+        echo '  writes the PNG.'
+        echo '- `features/canonical.{jxl,jp2,avif,svg}` are the #64 inputs, reused as load'
+        echo '  sources; their references here come from this oracle.'
+        echo
+        echo '## Exact commands (run from `tests/fixtures/cli/`, `$TMP` a scratch dir)'
+        echo
+        echo '```'
+        sed -e "s#\"$VIPS\"#vips#g" -e "s#$TMP#\$TMP#g" -e "s#$CORE_DIR#\$CORE#g" "$CMDS"
+        echo '```'
+        echo
+        echo '## Files'
+        echo
+        echo '| file | bytes | sha256 |'
+        echo '|---|---|---|'
+        local f
+        for f in "$FOR"/*; do
+            printf '| `foreign/%s` | %s | `%s` |\n' "$(basename "$f")" \
+                "$(wc -c < "$f" | tr -d ' ')" "$(shasum -a 256 "$f" | cut -d' ' -f1)"
+        done
+        echo
+        echo '<!-- foreign:end -->'
+    } >> "$PROV"
+    ls -1 "$FOR"
+}
+
+if [ "${GEN_ONLY:-}" = foreign ]; then
+    gen_foreign
+    exit 0
+fi
+
 # ---------------------------------------------------------------------------
 # 1. Common input — a deterministic 64x64 single-band binary (Gray8, 0/255)
 #    image where morphology is meaningful. `vips eye` is a pure function of
@@ -3744,6 +3933,8 @@ save PATH through a format-preserving op that keeps rgb16:
 |---|---|---|
 | \`iocleanup/copy_png16_expected.png\` | EXACT (decode) | \`vips copy rgb16.v out.png\` (stays 16-bit) |
 EOF
+
+gen_foreign
 
 echo "==> Done. Generated fixtures under $FIX_ROOT"
 ls -1 "$FIX"

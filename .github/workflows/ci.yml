@@ -136,8 +136,17 @@ jobs:
         # cli_features is here for the same reason. It builds the CLI seven
         # times, once per feature configuration it checks, into a target dir of
         # its own, so it never replaces the --no-default-features binary the
-        # cells above share (libviprs/libviprs-cli#64).
-        run: cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff --test cli_pmtiles --test cli_features
+        # cells above share (libviprs/libviprs-cli#64). cli_foreign_diff is the
+        # codec load/save differential (libviprs/libviprs-cli#65).
+        run: cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff --test cli_pmtiles --test cli_features --test cli_foreign_diff
+      # cli_foreign_diff's JPEG XL, JPEG 2000, AVIF and SVG cells are ignored
+      # without this crate's matching features, because the decode half of each
+      # comparison runs through the library. This run is the one that has them,
+      # and the viprs builds it asks for are the same single-feature binaries
+      # cli_features already built above (libviprs/libviprs-cli#65).
+      - env:
+          VIPRS_REQUIRE_CLI: 1
+        run: cargo test --features "jxl jp2k avif svg" --test cli_foreign_diff
 
   hook-mirror:
     name: Hook Mirror (every repo in the org)
