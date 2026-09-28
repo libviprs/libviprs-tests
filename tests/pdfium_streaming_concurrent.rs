@@ -65,7 +65,6 @@ fn concurrent_render_strip_does_not_deadlock_or_corrupt() {
         for i in 0..THREADS {
             let s = Arc::clone(&source);
             let reference_strip = reference[i as usize].clone();
-            let strip_h = strip_h;
             handles.push(scope.spawn(move || {
                 let y = i * strip_h;
                 let h = strip_h.min(h_total - y);

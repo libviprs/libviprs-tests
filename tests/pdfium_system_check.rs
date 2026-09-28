@@ -6,7 +6,12 @@
 //! not a CI gate. It reports whether the PDFium shared library is findable,
 //! loadable, and ABI-compatible with pdfium-render 0.8.x.
 
-#![cfg(feature = "pdfium")]
+// Everything here is about finding and loading a shared `libpdfium`, and
+// pdfium-render compiles `bind_to_system_library` and
+// `pdfium_platform_library_name` out entirely under its `static` feature, so
+// a `pdfium-static` build has nothing for this file to check and could not
+// compile it (libviprs/libviprs-cli#64).
+#![cfg(all(feature = "pdfium", not(feature = "pdfium-static")))]
 
 use pdfium_render::prelude::*;
 use std::path::Path;
