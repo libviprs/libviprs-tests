@@ -217,16 +217,24 @@ LIBVIPRS_STEPS=(
     "cargo clippy --all-targets --features tracing -- -D warnings -W clippy::incompatible_msrv -W deprecated"
 )
 
-# The cli lints five configurations (libviprs-cli#48). The bare pass IS the
-# pdfium pass, because pdfium is the cli's default feature, and the
+# The cli lints twelve configurations (libviprs-cli#48, #64). The bare pass IS
+# the pdfium pass, because pdfium is the cli's default feature, and the
 # `--no-default-features` one is the only build that ever compiles the
-# `#[cfg(not(feature = "pdfium"))]` halves.
+# `#[cfg(not(feature = "pdfium"))]` halves. #64 added one cell per forwarded
+# codec and sink feature, plus `full`.
 LIBVIPRS_CLI_STEPS=(
     "cargo fmt -- --check"
     "cargo clippy --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features tracing -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features packfile -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features s3 -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features avif -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features svg -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features jxl -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features jp2k -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features object-store-sink -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features pdfium-static -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features full -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --no-default-features -- -D warnings -W clippy::incompatible_msrv -W deprecated"
 )
 
@@ -242,6 +250,10 @@ LIBVIPRS_TESTS_STEPS=(
     "cargo clippy --all-targets --features packfile -- -D warnings"
     "cargo clippy --all-targets --features tracing -- -D warnings"
     "cargo clippy --all-targets --features jxl -- -D warnings"
+    "cargo clippy --all-targets --features avif -- -D warnings"
+    "cargo clippy --all-targets --features svg -- -D warnings"
+    "cargo clippy --all-targets --features jp2k -- -D warnings"
+    "cargo clippy --all-targets --features pdfium-static -- -D warnings"
     "./tools/run_ported_cells.sh --clippy"
     "shellcheck tools/*.sh tools/hooks/pre-push"
 )
