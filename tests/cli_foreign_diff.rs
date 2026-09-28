@@ -61,8 +61,9 @@ const EXACT: f64 = 0.0;
 const JPEG_SAVE_TOL: f64 = 6.0;
 
 /// BOUNDED-TOL for `jpegload`: the core decodes with zune-jpeg, vips with
-/// libjpeg-turbo, and the two upsample 4:2:0 chroma differently.
-const JPEG_LOAD_TOL: f64 = 8.0;
+/// libjpeg-turbo, and the two upsample 4:2:0 chroma differently. Measured 2
+/// (through the CLI, with the cell's tolerance set to 0 to make it print).
+const JPEG_LOAD_TOL: f64 = 2.0;
 
 /// BOUNDED-TOL for `jpegload --shrink 2`. vips shrinks in the DCT domain; the
 /// core decodes at full size and box-shrinks, so edges between the flat
@@ -304,6 +305,7 @@ fn gif_layout(bytes: &[u8]) -> (usize, bool) {
 
 /// `(XTsiz, YTsiz)` from a JPEG 2000 codestream's SIZ marker, found wherever
 /// it sits (inside a JP2 `jp2c` box or at the front of a bare codestream).
+#[cfg(feature = "jp2k")]
 fn jp2k_tile_size(bytes: &[u8]) -> (u32, u32) {
     let at = bytes
         .windows(4)
@@ -1021,6 +1023,27 @@ fn gifload_n_minus_one_loads_every_frame() {
         "foreign/gifload_all_expected.png",
         &["--n", "-1"],
         EXACT,
+    );
+}
+
+#[test]
+fn gifload_max_pages_is_honoured() {
+    if skip_if_no_cli("gifload_max_pages_is_honoured") {
+        return;
+    }
+    let out = out_path("gifload_maxpages.png");
+    refused(
+        &[
+            "gifload",
+            &fx("foreign/pages.gif"),
+            s(&out),
+            "--n",
+            "-1",
+            "--max-pages",
+            "2",
+        ],
+        &out,
+        &["pages"],
     );
 }
 
