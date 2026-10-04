@@ -803,6 +803,62 @@ fn geo_68_singular_transform_cannot_be_inverted() {
     );
 }
 
+/// 68: `viprs pyramid --geo-origin` takes a negative longitude. Found while
+/// writing the `geo` cells: `-122.5,37.75` starts with a hyphen, so clap read it
+/// as an unknown flag and every western-hemisphere origin had to be spelled
+/// `--geo-origin=-122.5,37.75`. The pair has to mean what the library's
+/// `from_origin_and_scale` means, so the printed bounds are compared with it.
+#[test]
+fn geo_68_pyramid_accepts_a_negative_geo_origin() {
+    if skip_if_no_cli("geo_68_pyramid_negative_origin") {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let src = common::fixtures::canonical_raster_scaled(640, 480);
+    let input = dir.path().join("in.png");
+    image::save_buffer(
+        &input,
+        src.data(),
+        src.width(),
+        src.height(),
+        match src.format() {
+            PixelFormat::Rgb8 => image::ColorType::Rgb8,
+            PixelFormat::Rgba8 => image::ColorType::Rgba8,
+            other => panic!("the canonical fixture is {other:?}; teach this cell about it"),
+        },
+    )
+    .expect("write the PNG the CLI will read");
+    let tiles = dir.path().join("tiles");
+
+    let out = run_viprs(&[
+        "pyramid",
+        s(&input),
+        s(&tiles),
+        "--storage",
+        "directory",
+        "--geo-origin",
+        "-122.5,37.75",
+        "--geo-scale",
+        "0.001,-0.002",
+    ]);
+    assert!(
+        out.status.success(),
+        "a negative --geo-origin must parse\n--- stderr ---\n{}",
+        stderr(&out)
+    );
+    let b = GeoTransform::from_origin_and_scale(GeoCoord::new(-122.5, 37.75), 0.001, -0.002)
+        .image_bounds(640, 480);
+    let want = format!(
+        "Geo bounds: ({:.6}, {:.6}) \u{2192} ({:.6}, {:.6})",
+        b.min.x, b.min.y, b.max.x, b.max.y
+    );
+    assert!(
+        stderr(&out).contains(&want),
+        "expected {want:?} in stderr, got: {}",
+        stderr(&out)
+    );
+}
+
 // ===========================================================================
 // plan queries
 // ===========================================================================
