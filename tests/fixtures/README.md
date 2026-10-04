@@ -254,3 +254,152 @@ reduce` between an explicit premultiply/unpremultiply pair (no internal
 premultiply to double up). Tests decode both PNGs to raw pixels and compare
 covered pixels within a tight colour tolerance (the bleed shows as a colour
 error in the tens) and a looser alpha tolerance (alpha is kernel-dependent).
+
+## Codec matrix fixtures (`codec/`)
+
+Consumed by `tests/codec_e2e.rs` (#230). Every file is a re-encoding of
+`canonical_input.png` (256 x 256 RGBA8, alpha 255 everywhere), never a new
+source image, and every reference was written by a tool that is not libviprs.
+
+### Oracle
+
+- **vips 8.18.4**, built by `tools/Dockerfile.vips-oracle` (the image the
+  CLI-differential families use, carried by #236 at `352f422`; libvips v8.18.4
+  on debian:trixie-slim with openjpeg v2.5.4 and libultrahdr v1.4.0 from
+  source). This is the same vips the `cli/` references pin
+  (`cli/PROVENANCE.md`), not the Debian 8.14.1 the dzsave fixtures above use.
+- `tools/Dockerfile.codec-oracle` layers on it: `libheif-plugin-aomenc`
+  (1.23.4, aom 3.12.1) so vips can write AVIF, `openimageio-tools` (oiiotool
+  2.5.18.0) because vips has no EXR saver, `python3-nibabel` (5.3.2) because
+  vips has no NIfTI or Analyze saver and no niftiload at all, and
+  `python3-scipy` (1.15.3) because vips has no MATLAB saver.
+- Codec libraries behind vips, from trixie: libjpeg-turbo 2.1.5, libwebp
+  1.5.0, libjxl 0.11.2, libheif 1.23.4 (dav1d decode), libtiff 4.7.0,
+  cfitsio 4.6.2, cgif 0.5.0, librsvg 2.60.0, OpenEXR 3.1.13, matio 1.5.28.
+- Built and run in `linux/amd64` containers on the native x86_64 NAS.
+
+### Regenerating
+
+```bash
+docker build --platform linux/amd64 -t vips-oracle:8.18.4 - < tools/Dockerfile.vips-oracle   # from #236
+docker build --platform linux/amd64 -t codec-oracle:8.18.4 - < tools/Dockerfile.codec-oracle
+docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work codec-oracle:8.18.4 \
+    bash tools/gen_fixtures.sh codec-vips
+cargo test --features 'jxl libviprs/jp2k' --test codec_e2e -- --ignored --exact generate_libviprs_encodes
+docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work codec-oracle:8.18.4 \
+    bash tools/gen_fixtures.sh codec-enc
+```
+
+The commands below are what those three steps run, with paths relative to
+`tests/fixtures/`, `$T` a scratch directory, `$T/pages.v` the three-page
+stack `vips arrayjoin "codec/src_rgb.png $T/p1.v $T/p2.v" $T/pages.v --across 1`
+of the source, `vips rot ... d90` of it and `vips flip ... horizontal` of it,
+and `gray` the `src_gray.png` samples as a uint8 numpy array (H x W). The
+`enc/libviprs_*` files are the libviprs encoders' output for `r`, the decoded
+`src_rgb.png`, at core `8afc3ae5`.
+
+Every row regenerates byte for byte except `exr_half.exr` and `mat.mat`,
+whose writers stamp the time into the header. Their pixels, and so their
+references, do not move.
+
+Two choices worth knowing before regenerating. The JPEG rows are Q76 and Q75
+rather than Q75 and Q74, because on this smooth source Q75 and Q74 decode to
+identical pixels, and the AVIF rows are Q76 and Q75 because libheif writes the
+same file at 74 and 75; either would make a quality-step control compare an
+image with itself.
+
+| file | bytes | sha256 (first 16) | written by | command |
+|---|---|---|---|---|
+| `analyze.hdr` | 348 | `af9745d21316b4b0` | nibabel 5.3.2 | `nib.AnalyzeImage(gray.T, np.eye(4), header=nib.AnalyzeHeader(endianness=">")).to_filename("codec/analyze.hdr")` |
+| `analyze.img` | 262144 | `b33ba5bd6e9b6585` | nibabel 5.3.2 | `written beside analyze.hdr by the same call` |
+| `analyze_ref.png` | 3016 | `ad8a63868283b13a` | vips 8.18.4 | `vips analyzeload codec/analyze.hdr codec/analyze_ref.png[compression=9,filter=all]` |
+| `avif_q75.avif` | 826 | `f49eaa064f93636e` | vips 8.18.4 + libheif 1.23.4 / aom 3.12.1 | `vips heifsave codec/src_rgb.png codec/avif_q75.avif --compression av1 --Q 75 --subsample-mode off --keep none` |
+| `avif_q75_ref.png` | 14827 | `a5ae1ed1a8c2a349` | vips 8.18.4 + libheif 1.23.4 / dav1d | `vips heifload codec/avif_q75.avif codec/avif_q75_ref.png[compression=9,filter=all]` |
+| `avif_q76.avif` | 846 | `f09782864792e8b7` | vips 8.18.4 + libheif 1.23.4 / aom 3.12.1 | `vips heifsave codec/src_rgb.png codec/avif_q76.avif --compression av1 --Q 76 --subsample-mode off --keep none` |
+| `avif_q76_ref.png` | 14878 | `cdea7b33bc16865b` | vips 8.18.4 + libheif 1.23.4 / dav1d | `vips heifload codec/avif_q76.avif codec/avif_q76_ref.png[compression=9,filter=all]` |
+| `enc/libviprs_fits.fits` | 201600 | `cc91aceb73813327` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.encode_fits()` |
+| `enc/libviprs_fits_vips.png` | 952 | `cff886d128eb7fbd` | vips 8.18.4 | `vips copy codec/enc/libviprs_fits.fits codec/enc/libviprs_fits_vips.png[compression=9,filter=all]` |
+| `enc/libviprs_gif.gif` | 21722 | `83b05e48a1c4f403` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.encode_gif(gif::SaveOptions::default())` |
+| `enc/libviprs_gif_vips.png` | 23364 | `c666fa2eae7ee18a` | vips 8.18.4 | `vips copy codec/enc/libviprs_gif.gif codec/enc/libviprs_gif_vips.png[compression=9,filter=all]` |
+| `enc/libviprs_jp2k.jp2` | 6977 | `0482781c6e3aa55f` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `canonical_input.png decoded, .encode_jp2k(jp2k::SaveOptions::default())` |
+| `enc/libviprs_jp2k_vips.png` | 1069 | `a663e3ea461bf638` | vips 8.18.4 | `vips copy codec/enc/libviprs_jp2k.jp2 codec/enc/libviprs_jp2k_vips.png[compression=9,filter=all]` |
+| `enc/libviprs_jpeg_q75.jpg` | 2682 | `a0246292b3923e8f` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.encode_jpeg(75)` |
+| `enc/libviprs_jpeg_q75_vips.png` | 16392 | `8422c2f57c0e891a` | vips 8.18.4 | `vips copy codec/enc/libviprs_jpeg_q75.jpg codec/enc/libviprs_jpeg_q75_vips.png[compression=9,filter=all]` |
+| `enc/libviprs_jpeg_q76.jpg` | 2723 | `64af4da6d37f842f` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.encode_jpeg(76)` |
+| `enc/libviprs_jpeg_q76_vips.png` | 14524 | `fc27e91374b2330b` | vips 8.18.4 | `vips copy codec/enc/libviprs_jpeg_q76.jpg codec/enc/libviprs_jpeg_q76_vips.png[compression=9,filter=all]` |
+| `enc/libviprs_jxl.jxl` | 7570 | `9c5403ffdda6dd59` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.encode_jxl(jxl::SaveOptions::default())` |
+| `enc/libviprs_jxl_vips.png` | 1306 | `124ed6563985a468` | vips 8.18.4 | `vips copy codec/enc/libviprs_jxl.jxl codec/enc/libviprs_jxl_vips.png[compression=9,filter=all]` |
+| `enc/libviprs_native.v` | 196672 | `b4729fa51b679c13` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.encode_vips()` |
+| `enc/libviprs_native_vips.png` | 952 | `cff886d128eb7fbd` | vips 8.18.4 | `vips copy codec/enc/libviprs_native.v codec/enc/libviprs_native_vips.png[compression=9,filter=all]` |
+| `enc/libviprs_png.png` | 1033 | `32cd7c6e0dc795e9` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.encode_png(6)` |
+| `enc/libviprs_png_vips.png` | 952 | `1359594db274cd07` | vips 8.18.4 | `vips copy codec/enc/libviprs_png.png codec/enc/libviprs_png_vips.png[compression=9,filter=all]` |
+| `enc/libviprs_ppm.ppm` | 196623 | `a945ad240f35faf8` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.encode_ppm()` |
+| `enc/libviprs_ppm_vips.png` | 952 | `cff886d128eb7fbd` | vips 8.18.4 | `vips copy codec/enc/libviprs_ppm.ppm codec/enc/libviprs_ppm_vips.png[compression=9,filter=all]` |
+| `enc/libviprs_rad.hdr` | 60819 | `d15401e433b27802` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `src_float.v decoded, .encode_radiance(radiance::SaveOptions::default())` |
+| `enc/libviprs_rad_vips.v` | 789518 | `5f831e86d7b9ab4d` | vips 8.18.4 | `vips rad2float codec/enc/libviprs_rad.hdr codec/enc/libviprs_rad_vips.v` |
+| `enc/libviprs_tiff.tif` | 2542 | `a4c362c48a75460e` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.tiff_save()` |
+| `enc/libviprs_tiff_vips.png` | 952 | `cff886d128eb7fbd` | vips 8.18.4 | `vips copy codec/enc/libviprs_tiff.tif codec/enc/libviprs_tiff_vips.png[compression=9,filter=all]` |
+| `enc/libviprs_webp.webp` | 1272 | `f50d7199cc1c6be5` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.encode_webp(webp::SaveOptions::default())` |
+| `enc/libviprs_webp_vips.png` | 952 | `cff886d128eb7fbd` | vips 8.18.4 | `vips copy codec/enc/libviprs_webp.webp codec/enc/libviprs_webp_vips.png[compression=9,filter=all]` |
+| `exr_half.exr` | 6608 | `11af1efc76a79395` | oiiotool 2.5.18.0 | `oiiotool codec/src_rgb.png -d half -o codec/exr_half.exr` |
+| `exr_half_ref.v` | 1050724 | `a2d019ab3827a08a` | vips 8.18.4 + OpenEXR 3.1.13 | `vips copy codec/exr_half.exr codec/exr_half_ref.v` |
+| `fits.fits` | 201600 | `cc91aceb73813327` | vips 8.18.4 | `vips fitssave codec/src_rgb.png codec/fits.fits` |
+| `fits_ref.png` | 952 | `cff886d128eb7fbd` | vips 8.18.4 | `vips copy codec/fits.fits codec/fits_ref.png[compression=9,filter=all]` |
+| `gif.gif` | 17858 | `0a87b6fdfd04379a` | vips 8.18.4 | `vips gifsave codec/src_rgb.png codec/gif.gif --keep none` |
+| `gif_pages.gif` | 50466 | `92993c5a1a440a1c` | vips 8.18.4 | `vips gifsave $T/pages.v codec/gif_pages.gif --page-height 256 --keep none` |
+| `gif_pages_p0_ref.png` | 14395 | `91e5be1e36b700b7` | vips 8.18.4 | `vips gifload codec/gif_pages.gif codec/gif_pages_p0_ref.png[compression=9,filter=all] --page 0` |
+| `gif_pages_p1_ref.png` | 14945 | `1da3d63a9d29eac8` | vips 8.18.4 | `vips gifload codec/gif_pages.gif codec/gif_pages_p1_ref.png[compression=9,filter=all] --page 1` |
+| `gif_pages_p2_ref.png` | 14576 | `fb6b28f8d0d009bf` | vips 8.18.4 | `vips gifload codec/gif_pages.gif codec/gif_pages_p2_ref.png[compression=9,filter=all] --page 2` |
+| `gif_ref.png` | 14192 | `10a51c616152a052` | vips 8.18.4 | `vips copy codec/gif.gif codec/gif_ref.png[compression=9,filter=all]` |
+| `jp2k_lossless.jp2` | 6977 | `0482781c6e3aa55f` | vips 8.18.4 + openjpeg 2.5.4 | `vips jp2ksave canonical_input.png codec/jp2k_lossless.jp2 --lossless --keep none` |
+| `jp2k_lossless_ref.png` | 1069 | `a663e3ea461bf638` | vips 8.18.4 | `vips copy codec/jp2k_lossless.jp2 codec/jp2k_lossless_ref.png[compression=9,filter=all]` |
+| `jp2k_q44.jp2` | 6129 | `6a3e505a6cda5f34` | vips 8.18.4 + openjpeg 2.5.4 | `vips jp2ksave codec/src_rgb.png codec/jp2k_q44.jp2 --Q 44 --keep none` |
+| `jp2k_q44_ref.png` | 17367 | `9a713d3599e1fad7` | vips 8.18.4 | `vips copy codec/jp2k_q44.jp2 codec/jp2k_q44_ref.png[compression=9,filter=all]` |
+| `jp2k_q45.jp2` | 6144 | `63f8c6452d318e9e` | vips 8.18.4 + openjpeg 2.5.4 | `vips jp2ksave codec/src_rgb.png codec/jp2k_q45.jp2 --Q 45 --keep none` |
+| `jp2k_q45_ref.png` | 17340 | `6d2362e356dfa99e` | vips 8.18.4 | `vips copy codec/jp2k_q45.jp2 codec/jp2k_q45_ref.png[compression=9,filter=all]` |
+| `jpeg_q75_420.jpg` | 3725 | `2c2e2d9f69ba933c` | vips 8.18.4 | `vips jpegsave codec/src_rgb.png codec/jpeg_q75_420.jpg --Q 75 --subsample-mode on --keep none` |
+| `jpeg_q75_420_ref.png` | 16357 | `2c57b33b24e668ab` | vips 8.18.4 | `vips copy codec/jpeg_q75_420.jpg codec/jpeg_q75_420_ref.png[compression=9,filter=all]` |
+| `jpeg_q75_444.jpg` | 5788 | `9c020cd733143cd6` | vips 8.18.4 | `vips jpegsave codec/src_rgb.png codec/jpeg_q75_444.jpg --Q 75 --subsample-mode off --keep none` |
+| `jpeg_q75_444_ref.png` | 14855 | `129e7ad95dd2f45f` | vips 8.18.4 | `vips copy codec/jpeg_q75_444.jpg codec/jpeg_q75_444_ref.png[compression=9,filter=all]` |
+| `jpeg_q76_420.jpg` | 3766 | `fd6ebe1d45f6b3f6` | vips 8.18.4 | `vips jpegsave codec/src_rgb.png codec/jpeg_q76_420.jpg --Q 76 --subsample-mode on --keep none` |
+| `jpeg_q76_420_ref.png` | 14411 | `da7fe427d32611cb` | vips 8.18.4 | `vips copy codec/jpeg_q76_420.jpg codec/jpeg_q76_420_ref.png[compression=9,filter=all]` |
+| `jpeg_q76_444.jpg` | 5908 | `87a169397197412c` | vips 8.18.4 | `vips jpegsave codec/src_rgb.png codec/jpeg_q76_444.jpg --Q 76 --subsample-mode off --keep none` |
+| `jpeg_q76_444_ref.png` | 9890 | `eaa11bab8508f351` | vips 8.18.4 | `vips copy codec/jpeg_q76_444.jpg codec/jpeg_q76_444_ref.png[compression=9,filter=all]` |
+| `jxl_lossless.jxl` | 252 | `46c816fe2688b6a0` | vips 8.18.4 | `vips jxlsave canonical_input.png codec/jxl_lossless.jxl --lossless --keep none` |
+| `jxl_lossless_ref.png` | 1423 | `6ef6ce3f7568f10e` | vips 8.18.4 | `vips copy codec/jxl_lossless.jxl codec/jxl_lossless_ref.png[compression=9,filter=all]` |
+| `jxl_q74.jxl` | 2128 | `dbc594a37678ef1f` | vips 8.18.4 | `vips jxlsave codec/src_rgb.png codec/jxl_q74.jxl --Q 74 --keep none` |
+| `jxl_q74_ref.png` | 36117 | `dcf38d5cc55d1357` | vips 8.18.4 | `vips copy codec/jxl_q74.jxl codec/jxl_q74_ref.png[compression=9,filter=all]` |
+| `jxl_q75.jxl` | 2190 | `ce66c53e83661db6` | vips 8.18.4 | `vips jxlsave codec/src_rgb.png codec/jxl_q75.jxl --Q 75 --keep none` |
+| `jxl_q75_ref.png` | 36374 | `682993f6dcd39aa9` | vips 8.18.4 | `vips copy codec/jxl_q75.jxl codec/jxl_q75_ref.png[compression=9,filter=all]` |
+| `mat.mat` | 65720 | `43e3e917c25ca3bb` | scipy 1.15.3 | `scipy.io.savemat("codec/mat.mat", {"im": gray}, format="5", do_compression=False)` |
+| `mat_ref.png` | 3016 | `ad8a63868283b13a` | vips 8.18.4 + libmatio 1.5.28 | `vips copy codec/mat.mat codec/mat_ref.png[compression=9,filter=all]` |
+| `nifti.nii` | 65888 | `a03f7392b22a391c` | nibabel 5.3.2 | `nib.Nifti1Image(gray.T, np.eye(4)).to_filename("codec/nifti.nii")` |
+| `png_interlaced.png` | 25086 | `ec4eb63f06131057` | vips 8.18.4 | `vips pngsave canonical_input.png codec/png_interlaced.png --interlace --keep none` |
+| `png_interlaced_ref.png` | 1069 | `d93a80216977e949` | vips 8.18.4 | `vips copy codec/png_interlaced.png codec/png_interlaced_ref.png[compression=9,filter=all]` |
+| `ppm.ppm` | 196623 | `a945ad240f35faf8` | vips 8.18.4 | `vips ppmsave codec/src_rgb.png codec/ppm.ppm --keep none` |
+| `ppm_ref.png` | 952 | `cff886d128eb7fbd` | vips 8.18.4 | `vips copy codec/ppm.ppm codec/ppm_ref.png[compression=9,filter=all]` |
+| `rad.hdr` | 8676 | `d4d436e26927f134` | vips 8.18.4 | `vips radsave codec/src_float.v codec/rad.hdr` |
+| `rad_ref.v` | 789518 | `678fe0b8586def25` | vips 8.18.4 | `vips rad2float codec/rad.hdr codec/rad_ref.v` |
+| `src_float.v` | 788632 | `db455314eb669841` | vips 8.18.4 | `vips cast codec/src_rgb.png $T/f.v float && vips linear $T/f.v codec/src_float.v 0.00392156862745098 0` |
+| `src_gray.png` | 4865 | `e907c8b85344508c` | vips 8.18.4 | `vips colourspace codec/src_rgb.png codec/src_gray.png b-w` |
+| `src_rgb.png` | 35570 | `9f74c2c16ea26ff1` | vips 8.18.4 | `vips extract_band canonical_input.png codec/src_rgb.png 0 --n 3` |
+| `svg.svg` | 59579 | `0061ae5b082884a8` | python3 (numpy 2.2.4, Pillow 11.1.0) | `one `<rect>` per 8x8 block of src_rgb.png, filled with the block's top-left pixel, crispEdges` |
+| `svg_ref.png` | 970 | `7f33464669cb1e40` | vips 8.18.4 + librsvg 2.60.0 | `vips copy codec/svg.svg codec/svg_ref.png[compression=9,filter=all]` |
+| `tiff_deflate.tif` | 2354 | `028924b35bcb824d` | vips 8.18.4 | `vips tiffsave canonical_input.png codec/tiff_deflate.tif --compression deflate --keep none` |
+| `tiff_deflate_ref.png` | 1069 | `872c3aded6740f3f` | vips 8.18.4 | `vips copy codec/tiff_deflate.tif codec/tiff_deflate_ref.png[compression=9,filter=all]` |
+| `tiff_pages.tif` | 11300 | `86f8ebaf6bd5fb9c` | vips 8.18.4 | `vips tiffsave $T/pages.v codec/tiff_pages.tif --page-height 256 --compression lzw --keep none` |
+| `tiff_pages_p0_ref.png` | 952 | `1359594db274cd07` | vips 8.18.4 | `vips tiffload codec/tiff_pages.tif codec/tiff_pages_p0_ref.png[compression=9,filter=all] --page 0` |
+| `tiff_pages_p1_ref.png` | 1063 | `a9441304eb90a942` | vips 8.18.4 | `vips tiffload codec/tiff_pages.tif codec/tiff_pages_p1_ref.png[compression=9,filter=all] --page 1` |
+| `tiff_pages_p2_ref.png` | 950 | `2c38b1b96237625d` | vips 8.18.4 | `vips tiffload codec/tiff_pages.tif codec/tiff_pages_p2_ref.png[compression=9,filter=all] --page 2` |
+| `vips.v` | 264344 | `cc3d2b5d2dc9ec00` | vips 8.18.4 | `vips copy canonical_input.png codec/vips.v` |
+| `vips_ref.png` | 1069 | `d93a80216977e949` | vips 8.18.4 | `vips copy codec/vips.v codec/vips_ref.png[compression=9,filter=all]` |
+| `webp_lossless.webp` | 124 | `cc8073725cc1565a` | vips 8.18.4 | `vips webpsave canonical_input.png codec/webp_lossless.webp --lossless --keep none` |
+| `webp_lossless_ref.png` | 952 | `cff886d128eb7fbd` | vips 8.18.4 | `vips copy codec/webp_lossless.webp codec/webp_lossless_ref.png[compression=9,filter=all]` |
+| `webp_pages.webp` | 798 | `8943ac8cbea91cd0` | vips 8.18.4 | `vips webpsave $T/pages.v codec/webp_pages.webp --page-height 256 --lossless --keep none` |
+| `webp_pages_p0_ref.png` | 1069 | `a663e3ea461bf638` | vips 8.18.4 | `vips webpload codec/webp_pages.webp codec/webp_pages_p0_ref.png[compression=9,filter=all] --page 0` |
+| `webp_pages_p1_ref.png` | 1224 | `fcb0f98ff6b30d32` | vips 8.18.4 | `vips webpload codec/webp_pages.webp codec/webp_pages_p1_ref.png[compression=9,filter=all] --page 1` |
+| `webp_pages_p2_ref.png` | 1065 | `9b78b1ccdf2084a0` | vips 8.18.4 | `vips webpload codec/webp_pages.webp codec/webp_pages_p2_ref.png[compression=9,filter=all] --page 2` |
+| `webp_q74.webp` | 1004 | `6b35d4ee91c2473d` | vips 8.18.4 | `vips webpsave codec/src_rgb.png codec/webp_q74.webp --Q 74 --keep none` |
+| `webp_q74_ref.png` | 25065 | `6e92fc6e6c5f247d` | vips 8.18.4 | `vips copy codec/webp_q74.webp codec/webp_q74_ref.png[compression=9,filter=all]` |
+| `webp_q75.webp` | 1000 | `9f0943998985f67b` | vips 8.18.4 | `vips webpsave codec/src_rgb.png codec/webp_q75.webp --Q 75 --keep none` |
+| `webp_q75_ref.png` | 25913 | `155876407fd27b1d` | vips 8.18.4 | `vips copy codec/webp_q75.webp codec/webp_q75_ref.png[compression=9,filter=all]` |
