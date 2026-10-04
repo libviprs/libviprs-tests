@@ -432,11 +432,20 @@ stage_tree() {
 # integration suite at all. That is how it has been: the local gate has never
 # been able to finish the counterpart's unit tests.
 #
-# `git ls-files` reads the index and nothing else, so the fix is about 100 KB:
-# the index, a HEAD, a minimal config, and the two directories git wants before
-# it will call a path a repository. No objects, no refs, no history. A worktree
-# is handled by resolving `.git` to the real gitdir first, which is why this
-# cannot just copy `$src/.git`.
+# `git ls-files` reads the index and nothing else, so the fix is small: the
+# index, a HEAD, a minimal config, and the two directories git wants before it
+# will call a path a repository. A worktree is handled by resolving `.git` to
+# the real gitdir first, which is why this cannot just copy `$src/.git`.
+#
+# HEAD has to resolve too (libviprs-tests#226). It used to name a branch that
+# was never written, so `git rev-parse HEAD` exited 128 while `git status`
+# exited 0, and a binary that asks both (the core's benchmark envelope) saw a
+# checkout and no commit at once. Writing the ref is not enough on its own:
+# `status` then fails with `bad object HEAD`, because it compares the index to
+# HEAD's tree. So the commit and its trees go across as one small pack, with no
+# blobs (the worktree is what `status` compares the index against) and no
+# history, and `shallow` says so. That is a few hundred KB, not the whole of
+# `.git`.
 stage_git_index() {
     local src="$1"
     local dst="$2"
@@ -460,6 +469,18 @@ stage_git_index() {
     [ -f "$common/packed-refs" ] && cp "$common/packed-refs" "$dst/.git/packed-refs"
     if [ -d "$common/refs" ] && command -v rsync >/dev/null 2>&1; then
         rsync -a "$common/refs/" "$dst/.git/refs/"
+    fi
+    # The ref HEAD points at, written last so nothing copied above can shadow
+    # it. A source with no commit yet has nothing to point at and stays unborn,
+    # which is what it is.
+    local head
+    if head=$(git -C "$src" rev-parse --verify --quiet 'HEAD^{commit}'); then
+        mkdir -p "$dst/.git/objects/pack"
+        git -C "$src" rev-list --objects --filter=blob:none -1 "$head" \
+            | git -C "$src" pack-objects --quiet "$dst/.git/objects/pack/pack" \
+            >/dev/null
+        printf '%s\n' "$head" > "$dst/.git/refs/heads/staged"
+        printf '%s\n' "$head" > "$dst/.git/shallow"
     fi
     # `COPY` does not carry an empty directory into the image, and git wants
     # `objects` and `refs` to exist before it will call a path a repository. The
