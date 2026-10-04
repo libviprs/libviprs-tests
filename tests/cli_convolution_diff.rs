@@ -793,3 +793,88 @@ fn fastcor_matches_vips_exact() {
     run_viprs_ok(&["fastcor", &fx(EYE), &fx(PATCH), out.to_str().unwrap()]);
     decode_compare(&out, &cli_fixture("convolution/fastcor_expected.v"), EXACT);
 }
+
+// ---------------------------------------------------------------------------
+// sobel / scharr / prewitt / canny: the four edge detectors the core gained
+// after OP_MAP.md's first audit (libviprs/libviprs-cli#67). All S1, no mask
+// file: the masks are built in.
+//
+// The three gradient detectors share one contract (core `Raster::sobel`): the
+// output is always uchar, and the combine rule depends on the input format. A
+// uchar input takes |Gx| + |Gy| clipped at 255 through two INTEGER
+// convolutions, so those references are generated with VIPS_NOVECTOR=1 for the
+// same reason as every other uchar integer convolution in this file (#558). A
+// 16-bit input takes sqrt(Gx^2 + Gy^2) through two float convolutions and a
+// truncating cast, which is a different function, so it gets its own cell.
+//
+// The zone-plate is all edges, so an identity or a swapped mask fails loudly:
+// scharr saturates most of it at 255 while prewitt stays well under sobel.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn sobel_matches_vips_exact() {
+    if skip_if_no_cli("sobel") {
+        return;
+    }
+    let out = out_path("sobel.png");
+    run_viprs_ok(&["sobel", &fx(EYE), out.to_str().unwrap()]);
+    decode_compare(&out, &cli_fixture("convolution/sobel_expected.png"), EXACT);
+}
+
+#[test]
+fn sobel_ushort_input_matches_vips_exact() {
+    // The accurate arm: a ushort input is convolved in float and the magnitude
+    // truncated down to uchar, so the output is uchar here too.
+    if skip_if_no_cli("sobel_ushort") {
+        return;
+    }
+    let out = out_path("sobel_ushort.png");
+    run_viprs_ok(&["sobel", &fx(EYE16), out.to_str().unwrap()]);
+    decode_compare(
+        &out,
+        &cli_fixture("convolution/sobel_ushort_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn scharr_matches_vips_exact() {
+    if skip_if_no_cli("scharr") {
+        return;
+    }
+    let out = out_path("scharr.png");
+    run_viprs_ok(&["scharr", &fx(EYE), out.to_str().unwrap()]);
+    decode_compare(&out, &cli_fixture("convolution/scharr_expected.png"), EXACT);
+}
+
+#[test]
+fn prewitt_matches_vips_exact() {
+    if skip_if_no_cli("prewitt") {
+        return;
+    }
+    let out = out_path("prewitt.png");
+    run_viprs_ok(&["prewitt", &fx(EYE), out.to_str().unwrap()]);
+    decode_compare(
+        &out,
+        &cli_fixture("convolution/prewitt_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn canny_defaults_match_vips_bounded_tol() {
+    // vips's defaults, sigma 1.4 at float precision. The blur promotes the
+    // uchar input to float before the gradient stage looks at it, so this is
+    // the float arm and the output is a float image (.v), compared at the same
+    // FLOAT_EPS as the other float convolution surfaces.
+    if skip_if_no_cli("canny") {
+        return;
+    }
+    let out = out_path("canny.v");
+    run_viprs_ok(&["canny", &fx(EYE), out.to_str().unwrap()]);
+    decode_compare(
+        &out,
+        &cli_fixture("convolution/canny_expected.v"),
+        FLOAT_EPS,
+    );
+}

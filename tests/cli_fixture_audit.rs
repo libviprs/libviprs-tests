@@ -157,6 +157,9 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "conversion/identity_expected.v",
     "conversion/identity_ushort_expected.v",
     "conversion/switch_expected.png",
+    // join (libviprs-cli#67): horizontal crop, and vertical with expand/shim/align/background.
+    "conversion/join_horizontal_expected.png",
+    "conversion/join_vertical_expand_expected.png",
     // ---- core family (cli_core_diff.rs) ----
     // Common inputs: two distinct sRGB RGB sources + two Gray8 sources (sums
     // > 255, exercising the 8→16-bit widening) + a constant float `.v`.
@@ -229,6 +232,12 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // spcor (float NCC) + fastcor (uint→float SSD, EXACT) surfaces.
     "convolution/spcor_expected.v",
     "convolution/fastcor_expected.v",
+    // sobel/scharr/prewitt uchar arm, sobel ushort arm, canny defaults (libviprs-cli#67).
+    "convolution/sobel_expected.png",
+    "convolution/sobel_ushort_expected.png",
+    "convolution/scharr_expected.png",
+    "convolution/prewitt_expected.png",
+    "convolution/canny_expected.v",
     // ---- matrix family (cli_matrix_diff.rs) ----
     // Common inputs: vips text-matrix files (consumed by both the generator and
     // the `viprs` MatFile loader). m3 = 3x3 (matrixinvert direct cofactor path),
@@ -242,6 +251,9 @@ const REQUIRED_FIXTURES: &[&str] = &[
     // invertlut (BOUNDED-TOL f32): default size 256 + explicit --size 64.
     "matrix/invertlut_expected.v",
     "matrix/invertlut_size64_expected.v",
+    // matrixmultiply m3 x mm_right (libviprs-cli#67).
+    "matrix/mm_right.mat",
+    "matrix/matrixmultiply_expected.v",
     // ---- colour family (cli_colour_diff.rs) ----
     // Common inputs: two distinct sRGB images, an sRGB matrix-shaper ICC
     // profile, and a D50 Lab PCS image (the shared icc_export input).
@@ -565,6 +577,8 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "arithb/multiply_expected.v",
     "arithb/divide_expected.v",
     "arithb/minpair_expected.png",
+    // two-image remainder (libviprs-cli#67).
+    "arithb/remainder_expected.png",
     "arithb/maxpair_expected.png",
     // sum (>=3 variadic, ushort .v).
     "arithb/sum_expected.v",

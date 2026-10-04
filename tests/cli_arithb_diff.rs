@@ -192,6 +192,26 @@ fn divide_matches_vips_exact() {
 }
 
 #[test]
+fn remainder_matches_vips_exact() {
+    // The two-image remainder the core gained after OP_MAP.md's first audit
+    // (libviprs/libviprs-cli#67). b is 40..168, never zero, so the one place
+    // core and vips disagree on purpose (x % 0 is 0 in the core and -1, read
+    // back as 255, in vips) is not in this input. a % b is format-preserving
+    // uchar in both, and a 0..255 ramp over a 40..168 ramp wraps several times,
+    // so an op that returned either input or a - b fails.
+    if skip_if_no_cli("remainder") {
+        return;
+    }
+    let out = op("remainder.png");
+    run_viprs_ok(&["remainder", &fx(A), &fx(B), &out]);
+    decode_compare(
+        &out_path("remainder.png"),
+        &cli_fixture("arithb/remainder_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
 fn minpair_matches_vips_exact() {
     if skip_if_no_cli("minpair") {
         return;
