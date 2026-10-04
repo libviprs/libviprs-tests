@@ -154,10 +154,12 @@ fi
 #     guard exists to stop.
 #
 # Both come out read because ".github/workflows" names a directory above them.
-# The same rule makes tests/pdfium_provenance.rs's read(".gitignore") count,
-# and tests/install_hooks_mirror_ci.rs's join(".github") means every .github/
-# path in this repo is read, which is now a fact about the tree rather than a
-# line in a case statement.
+# The same rule makes tests/pdfium_provenance.rs's read(".gitignore") count.
+# It also catches tests/install_hooks_mirror_ci.rs's join(".github"), which only
+# checks that a sibling checkout is a repo root and reads nothing under it, so
+# every .github/ path in this repo comes out read partly on the strength of a
+# locator. That's the cheap direction to be wrong in (see below), and the real
+# readers above would keep those paths read without it.
 #
 # A literal only counts if it holds a / or starts with a dot. A bare word like
 # "LICENSE" is far more often data than a path (the guard that pins this
@@ -176,10 +178,30 @@ fi
 # The scan errs towards "read". A path-shaped literal in an assertion message
 # or a fixture counts the same as one handed to read_to_string, and the cost of
 # that is a suite run that was not strictly needed, which is the cheap mistake.
+# The one file it leaves out is tests/prepush_gate_cost_controls.rs, whose
+# stand-in trees spell .gitignore, .github/workflows/ci.yml and friends as
+# fixtures. Counting them would keep those paths read in the real tree even if
+# every real reader went away, and the pinned-set guard there could never say so.
+#
+# It fails closed too. If there's no tests/ to scan, or grep fails for any
+# reason other than finding nothing, nothing is inert and the suite runs. A
+# scan that couldn't look has no business saying a file is unread.
+#
+# And it only covers the pushed tree's tests/. On a core push, the
+# libviprs-tests suite also runs, and if one of its tests read a core
+# .github/, docs/ or .gitignore file at run time, nothing here would see it.
+# There's no such read today; it's a known gap, not a covered case.
+#
+# When a path runs the suite because of the scan, the hook prints the literal
+# that did it, after the ./ and ../ steps come off, as `(read via "<literal>"
+# in tests/)`, so a surprise run is one line to explain.
 #
 # Set LIBVIPRS_PREPUSH_ALL=1 to run the suite whatever the paths say.
 
 inert_path() {
+    # Why the last path that wasn't inert reaches the suite, when the scan is
+    # the reason. Empty for a path the patterns below never call inert.
+    REACH_REASON=""
     case "$1" in
         .gitignore|.github/*|docs/*|.gitattributes|.editorconfig|LICENSE|LICENSE-*)
             : # decided by the scan below
@@ -196,9 +218,11 @@ inert_path() {
     #   - every other string literal made only of path characters that holds a
     #     / or starts with a dot. This is what sees a run-time read.
     # Computed once: the guard feeds every tracked path in the repo through
-    # here.
+    # here. SCAN_OK stays false unless the scan ran to the end, and then
+    # nothing is inert (see "fails closed" above).
     if [ -z "${READ_BY_A_TEST+set}" ]; then
         READ_BY_A_TEST=""
+        SCAN_OK=false
         if [ -n "${TREE:-}" ] && [ -d "$TREE/tests" ]; then
             # The leading ./ and ../ steps come off in the sed, not in a shell
             # loop. A `case` here would be inside "$( ... )", which bash 3.2
@@ -208,18 +232,33 @@ inert_path() {
             # The path-character class leaves out quotes and backslashes, so an
             # escaped quote inside some other string cannot pair up with a real
             # one and swallow the literal after it.
-            READ_BY_A_TEST="$(
+            #
+            # grep -r rather than find -exec grep, because grep's own status is
+            # the one that tells "no match" (1) from "couldn't read" (2), and
+            # find folds both into one. Each grep maps 1 to success and lets
+            # anything else through; pipefail and the && chain carry it out.
+            if READ_BY_A_TEST="$(
+                set -o pipefail
                 {
-                    find "$TREE/tests" -type f -name '*.rs' \
-                        -exec grep -ho 'include_str!("[^"]*")' {} + 2>/dev/null |
-                        sed -e 's/^include_str!("//' -e 's/")$//'
-                    find "$TREE/tests" -type f -name '*.rs' \
-                        -exec grep -ho '"[A-Za-z0-9_.+@-]*/[A-Za-z0-9_./+@-]*"\|"\.[A-Za-z0-9_./+@-]*"' {} + 2>/dev/null |
+                    { grep -rho --include='*.rs' --exclude='prepush_gate_cost_controls.rs' \
+                        'include_str!("[^"]*")' "$TREE/tests" || [ $? -eq 1 ]; } |
+                        sed -e 's/^include_str!("//' -e 's/")$//' &&
+                    { grep -rho --include='*.rs' --exclude='prepush_gate_cost_controls.rs' \
+                        '"[A-Za-z0-9_.+@-]*/[A-Za-z0-9_./+@-]*"\|"\.[A-Za-z0-9_./+@-]*"' "$TREE/tests" || [ $? -eq 1 ]; } |
                         sed -e 's/^"//' -e 's/"$//'
                 } |
                 sed -e 's|^\(\.\{1,2\}/\)*||' -e 's|/*$||' | sort -u
-            )" || true
+            )"; then
+                SCAN_OK=true
+            else
+                READ_BY_A_TEST=""
+            fi
         fi
+    fi
+
+    if [ "${SCAN_OK:-false}" != true ]; then
+        REACH_REASON="the scan of tests/ could not run, so nothing counts as inert"
+        return 1
     fi
 
     # The path itself and every directory above it. A literal naming any of
@@ -234,20 +273,25 @@ inert_path() {
 $above"
     done
 
-    while IFS= read -r named; do
-        [ -n "$named" ] || continue
-        while IFS= read -r target; do
+    # Most specific target first, so the literal reported is the closest one:
+    # ".github/workflows" over ".github" for a workflow file.
+    while IFS= read -r target; do
+        while IFS= read -r named; do
+            [ -n "$named" ] || continue
             # The tail form catches a literal that reached out of its own repo,
             # so a cross-checkout read is read rather than quietly inert.
             case "$named" in
-                "$target"|*"/$target") return 1 ;;
+                "$target"|*"/$target")
+                    REACH_REASON="read via \"$named\" in tests/"
+                    return 1
+                    ;;
             esac
-        done <<TARGETS
-$targets
-TARGETS
-    done <<NAMED
+        done <<NAMED
 $READ_BY_A_TEST
 NAMED
+    done <<TARGETS
+$targets
+TARGETS
 
     return 0
 }
@@ -313,7 +357,7 @@ REFS
                 continue
             fi
             SKIP_SUITE=false
-            echo "Pre-push: $changed_path can reach the suite, running it."
+            echo "Pre-push: $changed_path can reach the suite, running it${REACH_REASON:+ ($REACH_REASON)}."
             break
         done <<PATHS
 $CHANGED
