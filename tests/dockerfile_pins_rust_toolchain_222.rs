@@ -142,7 +142,18 @@ fn dockerfile_rust_image_is_pinned_at_or_above_the_core_msrv_222() {
 
 // Controls: the same check over Dockerfiles it has to reject (or accept). A
 // guard that never fails proves nothing, and the first two shapes below are
-// ones it used to wave through.
+// ones it used to wave through. Each control names the problem it expects, so
+// one that fails for some other reason doesn't count as the guard working.
+
+/// Runs the guard over `df` against MSRV 1.97 and panics unless one of the
+/// problems it reports mentions `expected`.
+fn assert_rejected_for(df: &str, expected: &str) {
+    let problems = dockerfile_problems(df, "1.97");
+    assert!(
+        problems.iter().any(|p| p.contains(expected)),
+        "expected a problem mentioning `{expected}` for\n{df}\ngot: {problems:#?}"
+    );
+}
 
 /// A `--platform` flag sits between `FROM` and the image. Taking the first
 /// token after `FROM` as the image skipped this stage entirely. A good builder
@@ -150,12 +161,11 @@ fn dockerfile_rust_image_is_pinned_at_or_above_the_core_msrv_222() {
 /// stage was found at all.
 #[test]
 fn control_a_platform_flag_does_not_hide_a_floating_tag_222() {
-    let df = "ARG RUST_VERSION=1.97\n\
-              FROM rust:${RUST_VERSION}-bookworm AS builder\n\
-              FROM --platform=$BUILDPLATFORM rust:latest AS tools\n";
-    assert!(
-        !dockerfile_problems(df, "1.97").is_empty(),
-        "`{df}` passed the guard"
+    assert_rejected_for(
+        "ARG RUST_VERSION=1.99.0\n\
+         FROM rust:${RUST_VERSION}-bookworm AS builder\n\
+         FROM --platform=$BUILDPLATFORM rust:latest AS tools\n",
+        "rust:latest",
     );
 }
 
@@ -163,12 +173,11 @@ fn control_a_platform_flag_does_not_hide_a_floating_tag_222() {
 /// again next to a good builder stage.
 #[test]
 fn control_a_lowercase_from_is_still_a_stage_222() {
-    let df = "ARG RUST_VERSION=1.97\n\
-              FROM rust:${RUST_VERSION}-bookworm AS builder\n\
-              from rust:latest as tools\n";
-    assert!(
-        !dockerfile_problems(df, "1.97").is_empty(),
-        "`{df}` passed the guard"
+    assert_rejected_for(
+        "ARG RUST_VERSION=1.99.0\n\
+         FROM rust:${RUST_VERSION}-bookworm AS builder\n\
+         from rust:latest as tools\n",
+        "rust:latest",
     );
 }
 
@@ -176,28 +185,37 @@ fn control_a_lowercase_from_is_still_a_stage_222() {
 /// `FROM` line, so there's a single place to move it.
 #[test]
 fn control_a_literal_tag_that_skips_the_arg_is_rejected_222() {
-    let df = "ARG RUST_VERSION=1.97\nFROM rust:1.97-bookworm AS builder\n";
-    assert!(
-        !dockerfile_problems(df, "1.97").is_empty(),
-        "`FROM rust:1.97-bookworm` passed without using ${{RUST_VERSION}}"
+    assert_rejected_for(
+        "ARG RUST_VERSION=1.99.0\nFROM rust:1.99.0-bookworm AS builder\n",
+        "doesn't take its tag from `${RUST_VERSION}`",
     );
 }
 
 /// A toolchain below the core's MSRV can't build the core.
 #[test]
 fn control_a_toolchain_below_the_msrv_is_rejected_222() {
-    let df = "ARG RUST_VERSION=1.96\nFROM rust:${RUST_VERSION}-bookworm AS builder\n";
-    assert!(
-        !dockerfile_problems(df, "1.97").is_empty(),
-        "1.96 passed against MSRV 1.97"
+    assert_rejected_for(
+        "ARG RUST_VERSION=1.96.0\nFROM rust:${RUST_VERSION}-bookworm AS builder\n",
+        "below the core's MSRV",
     );
 }
 
-/// A concrete toolchain newer than the MSRV is fine; the guard asks for a
-/// concrete pin at or above it, not for equality.
+/// `rust:1.99-bookworm` is a tag the rust image moves to every 1.99.x point
+/// release, so a version without its patch still floats, just more slowly.
+/// The gate has to pin the patch to give the same answer on every day.
+#[test]
+fn control_a_version_without_its_patch_is_rejected_222() {
+    assert_rejected_for(
+        "ARG RUST_VERSION=1.99\nFROM rust:${RUST_VERSION}-bookworm AS builder\n",
+        "without a patch",
+    );
+}
+
+/// A concrete, patch-pinned toolchain newer than the MSRV is fine; the guard
+/// asks for a concrete pin at or above it, not for equality.
 #[test]
 fn control_a_concrete_newer_toolchain_is_accepted_222() {
-    let df = "ARG RUST_VERSION=1.99.1\nFROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-bookworm AS builder\n";
+    let df = "ARG RUST_VERSION=1.99.0\nFROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-bookworm AS builder\n";
     let problems = dockerfile_problems(df, "1.97");
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
