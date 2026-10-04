@@ -67,6 +67,17 @@ fn inert_path_driver() -> String {
 /// Which of `paths` the hook would treat as inert for a push to `repo_name`
 /// out of the checkout at `tree`.
 fn inert_paths(repo_name: &str, tree: &Path, paths: &[String]) -> BTreeSet<String> {
+    inert_paths_with(repo_name, tree, paths, None)
+}
+
+/// `inert_paths`, with `stubs` (a directory of stand-in commands) put first on
+/// PATH, for the cases where what the scan's tools do is the point.
+fn inert_paths_with(
+    repo_name: &str,
+    tree: &Path,
+    paths: &[String],
+    stubs: Option<&Path>,
+) -> BTreeSet<String> {
     let dir = tempfile::tempdir().expect("temp dir for the inert_path driver");
     let script = dir.path().join("inert_path.sh");
     std::fs::write(&script, inert_path_driver()).expect("write the inert_path driver");
@@ -78,7 +89,17 @@ fn inert_paths(repo_name: &str, tree: &Path, paths: &[String]) -> BTreeSet<Strin
     // is not cosmetic: 3.2 cannot parse a `case` inside `"$( ... )"`, so the
     // scan below used to die there, come back empty and answer inert for
     // everything, and this guard could not see it.
-    let mut child = Command::new("bash")
+    let mut cmd = Command::new("bash");
+    if let Some(stubs) = stubs {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let mut dirs = vec![stubs.to_path_buf()];
+        dirs.extend(std::env::split_paths(&path));
+        cmd.env(
+            "PATH",
+            std::env::join_paths(dirs).expect("a PATH with the stubs"),
+        );
+    }
+    let mut child = cmd
         .arg(&script)
         .arg(repo_name)
         .arg(tree)
@@ -562,6 +583,151 @@ fn a_file_a_test_reads_at_run_time_is_read() {
     );
 }
 
+/// The scan fails closed. If it can't look, it can't know a path is unread,
+/// so a tree with no tests/ and a scan whose grep errors both make every
+/// candidate run the suite (#224).
+///
+/// The old scan sent errors to /dev/null and swallowed the status with
+/// `|| true`, so a scan that died came back empty and every listed path read
+/// as inert: exactly the false skip this hook exists to prevent.
+#[test]
+fn a_scan_that_cannot_look_skips_nothing() {
+    let candidates: Vec<String> = ["LICENSE", "docs/read-by-nothing.md", ".gitignore"]
+        .iter()
+        .map(|p| (*p).to_string())
+        .collect();
+
+    // No tests/ at all.
+    let bare = tempfile::tempdir().expect("temp dir for a tree with no tests/");
+    lay_down(
+        bare.path(),
+        &[
+            ("LICENSE", "stand-in licence\n"),
+            ("docs/read-by-nothing.md", "stand-in doc\n"),
+            (".gitignore", "target/\n"),
+        ],
+    );
+
+    // A tests/ that's there, with a grep that fails the way an unreadable file
+    // or a broken install does: exit 2 and a message.
+    let scanned = tempfile::tempdir().expect("temp dir for a tree with tests/");
+    lay_down(
+        scanned.path(),
+        &[
+            ("LICENSE", "stand-in licence\n"),
+            ("docs/read-by-nothing.md", "stand-in doc\n"),
+            (".gitignore", "target/\n"),
+            ("tests/unrelated.rs", "// reads nothing\n"),
+        ],
+    );
+    let stubs = tempfile::tempdir().expect("temp dir for a failing grep");
+    let grep = stubs.path().join("grep");
+    std::fs::write(
+        &grep,
+        "#!/bin/sh\necho 'grep: stand-in failure' >&2\nexit 2\n",
+    )
+    .expect("write the failing grep");
+    common::hooks::make_executable(&grep);
+
+    // The control: with a working grep the same tree does skip, so a red
+    // below is the failure talking and not the tree.
+    let control = inert_paths("libviprs-tests", scanned.path(), &candidates);
+    assert_eq!(
+        control.len(),
+        candidates.len(),
+        "with a working scan nothing in this tree reads any of {candidates:?}, \
+         so all of them should be inert, and only {control:?} were"
+    );
+
+    let mut wrong: Vec<String> = Vec::new();
+    for repo_name in ["libviprs", "libviprs-tests"] {
+        let inert = inert_paths(repo_name, bare.path(), &candidates);
+        if !inert.is_empty() {
+            wrong.push(format!(
+                "with no tests/ to scan, a {repo_name} push still skips for {inert:?}"
+            ));
+        }
+        let inert = inert_paths_with(repo_name, scanned.path(), &candidates, Some(stubs.path()));
+        if !inert.is_empty() {
+            wrong.push(format!(
+                "with grep failing, a {repo_name} push still skips for {inert:?}"
+            ));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "inert_path() skipped the suite on a scan that never looked:\n  {}",
+        wrong.join("\n  ")
+    );
+}
+
+/// This file is left out of the scan. Its stand-in trees spell `.gitignore`,
+/// `.github/workflows/ci.yml` and the rest as fixtures, so counting them would
+/// make the real tree read those paths whether or not a real reader does, and
+/// `the_skip_list_exempts_exactly_the_pinned_paths` could never notice a real
+/// reader going away (#224).
+///
+/// Same path, two trees: mentioned only in a file with this one's name it's
+/// inert, mentioned in any other test it's read.
+#[test]
+fn the_hooks_own_fixtures_do_not_count_as_readers() {
+    let fixture = "docs/only-in-a-fixture.md";
+    let unread_dir = ".github/workflows/only-in-a-fixture.yml";
+    let body = format!(
+        "const FIXTURE: &[&str] = &[\"{fixture}\", \"{unread_dir}\", \".github/workflows\"];\n"
+    );
+
+    let fixtures_only = tempfile::tempdir().expect("temp dir for the fixtures-only tree");
+    lay_down(
+        fixtures_only.path(),
+        &[
+            (fixture, "stand-in doc\n"),
+            (unread_dir, "name: stand-in\n"),
+            ("tests/prepush_gate_cost_controls.rs", &body),
+            ("tests/unrelated.rs", "// reads nothing\n"),
+        ],
+    );
+    let real_reader = tempfile::tempdir().expect("temp dir for the real-reader tree");
+    lay_down(
+        real_reader.path(),
+        &[
+            (fixture, "stand-in doc\n"),
+            (unread_dir, "name: stand-in\n"),
+            ("tests/reads_them.rs", &body),
+        ],
+    );
+
+    let candidates: Vec<String> = [fixture, unread_dir]
+        .iter()
+        .map(|p| (*p).to_string())
+        .collect();
+    let mut wrong: Vec<String> = Vec::new();
+    for repo_name in ["libviprs", "libviprs-tests"] {
+        let inert = inert_paths(repo_name, fixtures_only.path(), &candidates);
+        for path in &candidates {
+            if !inert.contains(path) {
+                wrong.push(format!(
+                    "{repo_name}: {path} reads as read when only \
+                     tests/prepush_gate_cost_controls.rs names it"
+                ));
+            }
+        }
+        let inert = inert_paths(repo_name, real_reader.path(), &candidates);
+        for path in &candidates {
+            if inert.contains(path) {
+                wrong.push(format!(
+                    "{repo_name}: {path} reads as inert when tests/reads_them.rs names it"
+                ));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the scan's view of this file is wrong:\n  {}",
+        wrong.join("\n  ")
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Driving the whole hook
 // ---------------------------------------------------------------------------
@@ -756,6 +922,39 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
     }
 }
 
+/// When a path the patterns call inert runs the suite anyway, the hook says
+/// which literal in tests/ made it count as read. A surprise suite run is then
+/// one line to explain instead of a hunt through the scan (#224).
+#[test]
+fn the_hook_names_the_literal_that_made_a_path_read() {
+    let ws = Workspace::new();
+    let base = [
+        (".github/workflows/ci.yml", "name: ci\n"),
+        (
+            "tests/common/workflows.rs",
+            "pub const WORKFLOW_DIRS: &[&str] = &[\".github/workflows\"];\n",
+        ),
+        ("tools/run-tests.sh", STUB_RUN_TESTS),
+    ];
+    let before = ws.commit("libviprs-tests", "base", &base);
+    let after = ws.commit(
+        "libviprs-tests",
+        "change",
+        &[(".github/workflows/ci.yml", "name: ci\njobs: {}\n")],
+    );
+    let out = ws.push("libviprs-tests").range(&before, &after).run();
+    assert!(
+        out.contains(RAN_MARKER),
+        "a test names .github/workflows, so this push should run the suite:\n{out}"
+    );
+    let want = "(read via \".github/workflows\" in tests/)";
+    assert!(
+        out.contains(want),
+        "the hook ran the suite without saying which literal made \
+         .github/workflows/ci.yml count as read; wanted {want} in:\n{out}"
+    );
+}
+
 /// Whatever the list says, there has to be a way to say "run it anyway", or
 /// the next person who does not trust the filter goes back to `--no-verify`
 /// and takes the whole gate with them.
@@ -773,6 +972,10 @@ fn the_skip_can_be_overridden() {
         &[
             ("LICENSE", "stand-in licence\n"),
             ("tools/run-tests.sh", STUB_RUN_TESTS),
+            // A tests/ to scan. Without one the hook can't tell what reads
+            // LICENSE and runs the suite, so the skip this override has to
+            // beat would never happen.
+            ("tests/nothing_reads_the_licence.rs", "// stand-in\n"),
         ],
     );
     let after = ws.commit(
