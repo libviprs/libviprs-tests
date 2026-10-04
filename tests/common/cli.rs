@@ -174,6 +174,12 @@ fn build_viprs_once() -> PathBuf {
         ])
         .arg("--manifest-path")
         .arg(&manifest)
+        // Named outright, as `viprs_bin_for` does, because `bin` is looked up
+        // under it below. Left to cargo, an inherited $CARGO_TARGET_DIR sends
+        // the build somewhere else and every cell fails on a missing binary
+        // instead of running.
+        .arg("--target-dir")
+        .arg(&target_dir)
         // Do NOT inherit the tests-repo `-Dwarnings` RUSTFLAGS: we are building
         // a crate we do not own the lint-cleanliness of, and a stray warning on
         // a newer toolchain must not fail the differential build.
