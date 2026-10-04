@@ -102,7 +102,14 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # `pdfium-static` makes the core's `resolve_pdfium_path` dead code, and
+      # the job-wide `-Dwarnings` then fails the core itself before this crate
+      # is checked. That cell alone clears RUSTFLAGS; `-D warnings` after `--`
+      # still applies to this crate. Drop it once the core gates the function
+      # on `not(pdfium-static)` too.
       - run: cargo clippy --all-targets --features ${{ matrix.feature }} -- -D warnings
+        env:
+          RUSTFLAGS: ${{ matrix.feature == 'pdfium-static' && ' ' || '-Dwarnings' }}
 
   cli-differential:
     name: CLI Differential
