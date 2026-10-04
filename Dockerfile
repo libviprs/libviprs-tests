@@ -7,14 +7,20 @@
 # denies (`deprecated = "deny"`), so the gate could not compile the core at all
 # and the failure looked like the pushed branch's (#222).
 #
-# For now the gate tracks the core's MSRV job, so it sits on the core's
-# `rust-version`. That means lints that only exist on newer stable don't fire
-# here; CI's stable lint job still catches them. Once the core's stable fix
-# (libviprs#1157) lands, this moves to a concrete stable release, patch pinned,
-# so the gate lints with the same toolchain CI does.
-# tests/dockerfile_pins_rust_toolchain_222.rs keeps this a concrete version,
-# used through ${RUST_VERSION}, and never below the core's MSRV.
-ARG RUST_VERSION=1.97
+# It's a concrete stable release with the patch pinned, so the gate gives the
+# same answer every day and lints with the toolchain CI uses: CI runs
+# `dtolnay/rust-toolchain@stable` in both repos, and the lint that broke #222
+# only existed on stable. The core's MSRV (`rust-version`) is covered by the
+# core's own MSRV job, so this doesn't sit on it; it only has to be at or above
+# it.
+#
+# Bump it when a new stable ships (every six weeks), or sooner when CI goes red
+# on a stable lint the gate didn't see. Use the newest `rust:X.Y.Z-bookworm` tag
+# and never a floating one like `1.99` or `latest`.
+# tests/dockerfile_pins_rust_toolchain_222.rs keeps this a concrete
+# `major.minor.patch`, used through ${RUST_VERSION}, and never below the core's
+# MSRV.
+ARG RUST_VERSION=1.99.0
 
 # Stage 1: Download PDFium shared library for the target architecture
 FROM debian:bookworm-slim AS pdfium

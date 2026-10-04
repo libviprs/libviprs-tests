@@ -9,8 +9,11 @@
 //!
 //! This reads every `FROM rust...` stage (skipping `--platform=...` style flags
 //! and matching `FROM` in any case, as docker does), and requires the tag to come
-//! from the one global `RUST_VERSION` arg, to resolve to a concrete version, and
-//! to be at least the core's `rust-version`. It is a text check on a checked-in
+//! from the one global `RUST_VERSION` arg, to resolve to a concrete
+//! `major.minor.patch` (a bare `1.99` tag moves with every point release), and
+//! to be at least the core's `rust-version`. It doesn't ask for the MSRV itself:
+//! the gate sits on a concrete stable so it lints the way CI does, and the
+//! core's own MSRV job covers the floor. It is a text check on a checked-in
 //! file, needs no docker, and runs under the default `cargo test`.
 
 use std::path::PathBuf;
@@ -84,18 +87,19 @@ fn rust_images(dockerfile: &str) -> Vec<(String, String)> {
 }
 
 /// `1.97`, `1.97.1`, `1.97-bookworm` or `1.97.1-slim-bookworm` as a
-/// `(major, minor, patch)` triple, patch defaulting to 0. `None` for anything
-/// that isn't at least `major.minor` in plain numbers, so `1`, `latest` and
-/// `stable` all read as floating.
-fn version_triple(tag: &str) -> Option<(u64, u64, u64)> {
+/// `(major, minor, patch)` triple, patch defaulting to 0, plus whether the tag
+/// actually spelled the patch out. `None` for anything that isn't at least
+/// `major.minor` in plain numbers, so `1`, `latest` and `stable` all read as
+/// floating.
+fn version_triple(tag: &str) -> Option<((u64, u64, u64), bool)> {
     let numbers = tag.split('-').next()?;
     let parts: Vec<u64> = numbers
         .split('.')
         .map(|n| n.parse().ok())
         .collect::<Option<_>>()?;
     match parts[..] {
-        [major, minor] => Some((major, minor, 0)),
-        [major, minor, patch] => Some((major, minor, patch)),
+        [major, minor] => Some(((major, minor, 0), false)),
+        [major, minor, patch] => Some(((major, minor, patch), true)),
         _ => None,
     }
 }
@@ -108,7 +112,7 @@ fn dockerfile_problems(dockerfile: &str, msrv: &str) -> Vec<String> {
     if images.is_empty() {
         return vec!["Dockerfile has no `FROM rust:...` stage".to_owned()];
     }
-    let floor = version_triple(msrv)
+    let (floor, _) = version_triple(msrv)
         .unwrap_or_else(|| panic!("cannot parse the core's rust-version `{msrv}`"));
     let mut problems = Vec::new();
     for (written, image) in &images {
@@ -124,11 +128,16 @@ fn dockerfile_problems(dockerfile: &str, msrv: &str) -> Vec<String> {
                 "`FROM {written}` resolves to `{image}`, which floats: pin a concrete \
                  version so the gate's toolchain cannot change under it (#222)"
             )),
-            Some(v) if v < floor => problems.push(format!(
+            Some((v, _)) if v < floor => problems.push(format!(
                 "`FROM {written}` resolves to `{image}`, below the core's MSRV {msrv}, \
                  which can't build the core (#222)"
             )),
-            Some(_) => {}
+            Some((_, false)) => problems.push(format!(
+                "`FROM {written}` resolves to `{image}`, a version without a patch, \
+                 and the rust image moves that tag with every point release: pin \
+                 `major.minor.patch` (#222)"
+            )),
+            Some((_, true)) => {}
         }
     }
     problems
