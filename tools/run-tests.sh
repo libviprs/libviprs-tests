@@ -446,22 +446,38 @@ stage_tree() {
 # blobs (the worktree is what `status` compares the index against) and no
 # history, and `shallow` says so. That is a few hundred KB, not the whole of
 # `.git`.
+#
+# So in the staged repo `rev-parse`, `status`, `ls-files`, `tag` and `log -1`
+# work, and anything that has to read a blob (`diff HEAD`, `show`, `blame`,
+# `fsck`) fails, by design. Rename detection is switched off in its config for
+# that reason: a staged rename plus an edit would otherwise make `status` read
+# HEAD's blobs.
+#
+# Every git call here goes through `git_at`. A pre-push hook exports GIT_DIR
+# for the pushing repo and it beats `-C`, which would stage that repo's HEAD
+# next to this one's index.
 stage_git_index() {
     local src="$1"
     local dst="$2"
     local gitdir
 
-    gitdir=$(git -C "$src" rev-parse --absolute-git-dir 2>/dev/null) || return 0
+    # The context is cached between runs and stage_tree's rsync leaves `.git`
+    # alone, so start from nothing. Otherwise packs pile up, and a source that
+    # has gone back to having no commit keeps a stale `staged` ref that HEAD
+    # still resolves to.
+    rm -rf "${dst:?}/.git"
+
+    gitdir=$(git_at -C "$src" rev-parse --absolute-git-dir 2>/dev/null) || return 0
     [ -f "$gitdir/index" ] || return 0
 
     local common
-    common=$(git -C "$src" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    common=$(git_at -C "$src" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
         || common="$gitdir"
 
     mkdir -p "$dst/.git/objects" "$dst/.git/refs/heads" "$dst/.git/refs/tags"
     cp "$gitdir/index" "$dst/.git/index"
     printf 'ref: refs/heads/staged\n' > "$dst/.git/HEAD"
-    printf '[core]\n\trepositoryformatversion = 0\n\tbare = false\n' \
+    printf '[core]\n\trepositoryformatversion = 0\n\tbare = false\n[status]\n\trenames = false\n[diff]\n\trenames = false\n' \
         > "$dst/.git/config"
     # Tags and branches, so `git tag` and `git rev-parse <ref>` answer. Loose
     # refs live under the common dir even for a worktree; packed ones are a
@@ -474,10 +490,10 @@ stage_git_index() {
     # it. A source with no commit yet has nothing to point at and stays unborn,
     # which is what it is.
     local head
-    if head=$(git -C "$src" rev-parse --verify --quiet 'HEAD^{commit}'); then
+    if head=$(git_at -C "$src" rev-parse --verify --quiet 'HEAD^{commit}'); then
         mkdir -p "$dst/.git/objects/pack"
-        git -C "$src" rev-list --objects --filter=blob:none -1 "$head" \
-            | git -C "$src" pack-objects --quiet "$dst/.git/objects/pack/pack" \
+        git_at -C "$src" rev-list --objects --filter=blob:none -1 "$head" \
+            | git_at -C "$src" pack-objects --quiet "$dst/.git/objects/pack/pack" \
             >/dev/null
         printf '%s\n' "$head" > "$dst/.git/refs/heads/staged"
         printf '%s\n' "$head" > "$dst/.git/shallow"
