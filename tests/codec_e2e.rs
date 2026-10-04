@@ -1333,7 +1333,13 @@ fn limits_webp() {
 fn limits_gif() {
     limits_row("limits_gif", None, gif_dec, "gif.gif");
 }
+/// Red against the core: `decode_netpbm` (core `src/textio.rs`) checks only
+/// `check_image_alloc`, never `check_coord` or `check_pixels`, so a Netpbm
+/// file decodes straight through a `max_coord` or `max_pixels` ceiling it is
+/// over. Ignored until the core fix lands and the pin moves to it; run it with
+/// `--ignored` to see it fail.
 #[test]
+#[ignore = "core defect: the Netpbm decoder ignores DecodeLimits::max_coord and max_pixels (#230)"]
 fn limits_ppm() {
     limits_row("limits_ppm", None, sniffed, "ppm.ppm");
 }
@@ -1377,7 +1383,13 @@ fn limits_jp2k() {
 fn limits_avif() {
     limits_row("limits_avif", Some("avif"), avif_dec, "avif_q75.avif");
 }
+/// Red against the core: the SVG rasteriser (core `src/svg.rs`) checks
+/// `max_coord` and `max_pixels` and then allocates the pixmap and its
+/// demultiplied copy without asking `max_alloc_bytes`, so a caller's
+/// allocation budget does not bound an SVG decode. Ignored until the core fix
+/// lands and the pin moves to it; run it with `--ignored` to see it fail.
 #[test]
+#[ignore = "core defect: the SVG rasteriser ignores DecodeLimits::max_alloc_bytes (#230)"]
 fn limits_svg() {
     limits_row("limits_svg", Some("svg"), svg_dec, "svg.svg");
 }
