@@ -17,8 +17,9 @@
 //!   be refused before anything is written.
 //!
 //! The references are `tests/fixtures/cli/foreign/`, made by
-//! `GEN_ONLY=foreign ./tools/gen_cli_expected.sh` with vips 8.18.6
-//! (`PROVENANCE.md`, "codec load/save references").
+//! `GEN_ONLY=foreign ./tools/gen_cli_expected.sh` with vips 8.18.4 on the
+//! native x86_64 NAS (`tools/Dockerfile.vips-oracle`; `PROVENANCE.md`, "codec
+//! load/save references").
 //!
 //! # The feature-gated codecs
 //!
@@ -51,7 +52,7 @@ const EXACT: f64 = 0.0;
 
 // Every tolerance below is the largest per-sample difference I measured
 // between the two files, both decoded by the same libviprs decoder, on the
-// native x86_64 NAS against the vips 8.18.6 references. They are exactly the
+// native x86_64 NAS against the vips 8.18.4 references. They are exactly the
 // measured value, not rounded up, because every encoder and decoder involved
 // is deterministic: a cell that moves at all has changed.
 
@@ -71,25 +72,25 @@ const JPEG_LOAD_TOL: f64 = 2.0;
 const JPEG_SHRINK_TOL: f64 = 47.0;
 
 /// BOUNDED-TOL for `gifsave` at its defaults: different quantisers and
-/// different error diffusion over pure gradients. Measured 105, mean 3.2. It
-/// is wide because dither moves single pixels a long way; the cell exists to
-/// catch a wrong palette or geometry, and the option cells below hold the
-/// flags to their structure.
-const GIF_SAVE_TOL: f64 = 105.0;
+/// different error diffusion over pure gradients. Measured 106. It is wide
+/// because dither moves single pixels a long way; the cell exists to catch a
+/// wrong palette or geometry, and the option cells below hold the flags to
+/// their structure.
+const GIF_SAVE_TOL: f64 = 106.0;
 
 /// BOUNDED-TOL for `gifsave --dither 0`: no error diffusion, so the two
 /// quantisers are much closer. Measured 37.
 const GIF_NODITHER_TOL: f64 = 37.0;
 
 /// BOUNDED-TOL for `pngsave --palette`: 256-colour quantisation of the same
-/// gradients, different quantisers. Measured 49.
-const PNG_PALETTE_TOL: f64 = 49.0;
+/// gradients, different quantisers. Measured 51.
+const PNG_PALETTE_TOL: f64 = 51.0;
 
 /// BOUNDED-TOL for the Ultra HDR base image. The core picks its own gain map
 /// and tone mapping (`libviprs::uhdr::encode_uhdr` says why: libuhdr's choice
 /// is a policy with no specification to port), so the SDR base differs from
-/// libuhdr's. Measured 87, mean 12.
-const UHDR_SAVE_TOL: f64 = 87.0;
+/// libuhdr's. Measured 82.
+const UHDR_SAVE_TOL: f64 = 82.0;
 
 /// BOUNDED-TOL for `uhdrload`: the base half is a JPEG, decoded by two
 /// different decoders. Measured 2.

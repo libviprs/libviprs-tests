@@ -646,7 +646,7 @@ const REQUIRED_FIXTURES: &[&str] = &[
     "features/canonical.jp2",
     "features/canonical.svg",
     // ---- codec load/save (cli_foreign_diff.rs), libviprs-cli#65 ----
-    // vips 8.18.6 references, the inputs they were made from, and the core
+    // vips 8.18.4 references, the inputs they were made from, and the core
     // oracle-capture fixtures for the formats vips cannot write.
     "foreign/analyze_uchar.hdr",
     "foreign/analyze_uchar.img",
