@@ -73,7 +73,7 @@ fn fake_tree(tag: &str) -> PathBuf {
 /// The `key: value` lines the plan prints, lowercased keys, trimmed values.
 fn plan_for(libviprs: &Path) -> Vec<(String, String)> {
     let script = tests_root().join("tools/run-tests.sh");
-    let out = Command::new("sh")
+    let out = Command::new("bash")
         .arg(&script)
         .arg("--dry-run")
         .arg("--libviprs")

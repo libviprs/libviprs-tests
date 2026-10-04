@@ -226,13 +226,10 @@ fn s3_alias_comment_states_no_build_time_signal() {
     );
 }
 
-/// Lockfile to inspect. Defaults to this crate's own `Cargo.lock`; the
-/// `PINS_LOCK_PATH` override exists so the guard can be pointed at an older
-/// lock to prove it fails on the drift it was written for (#222).
+/// This crate's own `Cargo.lock`. The controls further down feed inline locks
+/// to the same assertions, so there's no override for pointing this elsewhere.
 fn read_tests_lock() -> (PathBuf, String) {
-    let p = std::env::var_os("PINS_LOCK_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.lock"));
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.lock");
     let text = std::fs::read_to_string(&p)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", p.display()));
     (p, text)
@@ -259,6 +256,18 @@ fn locked_pdfium_entries(lock: &str) -> Vec<(String, String)> {
     out
 }
 
+/// A locked version as `(major, minor, patch)`, with any `-pre` or `+build`
+/// suffix dropped first, so `0.9.5-rc.1` compares as 0.9.5. Anything else
+/// panics: a version the guard can't read is a broken guard, not a zero.
+fn locked_version(label: &str, version: &str) -> (u64, u64, u64) {
+    let core = version.split(['-', '+']).next().unwrap_or_default();
+    let parts: Option<Vec<u64>> = core.split('.').map(|n| n.parse().ok()).collect();
+    match parts.as_deref() {
+        Some(&[major, minor, patch]) => (major, minor, patch),
+        _ => panic!("{label}: cannot parse pdfium-render version `{version}` (#222)"),
+    }
+}
+
 /// Panics if any `pdfium-render` entry in `lock` (named `label` in messages)
 /// is off the crates.io registry or below 0.9.4. Split out from the test so the
 /// controls below can run the same assertions over locks that must fail.
@@ -271,12 +280,13 @@ fn assert_lockfile_pins(label: &str, lock: &str) {
     for (version, source) in &entries {
         assert!(
             source.starts_with("registry+https://github.com/rust-lang/crates.io-index"),
-            "{label}: pdfium-render {version} is locked from `{source}`, expected the crates.io registry (#222)"
+            "{label}: pdfium-render {version} is locked from `{source}`, expected the \
+             crates.io registry (#222); run `cargo update -p pdfium-render`"
         );
-        let nums: Vec<u64> = version.split('.').map(|n| n.parse().unwrap_or(0)).collect();
         assert!(
-            nums >= vec![0, 9, 4],
-            "{label}: pdfium-render is locked at {version}, the core requires >= 0.9.4 (#222)"
+            locked_version(label, version) >= (0, 9, 4),
+            "{label}: pdfium-render is locked at {version}, the core requires >= 0.9.4 \
+             (#222); run `cargo update -p pdfium-render`"
         );
     }
 }

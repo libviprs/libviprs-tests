@@ -2,6 +2,20 @@
 # Dockerfile — run libviprs + libviprs-tests with PDFium (amd64 + arm64)
 # ---------------------------------------------------------------------------
 
+# Rust toolchain for the builder stage. This used to be `rust:latest`, and when
+# `latest` reached 1.99 it deprecated `Atomic::fetch_update`, which the core
+# denies (`deprecated = "deny"`), so the gate could not compile the core at all
+# and the failure looked like the pushed branch's (#222).
+#
+# For now the gate tracks the core's MSRV job, so it sits on the core's
+# `rust-version`. That means lints that only exist on newer stable don't fire
+# here; CI's stable lint job still catches them. Once the core's stable fix
+# (libviprs#1157) lands, this moves to a concrete stable release, patch pinned,
+# so the gate lints with the same toolchain CI does.
+# tests/dockerfile_pins_rust_toolchain_222.rs keeps this a concrete version,
+# used through ${RUST_VERSION}, and never below the core's MSRV.
+ARG RUST_VERSION=1.97
+
 # Stage 1: Download PDFium shared library for the target architecture
 FROM debian:bookworm-slim AS pdfium
 
@@ -28,7 +42,7 @@ RUN case "${TARGETARCH}" in \
     rm /tmp/pdfium.tgz
 
 # Stage 2: Build and test
-FROM rust:latest AS builder
+FROM rust:${RUST_VERSION}-bookworm AS builder
 
 # shellcheck is here because the pre-commit hook runs it and `ubuntu-latest`
 # ships it, so CI has it and this image did not. Nothing noticed until the local

@@ -1,4 +1,4 @@
-//! The gate image's Rust toolchain must be pinned, and pinned to the core's MSRV (#222).
+//! The gate image's Rust toolchain must be pinned, and never below the core's MSRV (#222).
 //!
 //! `Dockerfile` used to say `FROM rust:latest`. When `latest` moved to 1.99 it
 //! deprecated `Atomic::fetch_update`, the core denies deprecations
@@ -7,10 +7,11 @@
 //! read as the branch's fault. A floating tag makes the gate's result depend on
 //! the day it ran, which is what a gate must not do.
 //!
-//! This reads the builder stage's base image, resolves any global `ARG`
-//! default it uses, and requires a concrete version tag that matches the core's
-//! `rust-version`, so the two have to move together. It is a text check on a
-//! checked-in file, needs no docker, and runs under the default `cargo test`.
+//! This reads every `FROM rust...` stage (skipping `--platform=...` style flags
+//! and matching `FROM` in any case, as docker does), and requires the tag to come
+//! from the one global `RUST_VERSION` arg, to resolve to a concrete version, and
+//! to be at least the core's `rust-version`. It is a text check on a checked-in
+//! file, needs no docker, and runs under the default `cargo test`.
 
 use std::path::PathBuf;
 
@@ -36,38 +37,67 @@ fn core_msrv() -> String {
         .expect("core Cargo.toml has no `rust-version`")
 }
 
+/// The rest of `line` if it's the Dockerfile instruction `keyword`. Docker
+/// matches instructions case-insensitively, so this does too.
+fn instruction<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
+    let (word, rest) = line.split_once(char::is_whitespace)?;
+    word.eq_ignore_ascii_case(keyword)
+        .then_some(rest.trim_start())
+}
+
 /// Global `ARG NAME=default` values (those before the first `FROM`).
 fn global_args(dockerfile: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for line in dockerfile.lines().map(str::trim) {
-        if line.starts_with("FROM ") {
+        if instruction(line, "FROM").is_some() {
             break;
         }
-        if let Some((k, v)) = line.strip_prefix("ARG ").and_then(|a| a.split_once('=')) {
+        if let Some((k, v)) = instruction(line, "ARG").and_then(|a| a.split_once('=')) {
             out.push((k.trim().to_owned(), v.trim().trim_matches('"').to_owned()));
         }
     }
     out
 }
 
-/// Every `FROM rust:<tag>` image reference with `${ARG}` substituted.
-fn rust_images(dockerfile: &str) -> Vec<String> {
+/// Every `FROM rust...` image as `(written, resolved)`: the reference as the
+/// file spells it, and the same with global `${ARG}` defaults substituted.
+/// Flags such as `--platform=$BUILDPLATFORM` come before the image and are
+/// skipped, so they can't hide a stage.
+fn rust_images(dockerfile: &str) -> Vec<(String, String)> {
     let args = global_args(dockerfile);
     dockerfile
         .lines()
         .map(str::trim)
-        .filter_map(|l| l.strip_prefix("FROM "))
-        .map(|rest| {
-            let mut image = rest.split_whitespace().next().unwrap_or("").to_owned();
+        .filter_map(|l| instruction(l, "FROM"))
+        .filter_map(|rest| rest.split_whitespace().find(|t| !t.starts_with("--")))
+        .map(|written| {
+            let mut image = written.to_owned();
             for (k, v) in &args {
                 image = image
                     .replace(&format!("${{{k}}}"), v)
                     .replace(&format!("${k}"), v);
             }
-            image
+            (written.to_owned(), image)
         })
-        .filter(|i| i.starts_with("rust:") || i == "rust")
+        .filter(|(_, i)| i.starts_with("rust:") || i == "rust")
         .collect()
+}
+
+/// `1.97`, `1.97.1`, `1.97-bookworm` or `1.97.1-slim-bookworm` as a
+/// `(major, minor, patch)` triple, patch defaulting to 0. `None` for anything
+/// that isn't at least `major.minor` in plain numbers, so `1`, `latest` and
+/// `stable` all read as floating.
+fn version_triple(tag: &str) -> Option<(u64, u64, u64)> {
+    let numbers = tag.split('-').next()?;
+    let parts: Vec<u64> = numbers
+        .split('.')
+        .map(|n| n.parse().ok())
+        .collect::<Option<_>>()?;
+    match parts[..] {
+        [major, minor] => Some((major, minor, 0)),
+        [major, minor, patch] => Some((major, minor, patch)),
+        _ => None,
+    }
 }
 
 /// Everything wrong with the builder's Rust image in `dockerfile`, measured
@@ -78,27 +108,34 @@ fn dockerfile_problems(dockerfile: &str, msrv: &str) -> Vec<String> {
     if images.is_empty() {
         return vec!["Dockerfile has no `FROM rust:...` stage".to_owned()];
     }
+    let floor = version_triple(msrv)
+        .unwrap_or_else(|| panic!("cannot parse the core's rust-version `{msrv}`"));
     let mut problems = Vec::new();
-    for image in &images {
+    for (written, image) in &images {
         let tag = image.strip_prefix("rust:").unwrap_or("");
-        if tag.is_empty() || tag == "latest" || !tag.starts_with(|c: char| c.is_ascii_digit()) {
+        if !written.contains("${RUST_VERSION}") && !written.contains("$RUST_VERSION") {
             problems.push(format!(
-                "`FROM {image}` floats: pin a version tag so the gate's toolchain cannot change under it (#222)"
+                "`FROM {written}` doesn't take its tag from `${{RUST_VERSION}}`; \
+                 move the version into the one `ARG RUST_VERSION` (#222)"
             ));
-        } else if !(tag == msrv
-            || tag.starts_with(&format!("{msrv}."))
-            || tag.starts_with(&format!("{msrv}-")))
-        {
-            problems.push(format!(
-                "`FROM {image}` is not the core's MSRV {msrv}; move the pin together with `rust-version` (#222)"
-            ));
+        }
+        match version_triple(tag) {
+            None => problems.push(format!(
+                "`FROM {written}` resolves to `{image}`, which floats: pin a concrete \
+                 version so the gate's toolchain cannot change under it (#222)"
+            )),
+            Some(v) if v < floor => problems.push(format!(
+                "`FROM {written}` resolves to `{image}`, below the core's MSRV {msrv}, \
+                 which can't build the core (#222)"
+            )),
+            Some(_) => {}
         }
     }
     problems
 }
 
 #[test]
-fn dockerfile_rust_image_is_pinned_to_the_core_msrv_222() {
+fn dockerfile_rust_image_is_pinned_at_or_above_the_core_msrv_222() {
     let problems = dockerfile_problems(&read("Dockerfile"), &core_msrv());
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
