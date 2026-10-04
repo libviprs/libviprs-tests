@@ -112,37 +112,20 @@ fi
 # (tests/feature_rename_docs_present.rs), so a docs-only push to either repo
 # can genuinely fail.
 #
-# .gitignore is per-repo. It is inert for a libviprs push, because nothing in
-# either repo opens the core checkout's copy, and read for a libviprs-tests
-# one, whose provenance guard reads it for the native-binary patterns
-# (tests/pdfium_provenance.rs, issue #56). A .gitignore-only push is exactly
-# the push that can drop those patterns, so it is the last one that should
-# skip the guard on them.
+# .gitignore and .github/ used to answer per repo on the path alone, and both
+# halves of that were wrong in a different way. The libviprs half called every
+# core .github/ path inert without looking at the tree, while the core's own
+# tests pull ci.yml, merge-gate.yml, publish.yml and the EPIC issue form in
+# with include_str!, so a workflow-only push skipped the guard that reads it
+# and failed in CI instead (#214's docs/* bug wearing a different prefix).
+# The libviprs-tests half called all of .github/ and .gitignore read, which was
+# right for the wrong reason: this repo's guards open them at run time, and the
+# coverage rested on a pattern rather than on knowing who reads what. Narrowing
+# it the way the libviprs half was narrowed would have reopened the hole,
+# because the scan below could not see a run-time read (#224).
 #
-# .github/ used to be per-repo in the same breath, and the libviprs half of
-# that was wrong from the day it was written. It answered "inert" on the
-# strength of the prefix without ever looking at the tree, and the core
-# checkout's own tests pull four of its .github/ files in with include_str!:
-# ci.yml (tests/ci_feature_coverage.rs, tests/local_gate_is_the_job_list.rs,
-# tests/doc_link_gate.rs), merge-gate.yml (tests/local_gate_is_the_job_list.rs,
-# tests/miri_invocation_parity.rs), publish.yml
-# (tests/pmtiles_release_readiness.rs) and the EPIC issue form
-# (tests/epic_template.rs). So a push editing only a core workflow skipped the
-# guard that reads it and failed in CI instead, which is #214's docs/* bug
-# wearing a different prefix. .github/ now falls through to the scan for
-# libviprs and is decided by what the tree actually reads.
-#
-# Only the libviprs-tests half of .github/ still answers on the path alone,
-# and it has to. This repo's pinning guards open .github/workflows/*.yml and
-# .github/actions/*/action.yml at RUN time out of CARGO_MANIFEST_DIR
-# (tests/common/workflows.rs, tests/counterpart_pinning.rs,
-# tests/cli_counterpart_pinning.rs), and a run-time read leaves no include_str!
-# literal behind for the scan to find. That is the same blind spot the
-# .gitignore entry above covers, and it is why both of them are named in the
-# libviprs-tests block at the top of the function rather than trusted to the
-# scan. The blind spot itself is issue #224: the prefix is doing work here
-# that the scan cannot yet do, so narrowing this block the way the libviprs
-# half was narrowed would reopen the hole rather than close it.
+# So nothing answers on the repo any more. Both of them, in both repos, go to
+# the scan, and the scan was taught what a run-time read looks like.
 #
 # The second half of the answer is not a pattern at all. `docs/*` says "this
 # is not code", which is not the same as "nothing reads it", and the day a
@@ -152,75 +135,119 @@ fi
 # asserting on its columns and on the test names it quotes. A push changing
 # only that file was skipping the suite and failing in CI instead. So for the
 # patterns that claim nothing reads the file, go and look: scan the pushed
-# tree's tests/ for include_str! literals, and anything one of them names is
-# read, whatever the path looks like. docs/streaming-pdf-rotation.md has no
-# reference anywhere in either repo and stays inert on the strength of that
-# scan rather than on the strength of this comment.
+# tree's tests/ for paths, and anything one of them names is read, whatever the
+# path looks like. docs/streaming-pdf-rotation.md has no reference anywhere in
+# either repo and stays inert on the strength of that scan rather than on the
+# strength of this comment.
 #
-# What the scan can see is include_str!, which resolves at compile time and
-# names a file relative to the source that pulls it in. It does not see a
-# runtime read, which is how this suite reads its own .gitignore and
-# workflows, and that is what the per-repo entries above are for.
+# What the scan collects is every string literal under tests/ that is shaped
+# like a repo-relative path, not only the ones handed to include_str!. That is
+# what makes a run-time read visible, and the two live cases in #224 are why it
+# also counts a literal naming a DIRECTORY as reading everything under it:
 #
-# tests/prepush_gate_cost_controls.rs runs every tracked path in both repos
-# through this function for real and pins the set that comes back inert, so
-# adding an entry here fails there with the files it would newly exempt.
+#   - tests/common/workflows.rs resolves a workflow by joining each entry of
+#     WORKFLOW_DIRS to a file name. The only literal is ".github/workflows",
+#     and the file's own path is spelled nowhere.
+#   - the core's tests/local_gate_is_the_job_list.rs walks .github/workflows/
+#     with read_dir and fails on any file there it has not classified. A new
+#     workflow carries no literal of its own, and it is exactly the push that
+#     guard exists to stop.
+#
+# Both come out read because ".github/workflows" names a directory above them.
+# The same rule makes tests/pdfium_provenance.rs's read(".gitignore") count,
+# and tests/install_hooks_mirror_ci.rs's join(".github") means every .github/
+# path in this repo is read, which is now a fact about the tree rather than a
+# line in a case statement.
+#
+# A literal only counts if it holds a / or starts with a dot. A bare word like
+# "LICENSE" is far more often data than a path (the guard that pins this
+# function's answers names it as one), and counting it would make the pinned
+# skip list read itself as a reader. The cost is that a test opening a bare
+# top-level name at run time is missed; include_str!("../LICENSE") is still
+# seen, since include_str! literals count whatever their shape.
+#
+# What it still cannot see is a path assembled with no literal for it or any
+# directory above it, say format!("{dir}/{name}") where dir itself came from
+# somewhere other than a literal. Nothing short of running the code sees that.
+# tests/prepush_gate_cost_controls.rs is what keeps the gap honest: it runs
+# every tracked path in both repos through this function and pins the set that
+# comes back inert, so a file the scan stops seeing fails there by name.
+#
+# The scan errs towards "read". A path-shaped literal in an assertion message
+# or a fixture counts the same as one handed to read_to_string, and the cost of
+# that is a suite run that was not strictly needed, which is the cheap mistake.
 #
 # Set LIBVIPRS_PREPUSH_ALL=1 to run the suite whatever the paths say.
 
 inert_path() {
-    # The two this repo reads at run time, where the scan below is blind and
-    # the path has to answer on its own. See the .github/ and .gitignore
-    # paragraphs above for which guard reads which.
-    if [ "$REPO_NAME" = "libviprs-tests" ]; then
-        case "$1" in
-            .github/*|.gitignore)
-                return 1
-                ;;
-        esac
-    fi
-
     case "$1" in
-        .gitignore)
-            # Nothing opens the core checkout's copy.
-            return 0
-            ;;
-        .github/*|docs/*|.gitattributes|.editorconfig|LICENSE|LICENSE-*)
-            : # decided by the include_str! scan below
+        .gitignore|.github/*|docs/*|.gitattributes|.editorconfig|LICENSE|LICENSE-*)
+            : # decided by the scan below
             ;;
         *)
             return 1
             ;;
     esac
 
-    # Every include_str! literal under the pushed tree's tests/, normalised to
-    # a tree-relative path by dropping the leading ./ and ../ steps. Computed
-    # once: the guard feeds every tracked path in the repo through here.
-    if [ -z "${INCLUDED_BY_A_TEST+set}" ]; then
-        INCLUDED_BY_A_TEST=""
+    # Every path a test under the pushed tree names, normalised to a
+    # tree-relative path by dropping the leading ./ and ../ steps and any
+    # trailing /. Two sources, unioned:
+    #   - include_str! literals, whatever their shape, as before.
+    #   - every other string literal made only of path characters that holds a
+    #     / or starts with a dot. This is what sees a run-time read.
+    # Computed once: the guard feeds every tracked path in the repo through
+    # here.
+    if [ -z "${READ_BY_A_TEST+set}" ]; then
+        READ_BY_A_TEST=""
         if [ -n "${TREE:-}" ] && [ -d "$TREE/tests" ]; then
             # The leading ./ and ../ steps come off in the sed, not in a shell
             # loop. A `case` here would be inside "$( ... )", which bash 3.2
             # cannot parse: see the version floor at the top of this file for
             # what that cost.
-            INCLUDED_BY_A_TEST="$(
-                { find "$TREE/tests" -type f -name '*.rs' \
-                    -exec grep -ho 'include_str!("[^"]*")' {} + 2>/dev/null || true; } |
-                sed -e 's/^include_str!("//' -e 's/")$//' -e 's|^\(\.\{1,2\}/\)*||'
+            #
+            # The path-character class leaves out quotes and backslashes, so an
+            # escaped quote inside some other string cannot pair up with a real
+            # one and swallow the literal after it.
+            READ_BY_A_TEST="$(
+                {
+                    find "$TREE/tests" -type f -name '*.rs' \
+                        -exec grep -ho 'include_str!("[^"]*")' {} + 2>/dev/null |
+                        sed -e 's/^include_str!("//' -e 's/")$//'
+                    find "$TREE/tests" -type f -name '*.rs' \
+                        -exec grep -ho '"[A-Za-z0-9_.+@-]*/[A-Za-z0-9_./+@-]*"\|"\.[A-Za-z0-9_./+@-]*"' {} + 2>/dev/null |
+                        sed -e 's/^"//' -e 's/"$//'
+                } |
+                sed -e 's|^\(\.\{1,2\}/\)*||' -e 's|/*$||' | sort -u
             )" || true
         fi
     fi
 
-    while IFS= read -r included; do
-        [ -n "$included" ] || continue
-        # The tail form catches a literal that reached out of its own repo, so
-        # a cross-checkout include is read rather than quietly inert.
-        case "$included" in
-            "$1"|*"/$1") return 1 ;;
-        esac
-    done <<INCLUDED
-$INCLUDED_BY_A_TEST
-INCLUDED
+    # The path itself and every directory above it. A literal naming any of
+    # them reads this file: the path for a direct read, a directory for a
+    # read_dir walk or a list of directories joined to a name.
+    local targets above named target
+    targets="$1"
+    above="$1"
+    while [ "${above%/*}" != "$above" ]; do
+        above="${above%/*}"
+        targets="$targets
+$above"
+    done
+
+    while IFS= read -r named; do
+        [ -n "$named" ] || continue
+        while IFS= read -r target; do
+            # The tail form catches a literal that reached out of its own repo,
+            # so a cross-checkout read is read rather than quietly inert.
+            case "$named" in
+                "$target"|*"/$target") return 1 ;;
+            esac
+        done <<TARGETS
+$targets
+TARGETS
+    done <<NAMED
+$READ_BY_A_TEST
+NAMED
 
     return 0
 }

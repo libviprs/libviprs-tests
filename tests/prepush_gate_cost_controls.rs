@@ -572,11 +572,12 @@ fn a_file_a_test_reads_at_run_time_is_read() {
 /// These are the rows the PR body used to report by hand, in the tree, where a
 /// change to `inert_path` has to face them.
 ///
-/// The `.github/` pair is load-bearing and easy to drop as redundant. One row
-/// expects a workflow nothing reads to skip and the next expects a workflow a
-/// test reads to run, and only the second one can tell this hook apart from a
-/// revert to deciding `.github/` on the prefix, because a prefix rule agrees
-/// with the first row.
+/// The `.github/` pairs are load-bearing and easy to drop as redundant. In
+/// each repo one row expects a `.github/` file nothing reads to skip and
+/// another expects one a test reads to run. A prefix rule agrees with one row
+/// of each pair, so only the pair tells this hook apart from a revert to
+/// deciding `.github/` on the path: the libviprs pair catches a revert to
+/// "inert", and the libviprs-tests pair catches a revert to "read" (#224).
 #[test]
 fn the_hook_skips_and_runs_the_way_the_list_says() {
     let ws = Workspace::new();
@@ -606,6 +607,29 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
             "const WORKFLOW: &str = \
              include_str!(\"../.github/workflows/read-by-a-test.yml\");\n",
         ),
+        // This repo's own shape for a run-time read: a workflow resolved by
+        // joining a WORKFLOW_DIRS entry to its name, and .gitignore opened by
+        // name. Neither leaves an include_str! behind, so these are the rows
+        // that fail if the scan goes back to seeing only those (#224).
+        (
+            "tests/common/workflows.rs",
+            "pub const WORKFLOW_DIRS: &[&str] = &[\".github/workflows\"];\n\
+             pub fn read_workflow(name: &str) -> String {\n\
+             \x20   let root = std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\"));\n\
+             \x20   std::fs::read_to_string(root.join(WORKFLOW_DIRS[0]).join(name)).unwrap()\n\
+             }\n",
+        ),
+        (
+            "tests/reads_the_ignore_file.rs",
+            "fn read(rel: &str) -> String {\n\
+             \x20   std::fs::read_to_string(std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(rel)).unwrap()\n\
+             }\n\
+             const IGNORE: fn() -> String = || read(\".gitignore\");\n",
+        ),
+        (
+            ".github/ISSUE_TEMPLATE/read-by-nothing.yml",
+            "name: read-by-nothing\n",
+        ),
         ("src/lib.rs", "// stand-in\n"),
         ("tools/run-tests.sh", STUB_RUN_TESTS),
     ];
@@ -616,7 +640,8 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
             ".gitignore",
             "target/\n",
             true,
-            "tests/pdfium_provenance.rs reads this repo's .gitignore for the \
+            "tests/reads_the_ignore_file.rs opens it at run time, the shape of \
+             tests/pdfium_provenance.rs reading this repo's .gitignore for the \
              native-binary patterns (issue #56), and a push that drops them is \
              exactly the push that must not skip",
         ),
@@ -625,7 +650,19 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
             ".github/workflows/ci.yml",
             "name: ci\njobs: {}\n",
             true,
-            "the pinning guards read this repo's workflows",
+            "tests/common/workflows.rs reads it by joining a WORKFLOW_DIRS \
+             entry to its name, which is how the pinning guards read this \
+             repo's workflows",
+        ),
+        (
+            "libviprs-tests",
+            ".github/ISSUE_TEMPLATE/read-by-nothing.yml",
+            "name: read-by-nothing, revised\n",
+            false,
+            "nothing in the stand-in tree reads it. This is the row that fails \
+             if this repo's .github/ goes back to answering read on the path, \
+             which is right for every file the real repo has today and right \
+             for the wrong reason (#224)",
         ),
         (
             "libviprs-tests",
@@ -643,14 +680,14 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
         ),
         (
             "libviprs",
-            ".github/workflows/ci.yml",
-            "name: ci\njobs: {}\n",
+            ".github/ISSUE_TEMPLATE/read-by-nothing.yml",
+            "name: read-by-nothing, revised\n",
             false,
-            "nothing in THIS stand-in tree pulls it in. The real core checkout \
-             is the other way round, and deliberately so: its own guards read \
-             all three of its workflows with include_str!, so there the same \
-             push runs the suite. Both answers come from the scan rather than \
-             from the .github/ prefix, which is the whole point",
+            "nothing in THIS stand-in tree reads it. The real core checkout has \
+             the opposite case on file, its EPIC issue form, which \
+             tests/epic_template.rs pulls in with include_str!, so there the \
+             same kind of push runs the suite. Both answers come from the scan \
+             rather than from the .github/ prefix, which is the whole point",
         ),
         (
             "libviprs",
