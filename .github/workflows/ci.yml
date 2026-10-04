@@ -285,9 +285,11 @@ jobs:
       # panic, the same shape VIPRS_REQUIRE_CLI has on cli-differential. Without
       # it this job goes green on a runner where the download failed, for
       # exactly the reason a dev machine goes green: it never ran the binary.
+      # pipeline_e2e rides here too: its arrival-layout cells read every archive
+      # back through go-pmtiles, and this is the one job that has it.
       - env:
           VIPRS_REQUIRE_GO_PMTILES: 1
-        run: cargo test --test pmtiles_interop --test phase_pmtiles --test pmtiles_bounded --test pmtiles_ci_wiring --test pmtiles_sweep
+        run: cargo test --test pmtiles_interop --test phase_pmtiles --test pmtiles_bounded --test pmtiles_ci_wiring --test pmtiles_sweep --test pipeline_e2e
 
   lint:
     name: Lint

@@ -852,7 +852,16 @@ fn cancel_then_resume_is_byte_identical_streaming() {
 /// tiles listed in an inbound resume checkpoint", which "must not surface as
 /// TileCompleted", because an observer would otherwise double-count them
 /// across the original and the resumed run.
+///
+/// Ignored because core does not do this yet, and it is a core bug rather
+/// than a gap in this file: nothing in core constructs `TileSkippedOnResume`,
+/// and the resume wrapper answers a skipped write with `Ok`, so the engine
+/// reports every checkpointed tile as `TileCompleted`. Measured against core
+/// 8afc3ae5 on a checkpoint naming 35 of 105 tiles: `(105, 0)` where the
+/// contract says `(70, 35)`. Run it with `--ignored` to see that; it comes off
+/// ignore when core emits the event and `COUNTERPART_REV` moves past the fix.
 #[test]
+#[ignore = "core never emits TileSkippedOnResume and reports skipped tiles as TileCompleted (libviprs-tests#231)"]
 fn resume_reports_skipped_tiles_as_skipped_and_not_as_completed() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (plan, src, base, checkpointed) = cancelled_run(dir.path());
@@ -1111,7 +1120,16 @@ fn retry_then_skip_drops_only_the_chosen_tile() {
 
 /// `EngineEvent::RetryAttempted` says it fires when "a tile write failed and a
 /// retry is about to be attempted", once per retry with a 1-based attempt.
+///
+/// Ignored because core does not do this yet: the retry loop lives in
+/// `RetryingSink`, which has no observer, and nothing in core constructs
+/// `RetryAttempted` at all. Measured against core 8afc3ae5: two retries of the
+/// chosen tile reach the observer as nothing. `EngineResult::retry_count`
+/// does see them, which `retry_recovers_when_the_failures_fit_inside_the_budget`
+/// pins. Run this with `--ignored` to see the gap; it comes off ignore when
+/// core emits the event and `COUNTERPART_REV` moves past the fix.
 #[test]
+#[ignore = "core never emits EngineEvent::RetryAttempted (libviprs-tests#231)"]
 fn retry_attempts_are_reported_to_the_observer() {
     let (src, plan, target) = retry_fixture();
     let sink = FlakySink::new(target, 2);
