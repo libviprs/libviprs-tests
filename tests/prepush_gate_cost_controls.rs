@@ -404,6 +404,164 @@ fn a_doc_a_test_includes_is_read_and_one_nothing_includes_is_inert() {
     );
 }
 
+/// Write `files` under `tree`, creating directories as needed.
+fn lay_down(tree: &Path, files: &[(&str, &str)]) {
+    for (rel, contents) in files {
+        let path = tree.join(rel);
+        std::fs::create_dir_all(path.parent().expect("a stand-in path has a parent"))
+            .expect("stand-in directory");
+        std::fs::write(&path, contents).expect("write a stand-in file");
+    }
+}
+
+/// A file a test opens at run time is read, the same as one it pulls in with
+/// `include_str!`, even when no literal anywhere spells the file's own path
+/// (#224).
+///
+/// The two stand-in trees are the two live shapes the issue names, copied
+/// down to the constructs that matter:
+///
+/// - this repo's `tests/common/workflows.rs`, which resolves a workflow by
+///   joining every entry of `WORKFLOW_DIRS` to a file name and reading
+///   whichever one exists. The only literal is the directory, so a scan that
+///   looks for the file's path finds nothing. `tests/pdfium_provenance.rs`
+///   reading `.gitignore` by name rides along, since it is the same blind spot
+///   on a top-level file.
+/// - the core checkout's `tests/local_gate_is_the_job_list.rs`, which walks
+///   `.github/workflows/` with `read_dir` and fails on any file there it has
+///   not classified. A brand-new workflow carries no literal of its own, and
+///   it is precisely the push that guard exists to stop.
+///
+/// Both trees are asked under both repo names, because the answer has to come
+/// from the tree and not from which repo is being pushed. Each tree also holds
+/// a file nothing reads, and that half is not decoration: a hook that calls
+/// everything under `.github/` read passes the first half for the wrong
+/// reason, and only the unread file tells it apart from one that looked.
+#[test]
+fn a_file_a_test_reads_at_run_time_is_read() {
+    let workflow_dirs = tempfile::tempdir().expect("temp dir for the WORKFLOW_DIRS tree");
+    lay_down(
+        workflow_dirs.path(),
+        &[
+            (".github/workflows/ci.yml", "name: ci\n"),
+            (
+                ".github/ISSUE_TEMPLATE/read-by-nothing.yml",
+                "name: unread\n",
+            ),
+            (".gitignore", "target/\n*.dylib\n"),
+            (
+                "tests/common/workflows.rs",
+                "use std::path::{Path, PathBuf};\n\
+                 pub const WORKFLOW_DIRS: &[&str] = &[\".github/workflows\", \".gitea/workflows\"];\n\
+                 pub fn read_workflow(name: &str) -> String {\n\
+                 \x20   let root = Path::new(env!(\"CARGO_MANIFEST_DIR\"));\n\
+                 \x20   let found: Vec<PathBuf> = WORKFLOW_DIRS\n\
+                 \x20       .iter()\n\
+                 \x20       .map(|dir| root.join(dir).join(name))\n\
+                 \x20       .filter(|path| path.is_file())\n\
+                 \x20       .collect();\n\
+                 \x20   std::fs::read_to_string(&found[0]).unwrap()\n\
+                 }\n",
+            ),
+            (
+                "tests/ci_feature_coverage.rs",
+                "mod common;\n\
+                 #[test]\n\
+                 fn reads_ci() { let _ = common::workflows::read_workflow(\"ci.yml\"); }\n",
+            ),
+            (
+                "tests/pdfium_provenance.rs",
+                "fn read(rel: &str) -> String {\n\
+                 \x20   std::fs::read_to_string(std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(rel)).unwrap()\n\
+                 }\n\
+                 #[test]\n\
+                 fn reads_the_ignore_file() { let _ = read(\".gitignore\"); }\n",
+            ),
+        ],
+    );
+
+    let read_dir = tempfile::tempdir().expect("temp dir for the read_dir tree");
+    lay_down(
+        read_dir.path(),
+        &[
+            (".github/workflows/ci.yml", "name: ci\n"),
+            (".github/workflows/brand-new.yml", "name: brand-new\n"),
+            ("docs/read-by-nothing.md", "stand-in doc\n"),
+            (
+                "tests/local_gate_is_the_job_list.rs",
+                "use std::path::Path;\n\
+                 const CI_YML: &str = include_str!(\"../.github/workflows/ci.yml\");\n\
+                 #[test]\n\
+                 fn every_workflow_is_classified() {\n\
+                 \x20   let dir = Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\".github/workflows\");\n\
+                 \x20   for entry in std::fs::read_dir(&dir).expect(\"failed to read .github/workflows\") {\n\
+                 \x20       let _ = entry;\n\
+                 \x20   }\n\
+                 }\n",
+            ),
+        ],
+    );
+
+    let shapes: &[(&Path, &[&str], &str, &str)] = &[
+        (
+            workflow_dirs.path(),
+            &[".github/workflows/ci.yml", ".gitignore"],
+            ".github/ISSUE_TEMPLATE/read-by-nothing.yml",
+            "tests/common/workflows.rs reads ci.yml by joining a WORKFLOW_DIRS \
+             entry to the name, and tests/pdfium_provenance.rs reads .gitignore \
+             by name with read_to_string",
+        ),
+        (
+            read_dir.path(),
+            &[
+                ".github/workflows/ci.yml",
+                ".github/workflows/brand-new.yml",
+            ],
+            "docs/read-by-nothing.md",
+            "tests/local_gate_is_the_job_list.rs walks .github/workflows/ with \
+             read_dir and fails on any file there it has not classified, so a \
+             new workflow is the one push it exists to stop",
+        ),
+    ];
+
+    // Every wrong answer is collected before failing, so one run names every
+    // shape the hook gets wrong rather than stopping at the first.
+    let mut wrong: Vec<String> = Vec::new();
+    for repo_name in ["libviprs", "libviprs-tests"] {
+        for (tree, read, unread, why) in shapes {
+            let mut candidates: Vec<String> = read.iter().map(|p| (*p).to_string()).collect();
+            candidates.push((*unread).to_string());
+            let inert = inert_paths(repo_name, tree, &candidates);
+
+            for path in *read {
+                if inert.contains(*path) {
+                    wrong.push(format!(
+                        "a {repo_name} push that changes only {path} skips the \
+                         suite, but {why}"
+                    ));
+                }
+            }
+            if !inert.contains(*unread) {
+                wrong.push(format!(
+                    "a {repo_name} push that changes only {unread} runs the \
+                     suite, but nothing in this stand-in tree reads it, so the \
+                     answer came from the path rather than from the tree"
+                ));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "inert_path() answered {} case(s) wrongly:\n  {}\nA run-time read leaves \
+         no include_str! behind, so a scan that only looks for those calls the \
+         file inert and the gate skips the guard that reads it. Answering on \
+         the path instead is right only until somebody narrows the pattern \
+         (#224).",
+        wrong.len(),
+        wrong.join("\n  ")
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Driving the whole hook
 // ---------------------------------------------------------------------------
