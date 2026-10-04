@@ -27,21 +27,22 @@
 //! * the password cells separate the three outcomes (no password, wrong
 //!   password, right password) rather than lumping them under "non-zero".
 //!
-//! # Two cells that need more than the CLI
+//! # The password cells
 //!
 //! `password.pdf` is AES-256 encrypted (R6) and its only page is text, with no
-//! embedded image. `libviprs::extract_page_image_with_password` and
-//! `pdf_info_with_password` do not decrypt: for an encrypted document and a
-//! non-empty password they return a typed "not available in this build" error,
-//! by design (`src/pdf.rs`, "this pure-Rust build does not provide"). So the
-//! right-password cell can only pass once core grows a decryption path (and
-//! one that copes with this file: lopdf 0.36 fails on it, see below), and the
-//! CLI cannot make it pass by itself. The cell is here, red, because the issue
-//! asks for it and because a CLI that quietly accepted any password would pass
-//! a weaker test. `password_fixture_is_encrypted_and_not_open_without_a_password`
-//! pins the premise (the fixture really is protected, and `secret` really is
-//! its password) as far as `lopdf` can say it, and records how `secret` was
-//! established, so the cell cannot be red for a reason that is the fixture's
+//! embedded image. `lopdf` 0.36 cannot decrypt it (`Decryption(InvalidKeyLength)`),
+//! so the library opens it through pdfium: `pdf_info_with_password` and
+//! `extract_page_image_with_password` take the password, and they answer a
+//! missing or empty one with `PdfError::PasswordRequired` and a wrong one with
+//! `PdfError::WrongPassword`. The CLI maps those two onto its own messages, so
+//! the cells pin the wording a person sees ("a password is needed" with the
+//! `--password` hint, and "wrong password") rather than just "non-zero".
+//!
+//! All three need a pdfium-enabled `viprs` and a libpdfium, the same as the
+//! cells in the next section, because the encrypted file only opens through
+//! pdfium. `password_fixture_is_encrypted_and_not_open_without_a_password`
+//! pins the premise (the fixture really is protected) and records how `secret`
+//! was established, so a cell cannot be red for a reason that is the fixture's
 //! fault.
 //!
 //! # The pdfium cells
@@ -211,7 +212,7 @@ fn password_fixture_is_encrypted_and_not_open_without_a_password() {
 /// someone meets it first.
 #[test]
 fn pdf_68_password_pdf_without_password_exits_1_saying_a_password_is_needed() {
-    if skip_if_no_cli("pdf_68_password_pdf_without_password") {
+    if skip_if_no_pdfium("pdf_68_password_pdf_without_password") {
         return;
     }
     let dir = TempDir::new().unwrap();
@@ -223,6 +224,10 @@ fn pdf_68_password_pdf_without_password_exits_1_saying_a_password_is_needed() {
     assert!(
         msg.contains("a password is needed"),
         "stderr must say a password is needed, got: {msg}"
+    );
+    assert!(
+        msg.contains("--password"),
+        "stderr must point at --password, got: {msg}"
     );
     assert!(
         !out_png.exists(),
@@ -239,12 +244,14 @@ fn pdf_68_password_pdf_without_password_exits_1_saying_a_password_is_needed() {
     );
 }
 
-/// 68: the right password gets through. RED until core decrypts (see the
-/// module docs): the library answers a non-empty password on an encrypted file
-/// with "not available in this build".
+/// 68: the right password gets through, on both commands. `pdf info` has to
+/// surface the page the file really has, and `pdf extract` has to write a
+/// decodable, non-empty PNG of it. The fixture's page is text on white with no
+/// embedded image, so a render that never decrypted the content stream would
+/// come back blank: the pixels are checked for ink, not just for a size.
 #[test]
 fn pdf_68_password_pdf_with_the_right_password_opens() {
-    if skip_if_no_cli("pdf_68_password_pdf_with_the_right_password") {
+    if skip_if_no_pdfium("pdf_68_password_pdf_with_the_right_password") {
         return;
     }
     let pdf = fixture("password.pdf");
@@ -256,13 +263,33 @@ fn pdf_68_password_pdf_with_the_right_password_opens() {
         text.contains("595.3 x 841.9"),
         "pdf info output was: {text}"
     );
+
+    let dir = TempDir::new().unwrap();
+    let out_png = dir.path().join("unlocked.png");
+    ok(&["pdf", "extract", s(&pdf), s(&out_png), "--password", SECRET]);
+    let raster = decode_file(&out_png).expect("the unlocked extract decodes as a PNG");
+    assert!(
+        raster.width() > 0 && raster.height() > 0 && !raster.data().is_empty(),
+        "the unlocked extract is empty: {}x{}",
+        raster.width(),
+        raster.height()
+    );
+    let bpp = raster.format().bytes_per_pixel();
+    assert!(
+        raster
+            .data()
+            .chunks_exact(bpp)
+            .any(|px| px[..bpp.min(3)].iter().any(|&c| c != 255)),
+        "the unlocked page rendered blank, so it was never decrypted"
+    );
 }
 
-/// 68: a wrong password is exit 1 and the message is about the password, not
-/// about a missing file or a usage mistake.
+/// 68: a wrong password is exit 1 and says so ("wrong password"), which is
+/// neither the "a password is needed" of a missing one nor a message about a
+/// missing file or a usage mistake.
 #[test]
 fn pdf_68_password_pdf_with_a_wrong_password_exits_1_naming_the_password() {
-    if skip_if_no_cli("pdf_68_password_pdf_with_a_wrong_password") {
+    if skip_if_no_pdfium("pdf_68_password_pdf_with_a_wrong_password") {
         return;
     }
     let dir = TempDir::new().unwrap();
@@ -281,8 +308,8 @@ fn pdf_68_password_pdf_with_a_wrong_password_exits_1_naming_the_password() {
     );
     let msg = stderr(&out).to_lowercase();
     assert!(
-        msg.contains("password"),
-        "stderr must be about the password: {msg}"
+        msg.contains("wrong password"),
+        "stderr must say \"wrong password\": {msg}"
     );
     assert!(
         !msg.contains("a password is needed"),
