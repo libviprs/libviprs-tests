@@ -263,7 +263,7 @@ STEP
 
 job cli-differential
 step VIPRS_REQUIRE_CLI=1 <<'STEP'
-cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff --test cli_pmtiles --test cli_features --test cli_foreign_diff --test cli_op_map_counts --test cli_pyramid_pipeline
+cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff --test cli_pmtiles --test cli_features --test cli_builtins_e2e --test cli_foreign_diff --test cli_op_map_counts --test cli_pyramid_pipeline --test cli_surface_coverage
 STEP
 step VIPRS_REQUIRE_CLI=1 <<'STEP'
 cargo test --features "jxl jp2k avif svg" --test cli_foreign_diff
