@@ -39,6 +39,9 @@ use std::time::{Duration, Instant};
 /// * `containers/<name>` one file per container, holding its image tag
 /// * `log` every invocation, one line each
 ///
+/// `build` also records the `LIBVIPRS_DOCKER_SLOT` it was started under in
+/// `slot-at-build`.
+///
 /// Knobs: `FAKE_DOCKER_BUILD_FAIL=1` makes `build` fail, `FAKE_DOCKER_RUN_EXIT`
 /// is what `run` exits with, and while `$FAKE_DOCKER_STATE/hold` exists `run`
 /// writes `$FAKE_DOCKER_STATE/running` and waits.
@@ -76,6 +79,7 @@ case "$cmd" in
       mv "$S/images/$k" "$S/images/untagged-$old"
     fi
     new_id > "$S/images/$k"
+    printf '%s\n' "${LIBVIPRS_DOCKER_SLOT:-}" > "$S/slot-at-build"
     exit 0 ;;
   run)
     name=""; image=""
@@ -237,6 +241,9 @@ impl Sandbox {
             .env_remove("RUN_TESTS_MAX_PARALLEL")
             .env_remove("RUN_TESTS_IMAGE_NAME")
             .env_remove("RUN_TESTS_CONTAINER_NAME")
+            .env_remove("LIBVIPRS_DOCKER_SLOT")
+            .env_remove("LIBVIPRS_DOCKER_SLOT_DIR")
+            .env_remove("LIBVIPRS_DOCKER_MAX_PARALLEL")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -598,4 +605,74 @@ fn plan_touches_neither_docker_nor_the_slots() {
         sb.log("a")
     );
     assert!(list(&sb.slots()).is_empty(), "--plan took a slot");
+}
+
+/// A caller that already holds a slot (the workspace's push wrapper, or a hook
+/// that took one before it called this script) names it in
+/// `LIBVIPRS_DOCKER_SLOT`. The run is already counted, and queueing for a
+/// second slot would deadlock the moment the cap is one: the caller waits for
+/// this run, and this run waits for the caller's slot.
+#[test]
+fn a_run_under_a_caller_holding_a_slot_does_not_queue_for_another() {
+    let sb = Sandbox::new();
+    let slot = sb.slots().join("slot1");
+    fs::create_dir_all(&slot).expect("create the caller's slot");
+    fs::write(slot.join("pid"), format!("{}\n", std::process::id()))
+        .expect("write the caller's pid");
+
+    let out = run(
+        sb.command("a")
+            .env("RUN_TESTS_MAX_PARALLEL", "1")
+            .env("LIBVIPRS_DOCKER_SLOT", &slot),
+        "a run under a caller that holds the only slot",
+    );
+    assert!(
+        out.status.success(),
+        "with the only slot held by its caller (LIBVIPRS_DOCKER_SLOT={}), the \
+         run should go ahead rather than wait for a second one\n{}",
+        slot.display(),
+        text(&out)
+    );
+    assert_eq!(
+        fs::read_to_string(slot.join("pid"))
+            .unwrap_or_default()
+            .trim(),
+        std::process::id().to_string(),
+        "the run released a slot that belongs to its caller"
+    );
+}
+
+/// The pool is one per machine and shared with core's local-ci.py, so a run
+/// takes its slot from `LIBVIPRS_DOCKER_SLOT_DIR` when nothing more specific is
+/// set, and tells what it starts which slot it holds, so a hook further down
+/// does not take a second one.
+#[test]
+fn the_slot_comes_from_the_shared_pool_and_is_handed_down() {
+    let sb = Sandbox::new();
+    let shared = sb.root.join("shared-pool");
+    let out = run(
+        sb.command("a")
+            .env_remove("RUN_TESTS_SLOT_DIR")
+            .env("LIBVIPRS_DOCKER_SLOT_DIR", &shared),
+        "a run against the shared pool",
+    );
+    assert!(out.status.success(), "{}", text(&out));
+    let handed_down = fs::read_to_string(sb.state("a").join("slot-at-build"))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    assert!(
+        handed_down.starts_with(&shared.display().to_string()),
+        "`docker build` ran with LIBVIPRS_DOCKER_SLOT={handed_down:?}, expected a \
+         slot under the shared pool {}.\n\nThe slots have to come from the one \
+         pool every Docker-starting hook uses, and the holder has to say so to \
+         what it starts, or each script caps only itself.\n{}",
+        shared.display(),
+        text(&out)
+    );
+    assert!(
+        list(&shared).is_empty(),
+        "the run is over, so its slot should be released: {:?}",
+        list(&shared)
+    );
 }
