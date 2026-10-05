@@ -45,6 +45,14 @@
 //! cargo test --test codec_e2e --features libviprs/jp2k
 //! ```
 //!
+//! CI runs all four at once, as `--features "jxl avif svg jp2k"`, with
+//! `CODEC_E2E_REQUIRE_FEATURES=all`, so none of them can skip there
+//! (`tests/codec_ci_wiring.rs` holds that step in place). The `avif`, `svg`
+//! and `jp2k` spellings are this crate's forwarding of the core features
+//! (libviprs/libviprs-tests#235); `--features svg` is also what turns on the
+//! [`svg_build`] check that stops an svg build reading `Unsupported` as a
+//! skip.
+//!
 //! Without the feature a cell SKIPS, and says so on stderr outside libtest's
 //! capture, so the skip shows up in every run rather than only under
 //! `--nocapture`. A skip reads to `cargo test` as a pass, so
@@ -337,7 +345,13 @@ fn is_feature_refusal(feature: &str, err: &SourceError) -> bool {
             err,
             SourceError::Jp2k(libviprs::Jp2kError::FeatureNotEnabled)
         ),
-        "svg" => matches!(err, SourceError::Io(e) if e.kind() == std::io::ErrorKind::Unsupported),
+        // A bare core answers `Unsupported` as its refusal, so only a build
+        // without the renderer may read it that way. With the renderer in,
+        // the same error is the renderer failing, and that is a failure.
+        "svg" => {
+            !svg_build()
+                && matches!(err, SourceError::Io(e) if e.kind() == std::io::ErrorKind::Unsupported)
+        }
         other => panic!("unknown codec feature {other}"),
     }
 }

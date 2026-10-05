@@ -36,6 +36,18 @@ jobs:
       # either forge had ever executed the 14 tests in them. The first run
       # found one of them red (#191).
       - run: cargo test --features packfile --test phase3_packfile --test builder_sink_packfile
+      # codec_e2e's JPEG XL, JPEG 2000, AVIF and SVG rows skip when the core
+      # is built without the feature, and the default run above builds it
+      # with none of them, so here they run with all four and
+      # CODEC_E2E_REQUIRE_FEATURES=all turns any skip into a failure
+      # (libviprs-tests#230). avif, svg and jp2k are this crate's forwarding of
+      # the core features, from #235, which also moves Cargo.lock to the
+      # versions the svg renderer needs, so this step needs #235 merged first.
+      # tests/codec_ci_wiring.rs holds the step in place.
+      - name: Codec matrix with every codec feature
+        run: cargo test --features "jxl avif svg jp2k" --test codec_e2e
+        env:
+          CODEC_E2E_REQUIRE_FEATURES: all
 
   test-pdfium:
     name: Integration Tests (pdfium)

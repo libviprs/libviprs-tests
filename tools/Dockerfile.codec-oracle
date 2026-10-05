@@ -7,8 +7,13 @@
 #   docker build --platform linux/amd64 -t vips-oracle:8.18.4 - < tools/Dockerfile.vips-oracle
 #   docker build --platform linux/amd64 -t codec-oracle:8.18.4 - < tools/Dockerfile.codec-oracle
 #
-# and run tools/gen_fixtures.sh codec inside it (see that script). Built and
-# run on the native x86_64 NAS, never under emulation.
+# and run, inside it, `tools/gen_fixtures.sh codec-vips`, then the
+# `generate_libviprs_encodes` cell of tests/codec_e2e.rs (with jxl and jp2k
+# on), then `tools/gen_fixtures.sh codec-enc` (see that script). Built and run
+# on the native x86_64 NAS, never under emulation.
+#
+# tools/Dockerfile.vips-oracle arrives with libviprs/libviprs-tests#236, so
+# this file only builds once that has merged; #236 lands first.
 #
 # What is added, and why each one:
 #
