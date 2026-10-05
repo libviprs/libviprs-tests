@@ -30,8 +30,9 @@
 //! 3. **Op-shaped functions.** In an op-family module every `pub fn` has to be
 //!    named in that family's `OP_MAP.md` section (a row, a fold note or the
 //!    section's "non-op public API" paragraph), and in a codec module every
-//!    load/save entry point has to be named in the foreign section, or sit in
-//!    [`FN_EXCLUSIONS`] with a one-line reason.
+//!    load/save entry point has to be named in the foreign section or called
+//!    from the CLI's source, or sit in [`FN_EXCLUSIONS`] with a one-line
+//!    reason.
 //!
 //! Every exclusion row is checked as hard as the surface is. A row for a
 //! feature, module or function the core no longer has is red, and so is a row
@@ -99,14 +100,376 @@ const fn row(module: &'static str, reach: Reach, why: &'static str) -> ModuleRow
 }
 
 /// Every public core module, and how the CLI reaches it.
-const MODULES: &[ModuleRow] = &[];
+const MODULES: &[ModuleRow] = &[
+    // The sixteen op families OP_MAP.md audits, plus raster_ops.
+    row(
+        "arithmetic",
+        Reach::OpFamily("arithmetic"),
+        "an OP_MAP.md op family",
+    ),
+    row("bands", Reach::OpFamily("bands"), "an OP_MAP.md op family"),
+    row(
+        "colour",
+        Reach::OpFamily("colour"),
+        "an OP_MAP.md op family",
+    ),
+    row(
+        "composite",
+        Reach::OpFamily("composite"),
+        "an OP_MAP.md op family",
+    ),
+    row(
+        "conversion",
+        Reach::OpFamily("conversion"),
+        "an OP_MAP.md op family",
+    ),
+    row(
+        "convolution",
+        Reach::OpFamily("convolution"),
+        "an OP_MAP.md op family",
+    ),
+    row(
+        "create",
+        Reach::OpFamily("create"),
+        "an OP_MAP.md op family",
+    ),
+    row("draw", Reach::OpFamily("draw"), "an OP_MAP.md op family"),
+    row(
+        "extract",
+        Reach::OpFamily("extract"),
+        "an OP_MAP.md op family",
+    ),
+    row(
+        "freqfilt",
+        Reach::OpFamily("freqfilt"),
+        "an OP_MAP.md op family",
+    ),
+    row(
+        "histogram",
+        Reach::OpFamily("histogram"),
+        "an OP_MAP.md op family",
+    ),
+    row(
+        "matrix",
+        Reach::OpFamily("matrix"),
+        "an OP_MAP.md op family",
+    ),
+    row(
+        "morphology",
+        Reach::OpFamily("morphology"),
+        "an OP_MAP.md op family",
+    ),
+    row(
+        "mosaicing",
+        Reach::OpFamily("mosaicing"),
+        "an OP_MAP.md op family",
+    ),
+    row(
+        "resample",
+        Reach::OpFamily("resample"),
+        "an OP_MAP.md op family",
+    ),
+    row(
+        "resize",
+        Reach::OpFamily("resample"),
+        "its two helpers have rows in the resample section, marked *(resize.rs)*",
+    ),
+    row(
+        "raster_ops",
+        Reach::OpFamily("raster_ops"),
+        "pub(crate), but its Raster methods (add, getpoint) are public and the \
+         contract mandates both as commands",
+    ),
+    // The codec surface, held to OP_MAP.md's foreign section.
+    row("analyze", Reach::Codec, "analyzeload"),
+    row("avif", Reach::Codec, "heifload (AVIF only)"),
+    row(
+        "connection",
+        Reach::Codec,
+        "the Source/Target stream entry points",
+    ),
+    row("encode", Reach::Codec, "jpegsave and pngsave"),
+    row("encode_tiff", Reach::Codec, "tiffload and tiffsave"),
+    row("exr", Reach::Codec, "openexrload"),
+    row("fits", Reach::Codec, "fitsload and fitssave"),
+    row(
+        "frames",
+        Reach::Codec,
+        "the page and frame-delay types the GIF and WebP codecs carry; no load or \
+         save entry point of its own",
+    ),
+    row("gif", Reach::Codec, "gifload and gifsave"),
+    row(
+        "imageio",
+        Reach::Codec,
+        "the .v carrier and the extension-routed save",
+    ),
+    row("jp2k", Reach::Codec, "jp2kload and jp2ksave"),
+    row("jxl", Reach::Codec, "jxlload and jxlsave"),
+    row("mat", Reach::Codec, "matload"),
+    row("nifti", Reach::Codec, "niftiload"),
+    row("radiance", Reach::Codec, "radload and radsave"),
+    row(
+        "source",
+        Reach::Codec,
+        "the generic decode entry points every loader uses",
+    ),
+    row("svg", Reach::Codec, "svgload"),
+    row(
+        "textio",
+        Reach::Codec,
+        "csvload/csvsave, matrixload/matrixsave",
+    ),
+    row("uhdr", Reach::Codec, "uhdrload and uhdrsave"),
+    row("webp", Reach::Codec, "webpload and webpsave"),
+    // Reached through a built-in command rather than an op.
+    row(
+        "cancel",
+        Reach::Builtin("pyramid"),
+        "the CancelToken viprs pyramid trips on SIGINT (exit 130)",
+    ),
+    row(
+        "checksum",
+        Reach::Builtin("pyramid"),
+        "--manifest-emit-checksums and --checksum-algo; viprs verify reads them back",
+    ),
+    row(
+        "dedupe",
+        Reach::Builtin("pyramid"),
+        "--dedupe-blanks and --dedupe-all",
+    ),
+    row(
+        "engine",
+        Reach::Builtin("pyramid"),
+        "the engine viprs pyramid runs",
+    ),
+    row(
+        "engine_builder",
+        Reach::Builtin("pyramid"),
+        "how viprs pyramid assembles its run",
+    ),
+    row(
+        "geo",
+        Reach::Builtin("geo"),
+        "pixel/geo transforms and tile centres",
+    ),
+    row(
+        "manifest",
+        Reach::Builtin("pyramid"),
+        "--manifest-version and the manifest viprs pyramid writes",
+    ),
+    row(
+        "observe",
+        Reach::Builtin("pyramid"),
+        "the engine events the pipeline flags report",
+    ),
+    row("pdf", Reach::Builtin("pdf"), "PDF info and page extraction"),
+    row(
+        "planner",
+        Reach::Builtin("plan"),
+        "the pyramid plan and its queries",
+    ),
+    row(
+        "pmtiles",
+        Reach::Builtin("pmtiles"),
+        "info, tile, verify, extract and pack",
+    ),
+    row(
+        "pyramid_migrate",
+        Reach::Builtin("pmtiles"),
+        "viprs pmtiles pack migrates a tile tree",
+    ),
+    row(
+        "pyramid_reader",
+        Reach::Builtin("pmtiles"),
+        "viprs pmtiles pack and viprs verify read finished pyramids",
+    ),
+    row(
+        "resume",
+        Reach::Builtin("pyramid"),
+        "--resume and --overwrite",
+    ),
+    row(
+        "retry",
+        Reach::Builtin("pyramid"),
+        "--on-failure and the pipeline retry flags",
+    ),
+    row(
+        "sink",
+        Reach::Builtin("pyramid"),
+        "the filesystem tile sink",
+    ),
+    row(
+        "sink_object_store",
+        Reach::Builtin("pyramid"),
+        "--sink s3:// (features s3 / object-store-sink)",
+    ),
+    row(
+        "sink_packfile",
+        Reach::Builtin("pyramid"),
+        "--packfile (feature packfile)",
+    ),
+    row(
+        "sink_pmtiles",
+        Reach::Builtin("pyramid"),
+        "the default --storage pmtiles output",
+    ),
+    row("storage", Reach::Builtin("pyramid"), "--storage"),
+    row(
+        "stream_verify",
+        Reach::Builtin("verify"),
+        "verification from a strip source",
+    ),
+    row(
+        "streaming",
+        Reach::Builtin("pyramid"),
+        "the streaming engine --memory-budget selects",
+    ),
+    row(
+        "streaming_mapreduce",
+        Reach::Builtin("pyramid"),
+        "the --parallel streaming engine",
+    ),
+    row("verify", Reach::Builtin("verify"), "pyramid_verify"),
+    // Nothing in the CLI reaches these, on purpose.
+    row(
+        "cad",
+        Reach::NotApplicable,
+        "contract only: the traits and types an external CAD decoder implements; \
+         the core ships no decoder, so there is nothing for viprs to run",
+    ),
+    row(
+        "foreign_stubs",
+        Reach::NotApplicable,
+        "refusal stubs: every function returns a typed Unsupported, and OP_MAP.md's \
+         foreign EXCLUDED table names each one",
+    ),
+    row(
+        "codec",
+        Reach::NotApplicable,
+        "the shared DecodeError/EncodeError types and their constructors; no entry \
+         point of its own",
+    ),
+    row(
+        "error",
+        Reach::NotApplicable,
+        "the OpError type every op returns; viprs maps it to exit 1",
+    ),
+    row(
+        "extensions",
+        Reach::NotApplicable,
+        "the typed map third-party code hangs state on through \
+         EngineBuilder::with_extension; embedding plumbing with nothing to run from a shell",
+    ),
+    row(
+        "pixel",
+        Reach::NotApplicable,
+        "PixelFormat and SampleKind, the types every raster carries",
+    ),
+    row(
+        "raster",
+        Reach::NotApplicable,
+        "the Raster type itself; every command loads into and saves out of it",
+    ),
+];
 
 /// `(module, fn, reason)`: a function in an op-family or codec module that
-/// `OP_MAP.md` does not name, and why it needs no `viprs` surface.
-const FN_EXCLUSIONS: &[(&str, &str, &str)] = &[];
+/// `OP_MAP.md` does not name and the CLI does not call, and why it needs no
+/// `viprs` surface.
+const FN_EXCLUSIONS: &[(&str, &str, &str)] = &[
+    (
+        "analyze",
+        "decode_analyze",
+        "the two-buffer form of the Analyze loader; analyzeload reads the .hdr/.img \
+         pair from disk through decode_analyze_file",
+    ),
+    (
+        "connection",
+        "decode_source",
+        "in-process Source stream API; viprs loaders read a file or stdin and reach \
+         the same decoders through decode_bytes_with_limits",
+    ),
+    (
+        "connection",
+        "encode_to_buffer",
+        "in-memory form of encode_to_target; viprs writes files through save_stripped",
+    ),
+    (
+        "connection",
+        "encode_to_target",
+        "in-process Target stream API; viprs writes files through save_stripped",
+    ),
+    (
+        "encode",
+        "encode_jpeg",
+        "quality-only shorthand for encode_jpeg_options, which jpegsave --Q drives",
+    ),
+    (
+        "encode",
+        "jpegsave_buffer",
+        "vips-named spelling of encode_jpeg_options, which jpegsave calls",
+    ),
+    (
+        "encode",
+        "save_jpeg",
+        "the file form of encode_jpeg, itself a shorthand for the encode_jpeg_options \
+         jpegsave calls",
+    ),
+    (
+        "encode_tiff",
+        "tiff_load",
+        "the no-limits form of tiff_load_with_limits, which tiffload calls",
+    ),
+    (
+        "source",
+        "clear_load_cache",
+        "process-wide decode cache (vips_cache_drop_all); a viprs run decodes its \
+         input once and exits, so there is nothing cached to drop",
+    ),
+    (
+        "source",
+        "set_load_cache_max_bytes",
+        "process-wide decode cache ceiling (vips_cache_set_max_mem); nothing for a \
+         single-shot viprs run to tune",
+    ),
+    (
+        "source",
+        "set_load_cache_max_entries",
+        "process-wide decode cache ceiling (vips_cache_set_max); nothing for a \
+         single-shot viprs run to tune",
+    ),
+    (
+        "textio",
+        "encode_ppm",
+        "ppmsave goes through the CLI's own PNM encoder (OP_MAP.md: CLI encode_pnm), \
+         byte-compared against vips; this is a second route to the same format",
+    ),
+    (
+        "textio",
+        "ppm_load",
+        "ppmload goes through decode_bytes_with_limits (OP_MAP.md foreign row); this \
+         is a second route to the same format",
+    ),
+    (
+        "textio",
+        "ppm_save",
+        "the infallible twin of encode_ppm; ppmsave uses the CLI's own PNM encoder",
+    ),
+];
 
 /// `(feature, reason)`: a core capability feature the CLI does not forward.
-const CORE_FEATURES_NOT_IN_CLI: &[(&str, &str)] = &[];
+const CORE_FEATURES_NOT_IN_CLI: &[(&str, &str)] = &[
+    (
+        "serde",
+        "adds Serialize/Deserialize derives to the plan and config types and no code \
+         path; the CLI's JSON (plan, features --json) is its own versioned shape",
+    ),
+    (
+        "test-util",
+        "exposes the test-only sink doubles (SlowSink) to the libviprs-tests stress \
+         suite; a shipped binary has no use for a sink that sleeps",
+    ),
+];
 
 /// The tables one check runs against. The real run uses the consts above; the
 /// controls pass synthetic ones so they test the checker, not today's data.
@@ -142,6 +505,8 @@ struct Cli {
     features_rs: String,
     main_rs: String,
     op_map: String,
+    /// Every function the CLI's source calls (`name(` outside a comment).
+    calls: BTreeSet<String>,
 }
 
 fn core_dir() -> PathBuf {
@@ -224,9 +589,16 @@ fn load_cli() -> Cli {
     let dir = cli_dir();
     Cli {
         manifest: read(&dir.join("Cargo.toml")),
-        features_rs: read(&dir.join("src/features.rs")),
+        // A CLI from before `viprs features` existed has no such file; read it
+        // as an empty listing so every forwarded feature is named, rather than
+        // failing on the missing file and naming nothing.
+        features_rs: std::fs::read_to_string(dir.join("src/features.rs")).unwrap_or_default(),
         main_rs: read(&dir.join("src/main.rs")),
         op_map: read(&dir.join("OP_MAP.md")),
+        calls: rust_files(&dir.join("src"))
+            .iter()
+            .flat_map(|f| calls_in(&read(f)))
+            .collect(),
     }
 }
 
@@ -474,6 +846,43 @@ fn cli_builtins(main_rs: &str) -> BTreeSet<String> {
     out
 }
 
+/// Every identifier `src` calls, `name(` or `name::<..>(`, on lines that are
+/// not comments. This is how a codec entry point the CLI reaches without an
+/// `OP_MAP.md` row counts as reached: `viprs` writes every `.v` through
+/// `Raster::encode_vips` and every `.tif` through `Raster::tiff_save`, and the
+/// foreign section names neither, because they are the plumbing under a row
+/// rather than a row. It matches by name, not by type, so a generic name
+/// (`save`) counts as called when the CLI calls any `save`; the codec
+/// entry points are specific enough that this has not mattered yet.
+fn calls_in(src: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for line in src.lines() {
+        let code = line.trim_start();
+        if code.starts_with("//") {
+            continue;
+        }
+        let bytes: Vec<char> = code.chars().collect();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i].is_ascii_alphabetic() || bytes[i] == '_' {
+                let start = i;
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == '_') {
+                    i += 1;
+                }
+                let word: String = bytes[start..i].iter().collect();
+                let next = bytes.get(i).copied();
+                let turbofish = bytes[i..].starts_with(&[':', ':', '<']);
+                if next == Some('(') || turbofish {
+                    out.insert(word);
+                }
+            } else {
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
 /// The names in the CLI's `FEATURES` table, which is what `viprs features`
 /// prints (`("jxl", cfg!(feature = "jxl"))` rows).
 fn cli_listed_features(features_rs: &str) -> BTreeSet<String> {
@@ -615,10 +1024,10 @@ fn module_problems(core: &Core, cli: &Cli, t: &Tables, problems: &mut Vec<String
                     check_fn(
                         r.module,
                         f,
-                        named_in(f, &foreign),
+                        named_in(f, &foreign) || cli.calls.contains(f),
                         t,
                         problems,
-                        "OP_MAP.md's foreign section",
+                        "OP_MAP.md's foreign section or the cli's source",
                     );
                 }
                 scanned.insert(r.module, fns);
@@ -736,7 +1145,7 @@ fn sanity(core: &Core, cli: &Cli) {
         arith.len()
     );
     let sections = op_map_sections(&cli.op_map);
-    for want in ["arithmetic", "colour", "foreign", "raster_ops"] {
+    for want in ["arithmetic", "colour", "raster_ops"] {
         assert!(
             sections.contains_key(want),
             "positive control: OP_MAP.md should have a `{want}` section, read {:?}",
@@ -744,17 +1153,12 @@ fn sanity(core: &Core, cli: &Cli) {
         );
     }
     let builtins = cli_builtins(&cli.main_rs);
-    for want in ["pyramid", "features", "test-image"] {
+    for want in ["pyramid", "test-image"] {
         assert!(
             builtins.contains(want),
             "positive control: the cli's enum Command should have `{want}`, read {builtins:?}"
         );
     }
-    let listed = cli_listed_features(&cli.features_rs);
-    assert!(
-        listed.contains("pdfium") && listed.contains("jxl"),
-        "positive control: src/features.rs FEATURES should list pdfium and jxl, read {listed:?}"
-    );
 }
 
 /// `viprs features --json` still speaks the version this guard reads its
@@ -816,6 +1220,7 @@ fn synthetic_cli(op_map: &str) -> Cli {
         main_rs: "enum Command {\n    /// doc\n    Pyramid(Box<PyramidArgs>),\n    TestImage(TestImageArgs),\n}\n"
             .to_string(),
         op_map: op_map.to_string(),
+        calls: BTreeSet::new(),
     }
 }
 
@@ -958,6 +1363,13 @@ fn control_a_new_codec_module_or_feature_is_red() {
     assert!(
         red.len() == 1 && red[0].contains("gif::save_gif_animated"),
         "a new codec entry point must be named, got {red:#?}"
+    );
+    let mut calling = synthetic_cli(SYNTH_OP_MAP);
+    calling.calls.insert("save_gif_animated".into());
+    let green = uncovered(&core, &calling, &t);
+    assert!(
+        green.is_empty(),
+        "a codec entry point the cli calls is reached, got {green:#?}"
     );
 
     let mut core = synthetic_core("", SYNTH_ARITH);
@@ -1104,6 +1516,17 @@ fn control_the_readers_read_what_they_say() {
     }
     for no in ["absolute", "decode", "encode_jpeg", "zz_abs"] {
         assert!(!named_in(no, &ids), "{no} must not fold into a named row");
+    }
+
+    // Calls, not mentions: a comment or a bare path does not count.
+    let calls = calls_in(
+        "let b = r.tiff_save();\n    // x.encode_vips()\nlet v = Raster::tiff_load_with_limits(&b, l)?;\nlet n = s.parse::<u8>();\nuse a::decode_gif;\n",
+    );
+    for yes in ["tiff_save", "tiff_load_with_limits", "parse"] {
+        assert!(calls.contains(yes), "{yes} is called: {calls:?}");
+    }
+    for no in ["encode_vips", "decode_gif", "Raster"] {
+        assert!(!calls.contains(no), "{no} is not called: {calls:?}");
     }
 
     // Built-ins kebab-case; features read from the FEATURES rows only.

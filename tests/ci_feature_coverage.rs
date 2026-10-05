@@ -626,7 +626,11 @@ fn the_s3_alias_still_resolves_to_object_store_sink() {
 /// question; this half lives here because this file already reads this
 /// crate's `[features]` table. A feature here has no `x = ["libviprs/x"]`
 /// line in `Cargo.toml`, so nothing in this suite can be built with it.
-const CORE_FEATURES_NOT_FORWARDED_HERE: &[(&str, &str)] = &[];
+const CORE_FEATURES_NOT_FORWARDED_HERE: &[(&str, &str)] = &[(
+    "serde",
+    "adds Serialize/Deserialize derives to the core's plan and config types and \
+     no code path, so there is nothing here for a cell to run under it",
+)];
 
 fn core_manifest() -> String {
     read("../libviprs/Cargo.toml")
