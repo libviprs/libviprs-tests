@@ -15,6 +15,11 @@
 //! * **option and limit**: every option flag has a cell that goes red if the
 //!   flag is ignored, and every loader has a `--max-pixels 1` cell that must
 //!   be refused before anything is written.
+//! * **header lies**: a PNG, a PPM and a ragged CSV that declare gigabytes in
+//!   a few bytes, run under a wall-clock deadline and an address-space cap,
+//!   which only a refusal from the header can pass.
+//! * **usage**: flag values and an OUT of `-` that clap refuses (exit 2)
+//!   before anything is read.
 //!
 //! The references are `tests/fixtures/cli/foreign/`, made by
 //! `GEN_ONLY=foreign ./tools/gen_cli_expected.sh` with vips 8.18.4 on the
@@ -38,14 +43,12 @@ mod common;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use common::cli::{
     byte_compare, cli_available, cli_fixture, cli_source_available, decode_compare, run_bin,
     viprs_bin, viprs_bin_for,
 };
-
-use tempfile::TempDir;
 
 /// EXACT oracle class: bit-exact decode comparison (`CLI_CONTRACT.md` §5).
 const EXACT: f64 = 0.0;
@@ -96,6 +99,29 @@ const UHDR_SAVE_TOL: f64 = 82.0;
 /// different decoders. Measured 2.
 const UHDR_LOAD_TOL: f64 = 2.0;
 
+// A max-only tolerance as wide as the GIF and Ultra HDR ones would still pass
+// a file that is wrong almost everywhere by a little, so each of those cells
+// carries a mean bound beside its max, the way `tests/codec_e2e.rs` pairs
+// them. Each is the measured mean absolute difference over every sample,
+// rounded up at the third decimal, on the native x86_64 NAS against the vips
+// 8.18.4 references.
+
+/// Mean bound for `gifsave` at its defaults (max [`GIF_SAVE_TOL`]).
+/// Measured 3.22837.
+const GIF_SAVE_MEAN: f64 = 3.229;
+/// Mean bound for `gifsave --dither 0` (max [`GIF_NODITHER_TOL`]).
+/// Measured 2.54873.
+const GIF_NODITHER_MEAN: f64 = 2.549;
+/// Mean bound for `pngsave --palette` (max [`PNG_PALETTE_TOL`]).
+/// Measured 2.73796.
+const PNG_PALETTE_MEAN: f64 = 2.738;
+/// Mean bound for the Ultra HDR base image (max [`UHDR_SAVE_TOL`]).
+/// Measured 11.77604.
+const UHDR_SAVE_MEAN: f64 = 11.777;
+/// Mean bound for `jpegload --shrink 2` (max [`JPEG_SHRINK_TOL`]).
+/// Measured 0.74286.
+const JPEG_SHRINK_MEAN: f64 = 0.743;
+
 // ---------------------------------------------------------------------------
 // Plumbing
 // ---------------------------------------------------------------------------
@@ -125,11 +151,23 @@ fn gated_bin(test: &str, feature: &str) -> Option<PathBuf> {
     Some(viprs_bin_for(false, &[feature]))
 }
 
+/// Where a cell writes `name`. Inside cargo's per-target scratch directory,
+/// so a run reuses one directory instead of leaving a new temp dir behind
+/// each time (a static `TempDir` is never dropped), and every cell's names
+/// are its own, so cells running in parallel never share a file.
 fn out_path(name: &str) -> PathBuf {
-    static DIR: OnceLock<TempDir> = OnceLock::new();
-    DIR.get_or_init(|| tempfile::tempdir().expect("create temp dir"))
-        .path()
-        .join(name)
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli_foreign_diff");
+    std::fs::create_dir_all(&dir).expect("create the cell output dir");
+    dir.join(name)
+}
+
+/// A directory of its own for a cell that asserts what else lands beside its
+/// output, emptied first so a previous run's files cannot answer for this one.
+fn fresh_dir(name: &str) -> PathBuf {
+    let dir = out_path(name);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create the cell dir");
+    dir
 }
 
 fn fx(rel: &str) -> String {
@@ -190,8 +228,120 @@ fn refused(args: &[&str], out: &Path, needles: &[&str]) {
     refused_with(&viprs_bin(), args, out, needles);
 }
 
+/// Run `bin` and assert a usage error: exit 2 from argument parsing, nothing
+/// written to `out`, every one of `needles` in stderr.
+fn usage_error_with(bin: &Path, args: &[&str], out: &Path, needles: &[&str]) {
+    let _ = std::fs::remove_file(out);
+    let run = run_bin(bin, args);
+    assert_eq!(run.status.code(), Some(2), "{}", describe(args, &run));
+    assert!(!out.exists(), "a usage error still wrote {}", out.display());
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    for needle in needles {
+        assert!(
+            stderr.contains(needle),
+            "stderr does not mention {needle:?}\n{}",
+            describe(args, &run)
+        );
+    }
+}
+
+fn usage_error(args: &[&str], out: &Path, needles: &[&str]) {
+    usage_error_with(&viprs_bin(), args, out, needles);
+}
+
+/// The ceiling for a cell whose input lies about its size: refusing it is a
+/// header check and an arithmetic, so anything near this means the CLI went
+/// and did the work.
+const LIE_DEADLINE: Duration = Duration::from_secs(20);
+
+/// The address-space cap those cells run `viprs` under where `ulimit -v`
+/// exists, 1 GiB. Every lie below asks for several times this, so a CLI that
+/// tries to allocate dies on the cap (and fails the exit-code assertion)
+/// instead of taking the runner's memory with it.
+const LIE_VM_KIB: u64 = 1024 * 1024;
+
+/// As [`refused`], under [`LIE_DEADLINE`] and, on unix, [`LIE_VM_KIB`]. A
+/// child still running at the deadline is killed and the cell fails.
+fn refused_fast(args: &[&str], out: &Path, needles: &[&str]) {
+    let _ = std::fs::remove_file(out);
+    let bin = viprs_bin();
+    let mut cmd = if cfg!(unix) {
+        let mut c = Command::new("sh");
+        c.arg("-c")
+            .arg(format!(
+                "ulimit -v {LIE_VM_KIB} 2>/dev/null; exec \"$0\" \"$@\""
+            ))
+            .arg(&bin);
+        c
+    } else {
+        Command::new(&bin)
+    };
+    let started = Instant::now();
+    let mut child = cmd
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn viprs");
+    while child.try_wait().expect("poll viprs").is_none() {
+        if started.elapsed() > LIE_DEADLINE {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!(
+                "viprs {args:?} was still running after {LIE_DEADLINE:?}: a header \
+                 that lies about its size has to be refused before the decode"
+            );
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let run = child.wait_with_output().expect("collect viprs");
+    let took = started.elapsed();
+    assert_eq!(run.status.code(), Some(1), "{}", describe(args, &run));
+    assert!(!out.exists(), "a refused run still wrote {}", out.display());
+    let stderr = String::from_utf8_lossy(&run.stderr).to_lowercase();
+    for needle in needles {
+        assert!(
+            stderr.contains(&needle.to_lowercase()),
+            "stderr does not mention {needle:?}\n{}",
+            describe(args, &run)
+        );
+    }
+    eprintln!("viprs {} refused in {took:?}", args[0]);
+}
+
 fn read(p: &Path) -> Vec<u8> {
     std::fs::read(p).unwrap_or_else(|e| panic!("cannot read {}: {e}", p.display()))
+}
+
+/// [`decode_compare`] at `max`, and then the mean absolute difference over
+/// every sample held to `mean`. For the 8-bit integer outputs the
+/// BOUNDED-TOL cells write.
+fn decode_compare_mean(actual: &Path, expected: &Path, max: f64, mean: f64) {
+    decode_compare(actual, expected, max);
+    let a = libviprs::decode_file(actual).expect("decode the output");
+    let e = libviprs::decode_file(expected).expect("decode the reference");
+    assert_eq!(
+        a.format().bytes_per_pixel(),
+        a.format().channels(),
+        "the mean bound is for 8-bit samples, {} is {:?}",
+        actual.display(),
+        a.format()
+    );
+    let (da, de) = (a.data(), e.data());
+    assert_eq!(da.len(), de.len());
+    let sum: u64 = da
+        .iter()
+        .zip(de)
+        .map(|(x, y)| u64::from(x.abs_diff(*y)))
+        .sum();
+    let got = sum as f64 / da.len() as f64;
+    eprintln!("mean |d| {got:.5} for {}", actual.display());
+    assert!(
+        got <= mean,
+        "mean |d| {got:.5} > bound {mean} for {} against {}",
+        actual.display(),
+        expected.display()
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -474,10 +624,11 @@ fn pngsave_palette_writes_an_indexed_png() {
         "IHDR colour type 3 (indexed)"
     );
     assert!(png_chunk(&bytes, b"PLTE").unwrap().len() <= 256 * 3);
-    decode_compare(
+    decode_compare_mean(
         &out,
         &cli_fixture("foreign/pngsave_palette.png"),
         PNG_PALETTE_TOL,
+        PNG_PALETTE_MEAN,
     );
 }
 
@@ -564,13 +715,20 @@ fn webpsave_lossless_matches_vips() {
     decode_compare(&out, Path::new(&canonical()), EXACT);
 }
 
+/// Leaving `--lossless` off is a usage mistake (vips's default is lossy, and
+/// this build has no lossy encoder), so it is clap's required-argument error:
+/// exit 2, with the flag in the usage line.
 #[test]
-fn webpsave_without_lossless_is_refused() {
-    if skip_if_no_cli("webpsave_without_lossless_is_refused") {
+fn webpsave_without_lossless_is_a_usage_error() {
+    if skip_if_no_cli("webpsave_without_lossless_is_a_usage_error") {
         return;
     }
     let out = out_path("webpsave_lossy.webp");
-    refused(&["webpsave", &canonical(), s(&out)], &out, &["--lossless"]);
+    usage_error(
+        &["webpsave", &canonical(), s(&out)],
+        &out,
+        &["--lossless", "Usage: viprs webpsave --lossless"],
+    );
 }
 
 #[test]
@@ -580,10 +738,11 @@ fn gifsave_default_matches_vips() {
     }
     let out = out_path("gifsave_default.gif");
     ok(&["gifsave", &canonical(), s(&out)]);
-    decode_compare(
+    decode_compare_mean(
         &out,
         &cli_fixture("foreign/gifsave_default.gif"),
         GIF_SAVE_TOL,
+        GIF_SAVE_MEAN,
     );
     assert!(!gif_layout(&read(&out)).1, "not interlaced by default");
 }
@@ -621,10 +780,11 @@ fn gifsave_dither_zero_changes_the_pixels() {
         read(&dithered),
         "--dither 0 must change the output"
     );
-    decode_compare(
+    decode_compare_mean(
         &flat,
         &cli_fixture("foreign/gifsave_dither0.gif"),
         GIF_NODITHER_TOL,
+        GIF_NODITHER_MEAN,
     );
 }
 
@@ -636,10 +796,11 @@ fn gifsave_interlace_sets_the_descriptor_flag() {
     let out = out_path("gifsave_interlace.gif");
     ok(&["gifsave", &canonical(), s(&out), "--interlace"]);
     assert!(gif_layout(&read(&out)).1, "image descriptor interlace bit");
-    decode_compare(
+    decode_compare_mean(
         &out,
         &cli_fixture("foreign/gifsave_default.gif"),
         GIF_SAVE_TOL,
+        GIF_SAVE_MEAN,
     );
 }
 
@@ -679,7 +840,12 @@ fn uhdrsave_base_is_within_tolerance_of_vips() {
         libviprs::uhdr::is_uhdr(&read(&out)),
         "not an Ultra HDR container"
     );
-    decode_compare(&out, &cli_fixture("foreign/uhdrsave.jpg"), UHDR_SAVE_TOL);
+    decode_compare_mean(
+        &out,
+        &cli_fixture("foreign/uhdrsave.jpg"),
+        UHDR_SAVE_TOL,
+        UHDR_SAVE_MEAN,
+    );
 }
 
 #[test]
@@ -765,12 +931,20 @@ fn ppmsave_matches_vips_byte_for_byte() {
 // ---------------------------------------------------------------------------
 
 fn copy_to(test: &str, input: &str, ext: &str, reference: &str, tol: f64) {
+    copy_to_mean(test, input, ext, reference, tol, f64::INFINITY);
+}
+
+fn copy_to_mean(test: &str, input: &str, ext: &str, reference: &str, tol: f64, mean: f64) {
     if skip_if_no_cli(test) {
         return;
     }
     let out = out_path(&format!("{test}.{ext}"));
     ok(&["copy", input, s(&out)]);
-    decode_compare(&out, &cli_fixture(reference), tol);
+    if mean.is_finite() {
+        decode_compare_mean(&out, &cli_fixture(reference), tol, mean);
+    } else {
+        decode_compare(&out, &cli_fixture(reference), tol);
+    }
 }
 
 #[test]
@@ -785,12 +959,13 @@ fn copy_to_webp_routes_to_the_webp_encoder() {
 
 #[test]
 fn copy_to_gif_routes_to_the_gif_encoder() {
-    copy_to(
+    copy_to_mean(
         "copy_to_gif",
         &canonical(),
         "gif",
         "foreign/gifsave_default.gif",
         GIF_SAVE_TOL,
+        GIF_SAVE_MEAN,
     );
 }
 
@@ -868,13 +1043,22 @@ fn jpegload_matches_vips() {
 
 #[test]
 fn jpegload_shrink_halves_the_image() {
-    load_case(
-        "jpegload_shrink2",
+    if skip_if_no_cli("jpegload_shrink2") {
+        return;
+    }
+    let out = out_path("jpegload_shrink2.png");
+    ok(&[
         "jpegload",
         &fx("foreign/jpegsave_default.jpg"),
-        "foreign/jpegload_shrink2_expected.png",
-        &["--shrink", "2"],
+        s(&out),
+        "--shrink",
+        "2",
+    ]);
+    decode_compare_mean(
+        &out,
+        &cli_fixture("foreign/jpegload_shrink2_expected.png"),
         JPEG_SHRINK_TOL,
+        JPEG_SHRINK_MEAN,
     );
 }
 
@@ -999,7 +1183,9 @@ fn tiffload_max_pages_is_honoured() {
             "2",
         ],
         &out,
-        &["pages"],
+        // Not "pages": the input is pages.tif / pages.gif, so that needle
+        // matched the file name in any error at all.
+        &["more than 2 pages", "max_pages"],
     );
 }
 
@@ -1044,7 +1230,9 @@ fn gifload_max_pages_is_honoured() {
             "2",
         ],
         &out,
-        &["pages"],
+        // Not "pages": the input is pages.tif / pages.gif, so that needle
+        // matched the file name in any error at all.
+        &["more than 2 pages", "max_pages"],
     );
 }
 
@@ -1321,7 +1509,7 @@ fn jxl_save_and_load_match_vips() {
         ok_with(&bin, &["jxlsave", &canonical(), s(&saved), "--lossless"]);
         decode_compare(&saved, &cli_fixture("foreign/jxlsave_lossless.jxl"), EXACT);
         let refused_out = out_path("jxlsave_lossy.jxl");
-        refused_with(
+        usage_error_with(
             &bin,
             &["jxlsave", &canonical(), s(&refused_out)],
             &refused_out,
@@ -1362,7 +1550,7 @@ fn jp2k_save_and_load_match_vips() {
             "default tile size"
         );
         let refused_out = out_path("jp2ksave_lossy.jp2");
-        refused_with(
+        usage_error_with(
             &bin,
             &["jp2ksave", &canonical(), s(&refused_out)],
             &refused_out,
@@ -1524,9 +1712,222 @@ fn svgload_unlimited_lifts_the_input_ceiling() {
         doc.extend_from_slice(tail);
         std::fs::write(&big, &doc).unwrap();
         let out = out_path("big_svg.png");
-        refused_with(&bin, &["svgload", s(&big), s(&out)], &out, &["svg"]);
+        // Not "svg": the input is big.svg, so that matched any error at all.
+        refused_with(
+            &bin,
+            &["svgload", s(&big), s(&out)],
+            &out,
+            &["byte ceiling", "unlimited"],
+        );
         ok_with(&bin, &["svgload", s(&big), s(&out), "--unlimited"]);
         let r = libviprs::decode_file(&out).unwrap();
         assert_eq!((r.width(), r.height()), (2, 2));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Inputs whose header lies about their size. The honest 256x256 files above,
+// with a ceiling one below, cannot tell "refused before allocating" from
+// "decoded, then refused": a decompression bomb passes both. These declare
+// gigabytes in a few bytes, run under a wall-clock deadline and an
+// address-space cap, and have to be refused from the header.
+// ---------------------------------------------------------------------------
+
+/// A PNG chunk with its CRC, so the decoder reads the header for real rather
+/// than refusing a corrupt file before it gets to the size.
+fn png_chunk_bytes(ty: &[u8; 4], data: &[u8]) -> Vec<u8> {
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &b in bytes {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+    let mut out = (data.len() as u32).to_be_bytes().to_vec();
+    out.extend_from_slice(ty);
+    out.extend_from_slice(data);
+    let mut covered = ty.to_vec();
+    covered.extend_from_slice(data);
+    out.extend_from_slice(&crc32(&covered).to_be_bytes());
+    out
+}
+
+#[test]
+fn pngload_refuses_an_ihdr_claiming_65535_square_from_the_header() {
+    if skip_if_no_cli("pngload_refuses_an_ihdr_claiming_65535_square_from_the_header") {
+        return;
+    }
+    // 65535 x 65535 RGB8 is 12.9 GB of pixels; the body is one stored
+    // deflate block of nothing.
+    let mut ihdr = Vec::new();
+    ihdr.extend_from_slice(&65535u32.to_be_bytes());
+    ihdr.extend_from_slice(&65535u32.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.extend(png_chunk_bytes(b"IHDR", &ihdr));
+    png.extend(png_chunk_bytes(
+        b"IDAT",
+        &[0x78, 0x01, 0x01, 0x00, 0x00, 0xFF, 0xFF, 0, 0, 0, 1],
+    ));
+    png.extend(png_chunk_bytes(b"IEND", &[]));
+    let input = out_path("lies_65535.png");
+    std::fs::write(&input, &png).unwrap();
+    let out = out_path("lies_65535_out.png");
+    refused_fast(
+        &["pngload", s(&input), s(&out)],
+        &out,
+        &["65535x65535", "ceiling"],
+    );
+}
+
+#[test]
+fn ppmload_refuses_a_p6_claiming_100000_square_from_the_header() {
+    if skip_if_no_cli("ppmload_refuses_a_p6_claiming_100000_square_from_the_header") {
+        return;
+    }
+    let mut ppm = b"P6\n100000 100000\n255\n".to_vec();
+    ppm.extend_from_slice(&[0u8; 64]);
+    let input = out_path("lies_100000.ppm");
+    std::fs::write(&input, &ppm).unwrap();
+    let out = out_path("lies_100000_out.png");
+    refused_fast(
+        &["ppmload", s(&input), s(&out)],
+        &out,
+        &["100000x100000", "allocation ceiling"],
+    );
+}
+
+/// The ragged CSV from the review, in the one shape that slips past every
+/// geometry default: one 65535-field row, then 16383 one-field rows. The
+/// core pads every row to the first one's width, so 160 KB of text becomes
+/// 65535 x 16384 floats, about 4.3 GB a copy, while 65535 x 16384 stays
+/// under the 2^30 `--max-pixels` default. (16384 one-field rows would make
+/// 16385 rows, which `--max-pixels` already refuses.) The refusal has to come
+/// from pricing the grid against `--max-alloc-bytes`.
+#[test]
+fn csvload_refuses_a_ragged_grid_that_pads_to_gigabytes() {
+    if skip_if_no_cli("csvload_refuses_a_ragged_grid_that_pads_to_gigabytes") {
+        return;
+    }
+    let mut csv = vec!["0"; 65535].join(",");
+    csv.push_str(&"\n1".repeat(16383));
+    csv.push('\n');
+    let input = out_path("ragged_bomb.csv");
+    std::fs::write(&input, csv).unwrap();
+    let out = out_path("ragged_bomb_out.v");
+    refused_fast(
+        &["csvload", s(&input), s(&out)],
+        &out,
+        &["--max-alloc-bytes"],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Usage errors: refused while the arguments are parsed, exit 2.
+// ---------------------------------------------------------------------------
+
+/// Nothing in the family writes stdout, and loaders read `-` as stdin, so an
+/// OUT of `-` is refused rather than creating a file called `-` in the
+/// working directory.
+#[test]
+fn an_out_of_dash_is_a_usage_error_and_writes_nothing() {
+    if skip_if_no_cli("an_out_of_dash_is_a_usage_error_and_writes_nothing") {
+        return;
+    }
+    let cwd = fresh_dir("dash_out");
+    for args in [
+        ["jpegsave".to_string(), canonical(), "-".to_string()],
+        ["tiffsave".to_string(), canonical(), "-".to_string()],
+        [
+            "pngload".to_string(),
+            fx("foreign/pngsave_default.png"),
+            "-".to_string(),
+        ],
+    ] {
+        let run = Command::new(viprs_bin())
+            .args(&args)
+            .current_dir(&cwd)
+            .output()
+            .expect("spawn viprs");
+        let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+        assert_eq!(run.status.code(), Some(2), "{}", describe(&argv, &run));
+        assert!(
+            String::from_utf8_lossy(&run.stderr).contains("OUT cannot be -"),
+            "{}",
+            describe(&argv, &run)
+        );
+    }
+    let left: Vec<_> = std::fs::read_dir(&cwd).unwrap().collect();
+    assert!(
+        left.is_empty(),
+        "an OUT of - left {left:?} in the working directory"
+    );
+}
+
+#[test]
+fn svgload_refuses_a_non_finite_or_non_positive_dpi_and_scale() {
+    if skip_if_no_cli("svgload_refuses_a_non_finite_or_non_positive_dpi_and_scale") {
+        return;
+    }
+    // Parsing comes before the feature check, so this holds in a bare build.
+    let out = out_path("svgload_bad_number.png");
+    let svg = fx("features/canonical.svg");
+    for arg in [
+        "--dpi=NaN",
+        "--dpi=inf",
+        "--dpi=-72",
+        "--dpi=0",
+        "--scale=NaN",
+        "--scale=0",
+    ] {
+        usage_error(
+            &["svgload", &svg, s(&out), arg],
+            &out,
+            &["finite number above 0"],
+        );
+    }
+}
+
+#[test]
+fn gifsave_dither_outside_0_to_1_is_a_usage_error() {
+    if skip_if_no_cli("gifsave_dither_outside_0_to_1_is_a_usage_error") {
+        return;
+    }
+    let out = out_path("gifsave_bad_dither.gif");
+    for arg in ["--dither=1.5", "--dither=-0.5", "--dither=NaN"] {
+        usage_error(&["gifsave", &canonical(), s(&out), arg], &out, &["0 to 1"]);
+    }
+}
+
+/// `tiffsave` writes OUT through the core's `save_tiff` and nothing else: no
+/// temp file beside it, which a planted symlink could redirect, and nothing
+/// left behind.
+#[test]
+fn tiffsave_writes_only_its_output() {
+    if skip_if_no_cli("tiffsave_writes_only_its_output") {
+        return;
+    }
+    let dir = fresh_dir("tiffsave_alone");
+    let out = dir.join("out.tif");
+    ok(&[
+        "tiffsave",
+        &canonical(),
+        s(&out),
+        "--compression",
+        "deflate",
+    ]);
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["out.tif"], "tiffsave left more than its output");
+    decode_compare(&out, &cli_fixture("foreign/tiffsave_deflate.tif"), EXACT);
 }
