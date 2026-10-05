@@ -53,11 +53,18 @@ set -euo pipefail
 # Disk and concurrency (libviprs-tests#248):
 #   RUN_TESTS_KEEP_IMAGE=1       keep the test image when the run ends (default:
 #                                remove it; the container always goes)
-#   RUN_TESTS_MAX_PARALLEL=2     how many runs on this machine may build and
-#                                run at once; the rest wait for a slot
-#   RUN_TESTS_SLOT_DIR=PATH      where the slots live (default:
-#                                ~/.cache/libviprs-tests/run-tests-slots, one
-#                                directory for every clone and worktree)
+#   LIBVIPRS_DOCKER_MAX_PARALLEL=2  how many Docker-heavy runs on this machine
+#                                may go at once; the rest wait for a slot.
+#                                RUN_TESTS_MAX_PARALLEL overrides it for this
+#                                script alone
+#   LIBVIPRS_DOCKER_SLOT_DIR=PATH where the slots live (default:
+#                                ~/.cache/libviprs/docker-slots, one directory
+#                                for every clone, worktree and hook).
+#                                RUN_TESTS_SLOT_DIR overrides it for this script
+#   LIBVIPRS_DOCKER_SLOT=PATH    set by whoever already holds a slot (this
+#                                script exports it, so does core's local-ci.py).
+#                                A run that inherits it with a live holder
+#                                does not take a second one
 # ---------------------------------------------------------------------------
 
 RUN_MIRI=false
@@ -383,14 +390,22 @@ fi
 # checkout's tmp/, because every lane has its own clone (and every worktree its
 # own copy of this script), and a per-checkout lock would have held back none
 # of the ten runs that filled the disk.
-SLOT_DIR="${RUN_TESTS_SLOT_DIR:-${HOME:-/tmp}/.cache/libviprs-tests/run-tests-slots}"
-MAX_PARALLEL="${RUN_TESTS_MAX_PARALLEL:-2}"
-SLOT_POLL="${RUN_TESTS_SLOT_POLL:-10}"
+#
+# The pool is shared with everything else in the org that starts Docker from a
+# hook (core's tools/local-ci.py takes its slots from the same directory, by the
+# same rules), so no hook gets around the cap by being a different script. A
+# caller that already holds a slot says so in LIBVIPRS_DOCKER_SLOT, and a run
+# under it does not queue for a second one, because with one slot that is a
+# deadlock: the caller waits for this run and this run waits for the caller.
+SLOT_DIR="${RUN_TESTS_SLOT_DIR:-${LIBVIPRS_DOCKER_SLOT_DIR:-${HOME:-/tmp}/.cache/libviprs/docker-slots}}"
+MAX_PARALLEL="${RUN_TESTS_MAX_PARALLEL:-${LIBVIPRS_DOCKER_MAX_PARALLEL:-2}}"
+SLOT_POLL="${RUN_TESTS_SLOT_POLL:-${LIBVIPRS_DOCKER_SLOT_POLL:-10}}"
 HELD_SLOT=""
 
 case "$MAX_PARALLEL" in
     ''|*[!0-9]*|0)
-        echo "Error: RUN_TESTS_MAX_PARALLEL='$MAX_PARALLEL' is not a positive whole number."
+        echo "Error: the slot cap '$MAX_PARALLEL' (RUN_TESTS_MAX_PARALLEL or"
+        echo "LIBVIPRS_DOCKER_MAX_PARALLEL) is not a positive whole number."
         exit 1
         ;;
 esac
@@ -449,15 +464,29 @@ acquire_slot() {
         if [ "$announced" = false ]; then
             echo ""
             echo "Waiting for a slot: all $MAX_PARALLEL in $SLOT_DIR are held (pids:$holders)."
-            echo "RUN_TESTS_MAX_PARALLEL raises the cap."
+            echo "LIBVIPRS_DOCKER_MAX_PARALLEL raises the cap."
             announced=true
         fi
         sleep "$SLOT_POLL"
     done
 }
 
-acquire_slot
-echo "  slot:           $HELD_SLOT"
+# A live holder named in LIBVIPRS_DOCKER_SLOT is our caller (a wrapper, or a
+# hook that took the slot before it got here), and the run is already counted.
+caller_holds_a_slot() {
+    local pid
+    [ -n "${LIBVIPRS_DOCKER_SLOT:-}" ] || return 1
+    pid="$(cat "$LIBVIPRS_DOCKER_SLOT/pid" 2>/dev/null || true)"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+if caller_holds_a_slot; then
+    echo "  slot:           $LIBVIPRS_DOCKER_SLOT (held by the caller)"
+else
+    acquire_slot
+    export LIBVIPRS_DOCKER_SLOT="$HELD_SLOT"
+    echo "  slot:           $HELD_SLOT"
+fi
 
 # ---------------------------------------------------------------------------
 # Reference fixtures for the ported_tests cells (idempotent, offline-tolerant)
