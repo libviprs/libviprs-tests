@@ -197,13 +197,14 @@ jobs:
           VIPRS_REQUIRE_CLI: 1
           VIPRS_REQUIRE_PDFIUM: 1
         run: cargo test --test cli_pdf_geo_plan
-      # The object-store cell of cli_pyramid_pipeline needs this crate's `s3`
-      # feature, and builds its own `viprs --features s3` into a target dir of
-      # its own, so it does not touch the binary the cells above share
-      # (libviprs/libviprs-cli#66).
+      # The object-store and failure-flag cells of cli_pyramid_pipeline need
+      # this crate's `s3` feature, and build their own `viprs --features s3`
+      # into a target dir of their own, so they do not touch the binary the
+      # cells above share (libviprs/libviprs-cli#66). The filters keep the
+      # other cells, which ran just above, from running twice.
       - env:
           VIPRS_REQUIRE_CLI: 1
-        run: cargo test --features s3 --test cli_pyramid_pipeline the_object_store_sink
+        run: cargo test --features s3 --test cli_pyramid_pipeline -- the_object_store_sink retries_then_fail
 
   hook-mirror:
     name: Hook Mirror (every repo in the org)

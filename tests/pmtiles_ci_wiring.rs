@@ -396,6 +396,44 @@ fn runs_binary(step: &Step, name: &str) -> bool {
     })
 }
 
+/// The CLI pipeline cells (libviprs-cli#66) have to run where they cannot
+/// skip to a green.
+///
+/// `cli_pyramid_pipeline` is not a `cli_*_diff.rs`, so no glob above sees it.
+/// It runs twice in the CLI job, once on the shared binary and once with
+/// `--features s3` for the object-store and failure-flag cells, and both steps
+/// need `VIPRS_REQUIRE_CLI=1`.
+fn assert_the_cli_pipeline_cells_run_where_they_cannot_skip(ci: &Workflow) {
+    let cli = ci.job(CLI_JOB);
+    let plain = cli
+        .steps
+        .iter()
+        .find(|s| runs_binary(s, "cli_pyramid_pipeline") && !s.run().contains("--features s3"))
+        .unwrap_or_else(|| {
+            panic!("no step of `{CLI_JOB}` runs `cargo test --test cli_pyramid_pipeline`")
+        });
+    let s3 = cli
+        .steps
+        .iter()
+        .find(|s| runs_binary(s, "cli_pyramid_pipeline") && s.run().contains("--features s3"))
+        .unwrap_or_else(|| {
+            panic!(
+                "no step of `{CLI_JOB}` runs `cargo test --features s3 --test \
+                 cli_pyramid_pipeline`, so its object-store and failure-flag cells \
+                 compile out everywhere"
+            )
+        });
+    for (what, step) in [("the plain step", plain), ("the s3 step", s3)] {
+        let set = cli.env_for(step, "VIPRS_REQUIRE_CLI");
+        assert_eq!(
+            set,
+            Some("1"),
+            "{what} running cli_pyramid_pipeline sees VIPRS_REQUIRE_CLI as {set:?}, so an \
+             absent CLI makes every cell skip and the job green"
+        );
+    }
+}
+
 /// The `tests/<prefix>*.rs` binaries this repo has.
 fn test_binaries(prefix: &str) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(repo_root().join("tests"))
@@ -428,6 +466,10 @@ const WIRING_GUARDS: &[Guard] = &[
     (
         "the cli cell runs where it cannot skip",
         assert_the_cli_cell_runs_where_it_cannot_skip,
+    ),
+    (
+        "the cli pipeline cells run where they cannot skip",
+        assert_the_cli_pipeline_cells_run_where_they_cannot_skip,
     ),
     (
         "ci pins the release the fixtures came from",
@@ -599,6 +641,16 @@ fn the_wiring_guards_red_on_the_edits_they_exist_to_catch() {
             "Y25: the pdfium-enabled viprs is built and never handed over",
             "          echo \"VIPRS_BIN=$RUNNER_TEMP/viprs-pdfium/release/viprs\" >> \"$GITHUB_ENV\"\n",
             String::new(),
+        ),
+        (
+            "Y26: the pipeline cells leave the CLI job's plain step",
+            " --test cli_op_map_counts --test cli_pyramid_pipeline\n",
+            " --test cli_op_map_counts\n".to_string(),
+        ),
+        (
+            "Y27: the s3 step of the pipeline cells loses its feature",
+            "cargo test --features s3 --test cli_pyramid_pipeline",
+            "cargo test --test cli_pyramid_pipeline".to_string(),
         ),
     ];
 
