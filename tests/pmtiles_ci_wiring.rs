@@ -678,8 +678,10 @@ fn the_wiring_guards_red_on_the_edits_they_exist_to_catch() {
         ),
         (
             "Y26: the pipeline cells leave the CLI job's plain step",
-            " --test cli_op_map_counts --test cli_pyramid_pipeline\n",
-            " --test cli_op_map_counts\n".to_string(),
+            // No trailing newline in the anchor, so a suite appended after
+            // cli_pyramid_pipeline on the same line doesn't strand this row.
+            " --test cli_op_map_counts --test cli_pyramid_pipeline",
+            " --test cli_op_map_counts".to_string(),
         ),
         (
             "Y27: the s3 step of the pipeline cells loses its feature",
@@ -807,12 +809,7 @@ fn assert_the_cli_cell_runs_where_it_cannot_skip(ci: &Workflow) {
 /// guard refuses a row for a suite that does not exist, does not touch the
 /// CLI, or is wired after all, so the list cannot rot into a second place
 /// that silently disagrees with `ci.yml`.
-const CLI_SUITES_NOT_IN_CI: &[(&str, &str)] = &[(
-    "cli_surface_coverage",
-    "added while CI is paused (until 2026-10-08) and workflow edits are on hold; \
-     it belongs on the cli-differential step next to the _diff cells, which is a \
-     one-flag ci.yml change tracked by #245",
-)];
+const CLI_SUITES_NOT_IN_CI: &[(&str, &str)] = &[];
 
 /// The `tests/cli_*.rs` binaries whose source asks for the CLI sibling.
 ///
