@@ -859,11 +859,11 @@ fn cancel_then_resume_is_byte_identical_streaming() {
 /// reports every checkpointed tile as `TileCompleted`. Measured against core
 /// 8afc3ae5 on a checkpoint naming 35 of 105 tiles: `(105, 0)` where the
 /// contract says `(70, 35)`. Run it with `--ignored` to see that; it comes off
-/// ignore when core emits the event (the events item on libviprs#1161) and
-/// `COUNTERPART_REV` moves past the fix. Its live partner below pins the
-/// defect as it stands, so the fix cannot land without someone noticing this.
+/// ignore when core emits the event (libviprs#1166, the events item on
+/// libviprs#1161) and `COUNTERPART_REV` moves past the fix. The live cell
+/// below holds on both sides of that fix.
 #[test]
-#[ignore = "libviprs#1161: core never emits TileSkippedOnResume and reports skipped tiles as TileCompleted"]
+#[ignore = "libviprs#1166 (on libviprs#1161): core never emits TileSkippedOnResume and reports skipped tiles as TileCompleted"]
 fn resume_reports_skipped_tiles_as_skipped_and_not_as_completed() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (plan, src, base, checkpointed) = cancelled_run(dir.path());
@@ -897,12 +897,15 @@ fn resume_reports_skipped_tiles_as_skipped_and_not_as_completed() {
     );
 }
 
-/// The live partner of the ignored cell above: it pins the defect as it is
-/// today, every checkpointed tile reported as `TileCompleted` and none as
-/// `TileSkippedOnResume`. It goes red the day core starts emitting the event,
-/// and that is the signal to delete it and take the cell above off ignore.
+/// The live half of the ignored cell above, written to hold on either side of
+/// the core fix (libviprs#1166, on the libviprs#1161 checklist), because the
+/// core's own pre-push hook runs this suite against the core being pushed:
+/// every planned tile is accounted for exactly once, as `TileCompleted` or as
+/// `TileSkippedOnResume`, and a core that reports skips at all reports exactly
+/// the checkpointed tiles. Today that is `(total, 0)`. Once `COUNTERPART_REV`
+/// carries the fix, the cell above comes off ignore and this one can go.
 #[test]
-fn resume_reports_skipped_tiles_as_completed_today_libviprs_1161() {
+fn resume_accounts_for_every_tile_once_as_completed_or_skipped() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (plan, src, base, checkpointed) = cancelled_run(dir.path());
     let total = plan.total_tile_count();
@@ -927,12 +930,17 @@ fn resume_reports_skipped_tiles_as_completed_today_libviprs_1161() {
         .filter(|e| matches!(e, EngineEvent::TileSkippedOnResume { .. }))
         .count() as u64;
     assert_eq!(
-        (completed, skipped),
-        (total, 0),
-        "core now reports skipped tiles differently; if it emits TileSkippedOnResume, \
-         delete this cell and take resume_reports_skipped_tiles_as_skipped_and_not_as_completed \
-         off ignore"
+        completed + skipped,
+        total,
+        "every planned tile is reported once, completed or skipped: ({completed}, {skipped})"
     );
+    if skipped > 0 {
+        assert_eq!(
+            (completed, skipped),
+            (total - checkpointed, checkpointed),
+            "a core that reports skips has to report exactly the {checkpointed} checkpointed tiles"
+        );
+    }
 }
 
 /// The reference tree every resume-damage cell compares against, and the
@@ -1502,11 +1510,11 @@ fn retry_then_skip_drops_only_the_chosen_tile() {
 /// chosen tile reach the observer as nothing. `EngineResult::retry_count`
 /// does see them, which `retry_recovers_when_the_failures_fit_inside_the_budget`
 /// pins. Run this with `--ignored` to see the gap; it comes off ignore when
-/// core emits the event (the events item on libviprs#1161) and
-/// `COUNTERPART_REV` moves past the fix, and its live partner below goes red at
-/// that point to say so.
+/// core emits the event (libviprs#1166, the events item on libviprs#1161) and
+/// `COUNTERPART_REV` moves past the fix. The live cell below holds on both
+/// sides of that fix.
 #[test]
-#[ignore = "libviprs#1161: core never emits EngineEvent::RetryAttempted"]
+#[ignore = "libviprs#1166 (on libviprs#1161): core never emits EngineEvent::RetryAttempted"]
 fn retry_attempts_are_reported_to_the_observer() {
     let (src, plan, target) = retry_fixture();
     let sink = FlakySink::new(target, 2);
@@ -1534,11 +1542,14 @@ fn retry_attempts_are_reported_to_the_observer() {
     );
 }
 
-/// The live partner of the ignored cell above: today no retry reaches the
-/// observer at all. Red the day core emits `RetryAttempted`, which is the
-/// signal to delete this and take the cell above off ignore.
+/// The live half of the ignored cell above, written to hold on either side of
+/// the core fix (libviprs#1166) for the same reason as the resume pair: the
+/// result counts the two retries, and a core that reports retry events at all
+/// reports exactly those two, numbered from 1. Today it reports none. Once
+/// `COUNTERPART_REV` carries the fix, the cell above comes off ignore and this
+/// one can go.
 #[test]
-fn retry_attempts_never_reach_the_observer_today_libviprs_1161() {
+fn retries_are_counted_and_any_retry_events_match_the_count() {
     let (src, plan, target) = retry_fixture();
     let sink = FlakySink::new(target, 2);
     let observer = Arc::new(CollectingObserver::new());
@@ -1550,16 +1561,18 @@ fn retry_attempts_never_reach_the_observer_today_libviprs_1161() {
         observer.clone(),
     )
     .expect("two failures fit inside three retries");
-    assert_eq!(result.retry_count, 2, "the retries did happen");
-    let seen = observer
+    assert_eq!(result.retry_count, 2, "the result counts the two retries");
+    let attempts: Vec<(TileCoord, u32)> = observer
         .events()
         .into_iter()
-        .filter(|e| matches!(e, EngineEvent::RetryAttempted { .. }))
-        .count();
-    assert_eq!(
-        seen, 0,
-        "core now emits RetryAttempted; delete this cell and take \
-         retry_attempts_are_reported_to_the_observer off ignore"
+        .filter_map(|e| match e {
+            EngineEvent::RetryAttempted { coord, attempt, .. } => Some((coord, attempt)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        attempts.is_empty() || attempts == vec![(target, 1), (target, 2)],
+        "a core that reports retries has to report the two of {target:?}, got {attempts:?}"
     );
 }
 
