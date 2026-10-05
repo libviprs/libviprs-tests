@@ -437,6 +437,10 @@ const WIRING_GUARDS: &[Guard] = &[
         "every cli suite runs where it cannot skip",
         assert_every_cli_suite_runs_where_it_cannot_skip,
     ),
+    (
+        "the pdf cells run where they cannot skip",
+        assert_the_pdf_cells_run_where_they_cannot_skip,
+    ),
 ];
 
 #[test]
@@ -784,6 +788,96 @@ fn assert_every_cli_suite_runs_where_it_cannot_skip(ci: &Workflow) {
          to a green that compared nothing: {unwired:?}. Add `--test <name>` to a \
          step that sees VIPRS_REQUIRE_CLI=1 (the `{CLI_JOB}` job is the usual \
          one), or add a row to CLI_SUITES_NOT_IN_CI saying why it runs nowhere."
+    );
+}
+
+/// The PDF, geo and planner suite (libviprs/libviprs-cli#68) has to run in the
+/// CLI job against a pdfium-enabled `viprs` and a verified libpdfium, with
+/// both of its skips turned into failures.
+///
+/// `tests/cli_pdf_geo_plan.rs` skips its CLI cells without a `viprs` and its
+/// pdfium cells (the password, background, DPI and render-budget ones) without
+/// `$PDFIUM_PATH`. Either skip reads as a pass, so the step needs
+/// `VIPRS_REQUIRE_CLI=1` and `VIPRS_REQUIRE_PDFIUM=1`. That alone isn't enough
+/// to make the pdfium cells mean anything: the shared binary the other CLI
+/// cells use is built `--no-default-features` and has no pdfium, so an earlier
+/// step of the same job has to build one with the CLI's default features and
+/// hand it over as `$VIPRS_BIN`, and another has to lay down the pinned
+/// libpdfium, check its digest and export `$PDFIUM_PATH`. Each of those is one
+/// line to lose, and losing any of them either skips the cells or runs them
+/// against the wrong thing.
+fn assert_the_pdf_cells_run_where_they_cannot_skip(ci: &Workflow) {
+    const SUITE: &str = "cli_pdf_geo_plan";
+    assert!(
+        repo_root().join(format!("tests/{SUITE}.rs")).is_file(),
+        "tests/{SUITE}.rs is gone; if it was renamed, rename it here too, or \
+         this guard checks a step for a suite that no longer exists"
+    );
+
+    let job = ci.job(CLI_JOB);
+    let at = job
+        .steps
+        .iter()
+        .position(|s| runs_binary(s, SUITE))
+        .unwrap_or_else(|| {
+            panic!(
+                "no step of `{CLI_JOB}` runs `cargo test --test {SUITE}`. It is \
+                 not a `cli_*_diff.rs`, a `cli_pmtiles*.rs` or a `pmtiles_*.rs`, \
+                 so nothing else wires it in, and its pdfium cells would run \
+                 nowhere."
+            )
+        });
+    let runner = &job.steps[at];
+
+    for var in ["VIPRS_REQUIRE_CLI", "VIPRS_REQUIRE_PDFIUM"] {
+        let set = job.env_for(runner, var);
+        assert_eq!(
+            set,
+            Some("1"),
+            "the step of `{CLI_JOB}` that runs `--test {SUITE}` sees {var} as \
+             {set:?}. Without it the matching cells skip, and `cargo test` \
+             reports the skip as a pass."
+        );
+    }
+    assert_ne!(
+        runner.key("continue-on-error"),
+        Some("true"),
+        "the step of `{CLI_JOB}` that runs `--test {SUITE}` sets \
+         continue-on-error: true, so it can fail without failing the job"
+    );
+
+    let earlier = &job.steps[..at];
+    let installs_pdfium = earlier.iter().any(|s| {
+        let code = s.run_code();
+        code.contains("PDFIUM_PATH=")
+            && code.contains("GITHUB_ENV")
+            && code
+                .lines()
+                .any(|l| l.contains("sha256sum -c") && !l.contains("|| true"))
+    });
+    assert!(
+        installs_pdfium,
+        "no step of `{CLI_JOB}` before the one running `--test {SUITE}` both \
+         verifies the libpdfium download with `sha256sum -c` (and lets that \
+         fail) and exports PDFIUM_PATH through GITHUB_ENV. Without the export \
+         the pdfium cells skip; without the check they load whatever came down \
+         the wire."
+    );
+
+    let builds_viprs = earlier.iter().any(|s| {
+        let code = s.run_code();
+        code.lines().any(|l| {
+            l.contains("cargo build") && l.contains("viprs") && !l.contains("--no-default-features")
+        }) && code.contains("VIPRS_BIN=")
+            && code.contains("GITHUB_ENV")
+    });
+    assert!(
+        builds_viprs,
+        "no step of `{CLI_JOB}` before the one running `--test {SUITE}` builds \
+         `viprs` with its default features (the `pdfium` one) and exports it as \
+         VIPRS_BIN through GITHUB_ENV. The cells would then build or find the \
+         shared `--no-default-features` binary, which has no pdfium, and every \
+         pdfium cell fails for a reason that has nothing to do with the CLI."
     );
 }
 
