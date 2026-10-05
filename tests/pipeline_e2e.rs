@@ -1106,11 +1106,10 @@ fn resume_with_digest(
 /// `EngineConfig::source_content_hash` exists so that resuming a checkpoint
 /// against a different source, even one of the same size, is refused rather
 /// than interleaving two images. `EngineBuilder::with_config` is the only way
-/// to hand the builder that digest, and it drops it, so the guard cannot be
-/// reached and the resume below is accepted. Ignored until the source-hash
-/// item on libviprs#1161 lands; the live partner below pins the defect.
+/// to hand the builder that digest, and it used to drop it, so the guard could
+/// not be reached. Core #1165, the source-hash item on libviprs#1161, fixed that, and this
+/// cell holds it (libviprs-tests#257).
 #[test]
-#[ignore = "libviprs#1161: EngineBuilder::with_config drops source_content_hash"]
 fn resume_against_a_different_source_digest_is_refused() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (plan, base) = cancelled_with_digest(dir.path(), "digest-of-image-a");
@@ -1118,21 +1117,6 @@ fn resume_against_a_different_source_digest_is_refused() {
     assert!(
         matches!(result, Err(EngineError::PlanHashMismatch { .. })),
         "a resume from a different source digest must be refused, got {result:?}"
-    );
-}
-
-/// The live partner: today the different digest is accepted and the resume
-/// finishes. Red the day `with_config` keeps the digest, which is the signal
-/// to delete this and take the cell above off ignore.
-#[test]
-fn resume_against_a_different_source_digest_is_accepted_today_libviprs_1161() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let (plan, base) = cancelled_with_digest(dir.path(), "digest-of-image-a");
-    let result = resume_with_digest(&plan, &base, "digest-of-image-b");
-    assert!(
-        result.is_ok(),
-        "with_config now carries the digest (got {result:?}); delete this cell and take \
-         resume_against_a_different_source_digest_is_refused off ignore"
     );
 }
 
@@ -1209,11 +1193,10 @@ fn settings(m: &serde_json::Value) -> serde_json::Value {
 /// A centred plan, and a run that drops its blank tiles, are different
 /// pyramids from the plain one, and a reader rebuilding the plan from the
 /// manifest (`viprs verify`, `pmtiles pack --manifest`) needs to know both.
-/// The manifest records neither, so the settings sections of all three runs
-/// are identical. Ignored until the manifest item on libviprs#1161 lands; the
-/// live partner below pins it.
+/// The manifest used to record neither, so the settings sections of all three
+/// runs came out identical. Core #1162, the manifest item on libviprs#1161, fixed that, and
+/// this cell holds it (libviprs-tests#257).
 #[test]
-#[ignore = "libviprs#1161: the manifest records neither centring nor the blank-drop policy"]
 fn the_manifest_records_centring_and_the_blank_drop_policy() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (plain, centred, dropped) = three_manifests(dir.path());
@@ -1226,25 +1209,6 @@ fn the_manifest_records_centring_and_the_blank_drop_policy() {
         settings(&plain),
         settings(&dropped),
         "the blank-drop policy is not recorded"
-    );
-}
-
-/// The live partner: the three settings sections are identical today.
-#[test]
-fn the_manifest_records_neither_centring_nor_blank_dropping_today_libviprs_1161() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let (plain, centred, dropped) = three_manifests(dir.path());
-    assert_eq!(
-        settings(&plain),
-        settings(&centred),
-        "the manifest now records centring; delete this cell and take \
-         the_manifest_records_centring_and_the_blank_drop_policy off ignore"
-    );
-    assert_eq!(
-        settings(&plain),
-        settings(&dropped),
-        "the manifest now records the blank-drop policy; delete this cell and take \
-         the_manifest_records_centring_and_the_blank_drop_policy off ignore"
     );
 }
 
@@ -1670,13 +1634,11 @@ fn centred_raw_tree(dir: &Path) -> (Raster, PyramidPlan, PathBuf) {
 
 /// `verify_from_strip_source` assembles the source into a canvas the size of
 /// the source and then asserts it is the size of the plan's top level, which
-/// a centred plan's is not (`stream_verify.rs`, the two `debug_assert_eq!`s
-/// after the strip assembly). So a clean centred tree cannot be verified
-/// against its source, and `viprs verify` refuses `--centre --source` rather
-/// than reach it. Ignored until the stream_verify item on libviprs#1161 lands
-/// (comment 5988586794 there); the live partner below pins it.
+/// a centred plan's was not (`stream_verify.rs`, the two `debug_assert_eq!`s
+/// after the strip assembly), so a clean centred tree could not be verified
+/// against its source. Core #1163, the stream_verify item on libviprs#1161, fixed that
+/// (comment 5988586794 there), and this cell holds it (libviprs-tests#257).
 #[test]
-#[ignore = "libviprs#1161: stream_verify debug_asserts the canvas is the top level, which a centred plan breaks"]
 fn stream_verify_passes_a_clean_centred_raw_tree() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (src, plan, base) = centred_raw_tree(dir.path());
@@ -1687,21 +1649,6 @@ fn stream_verify_passes_a_clean_centred_raw_tree() {
 /// verifying a clean centred tree panics today. Red the day it stops, which
 /// is the signal to delete this and take the cell above off ignore.
 #[cfg(debug_assertions)]
-#[test]
-fn stream_verify_panics_on_a_clean_centred_raw_tree_today_libviprs_1161() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let (src, plan, base) = centred_raw_tree(dir.path());
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        strip_verify(&src, &plan, &base)
-    }));
-    assert!(
-        outcome.is_err(),
-        "verify_from_strip_source no longer panics on a centred plan (got {:?}); delete \
-         this cell and take stream_verify_passes_a_clean_centred_raw_tree off ignore",
-        outcome.ok()
-    );
-}
-
 fn pyramid_verify_archive(
     archive: &Path,
     plan: &PyramidPlan,
