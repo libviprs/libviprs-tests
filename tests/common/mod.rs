@@ -23,6 +23,7 @@ pub mod cli;
 pub mod dzsave_expected;
 pub mod fixtures;
 pub mod hooks;
+pub mod manifest;
 pub mod workflows;
 
 #[cfg(feature = "pdfium")]

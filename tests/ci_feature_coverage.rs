@@ -53,6 +53,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 mod common;
+use common::manifest;
 use common::workflows::read_workflow;
 
 fn repo_root() -> PathBuf {
@@ -243,29 +244,11 @@ const EXPECTED: &[(&str, Coverage)] = &[
 ];
 
 /// The feature names declared in `Cargo.toml`'s `[features]` table, in
-/// declaration order, with `default` dropped.
+/// declaration order, with `default` dropped. The parser is shared with
+/// `tests/cli_surface_coverage.rs` (`tests/common/manifest.rs`), which reads
+/// the core's and the cli's tables the same way.
 fn declared_features() -> Vec<String> {
-    let manifest = read("Cargo.toml");
-    let mut out = Vec::new();
-    let mut inside = false;
-    for line in manifest.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            inside = trimmed == "[features]";
-            continue;
-        }
-        if !inside || trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let Some((name, _)) = trimmed.split_once('=') else {
-            continue;
-        };
-        let name = name.trim();
-        if name != "default" && !name.is_empty() {
-            out.push(name.to_string());
-        }
-    }
-    out
+    manifest::feature_names(&read("Cargo.toml"))
 }
 
 /// The features listed in the `feature-cells` matrix.
@@ -633,5 +616,78 @@ fn the_s3_alias_still_resolves_to_object_store_sink() {
         "`s3` has stopped being a pure alias for object-store-sink ({line:?}), \
          so it now gates something of its own and needs cells and a row of its \
          own in EXPECTED"
+    );
+}
+
+/// Core capability features this suite does not forward, and why.
+///
+/// The libviprs-tests half of libviprs-tests#233. Its cli half is
+/// `tests/cli_surface_coverage.rs`, which holds libviprs-cli to the same
+/// question; this half lives here because this file already reads this
+/// crate's `[features]` table. A feature here has no `x = ["libviprs/x"]`
+/// line in `Cargo.toml`, so nothing in this suite can be built with it.
+const CORE_FEATURES_NOT_FORWARDED_HERE: &[(&str, &str)] = &[];
+
+fn core_manifest() -> String {
+    read("../libviprs/Cargo.toml")
+}
+
+/// Every capability feature the core declares is forwarded by this crate, or
+/// says in [`CORE_FEATURES_NOT_FORWARDED_HERE`] why not.
+///
+/// A core feature nobody here forwards is code this suite cannot compile, let
+/// alone test: that is how the AVIF, SVG and JPEG 2000 decoders went their
+/// whole lives with no cell able to reach them. Rows are held as hard as the
+/// manifest is: a row for a feature the core no longer declares, or for one
+/// this crate forwards after all, is red too, so a rename cannot leave a row
+/// behind that excuses nothing.
+#[test]
+fn every_core_feature_is_forwarded_here_or_says_why_not() {
+    let core_table = manifest::features(&core_manifest());
+    let core = manifest::feature_names(&core_manifest());
+    assert!(
+        core.iter().any(|f| f == "pdfium") && core.iter().any(|f| f == "jxl"),
+        "positive control: the core's [features] should declare pdfium and jxl, \
+         read {core:?}"
+    );
+    let ours = manifest::features(&read("Cargo.toml"));
+
+    let mut problems = Vec::new();
+    for feature in &core {
+        let forwarded = manifest::forwarder(&ours, &core_table, feature, &[]);
+        let excused = CORE_FEATURES_NOT_FORWARDED_HERE
+            .iter()
+            .any(|(f, _)| f == feature);
+        match (forwarded, excused) {
+            (Some(f), true) => problems.push(format!(
+                "`{feature}`: CORE_FEATURES_NOT_FORWARDED_HERE excuses it, and this \
+                 crate forwards it as `{f}`. Drop the row."
+            )),
+            (None, false) => problems.push(format!(
+                "`{feature}`: the core declares it and no feature here enables \
+                 `libviprs/{feature}`. Forward it (and give it a row in EXPECTED), or \
+                 add a row to CORE_FEATURES_NOT_FORWARDED_HERE saying why not."
+            )),
+            _ => {}
+        }
+    }
+    for (feature, why) in CORE_FEATURES_NOT_FORWARDED_HERE {
+        if !core.iter().any(|f| f == feature) {
+            problems.push(format!(
+                "`{feature}`: CORE_FEATURES_NOT_FORWARDED_HERE has a row for it ({why}) \
+                 and the core no longer declares it. Drop or rename the row."
+            ));
+        }
+        if why.trim().is_empty() {
+            problems.push(format!(
+                "`{feature}`: its CORE_FEATURES_NOT_FORWARDED_HERE row has no reason"
+            ));
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "this suite does not account for {} core feature(s):\n  {}",
+        problems.len(),
+        problems.join("\n  ")
     );
 }
