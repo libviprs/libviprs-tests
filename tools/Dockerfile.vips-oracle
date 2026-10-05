@@ -1,0 +1,44 @@
+# vips 8.18.4, the oracle every CLI-differential family is pinned to, with
+# every codec the foreign section of tools/gen_cli_expected.sh drives. Built
+# and run on the native x86_64 NAS, never under emulation:
+#
+#   docker build --platform linux/amd64 -t vips-oracle:8.18.4 - < tools/Dockerfile.vips-oracle
+#   docker run --rm --platform linux/amd64 -v <workspace>:/work -w /work/libviprs-tests \
+#       -e VIPS=vips -e GEN_ONLY=foreign vips-oracle:8.18.4 ./tools/gen_cli_expected.sh
+#
+# Debian trixie packages every codec library except two, built from their
+# release tags: libultrahdr, so uhdrsave/uhdrload exist, and openjpeg 2.5.4,
+# because trixie ships 2.5.3 and the core's JPEG 2000 encoder is a byte parity
+# port of 2.5.4 (src/jp2k.rs), down to the version string in the COM marker.
+# There is no niftiload in any vips 8.18 build; see the foreign section's
+# provenance.
+FROM debian:trixie-slim
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential meson ninja-build cmake pkg-config git ca-certificates \
+        python3 perl \
+        libglib2.0-dev libexpat1-dev libexif-dev liblcms2-dev libhwy-dev \
+        libjpeg62-turbo-dev libspng-dev libpng-dev libtiff-dev libwebp-dev \
+        libcgif-dev libimagequant-dev libjxl-dev libcfitsio-dev \
+        libheif-dev libheif-plugin-dav1d libheif-plugin-aomdec \
+        librsvg2-dev libopenexr-dev libmatio-dev libarchive-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch v1.4.0 https://github.com/google/libultrahdr.git /tmp/uhdr \
+    && cmake -S /tmp/uhdr -B /tmp/uhdr/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local -DUHDR_BUILD_EXAMPLES=OFF -DUHDR_BUILD_TESTS=OFF \
+    && ninja -C /tmp/uhdr/build install && rm -rf /tmp/uhdr
+RUN git clone --depth 1 --branch v2.5.4 https://github.com/uclouvain/openjpeg.git /tmp/openjpeg \
+    && cmake -S /tmp/openjpeg -B /tmp/openjpeg/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_CODEC=OFF \
+    && ninja -C /tmp/openjpeg/build install && ldconfig && rm -rf /tmp/openjpeg
+RUN git clone --depth 1 --branch v8.18.4 https://github.com/libvips/libvips.git /tmp/libvips \
+    && cd /tmp/libvips \
+    && PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib/x86_64-linux-gnu/pkgconfig \
+       meson setup build --prefix=/usr/local --libdir=lib --buildtype=release \
+         -Dintrospection=disabled -Dmodules=disabled -Duhdr=enabled -Djpeg-xl=enabled \
+         -Dopenjpeg=enabled -Dcfitsio=enabled -Dheif=enabled -Drsvg=enabled \
+         -Dopenexr=enabled -Dmatio=enabled -Dcgif=enabled -Dwebp=enabled \
+    && meson compile -C build && meson install -C build && ldconfig \
+    && rm -rf /tmp/libvips
+RUN vips --version && ldd /usr/local/lib/libvips.so.42 | grep -E 'openjp2|uhdr' \
+    && ldd /usr/local/lib/libvips.so.42 | grep -q '/usr/local/lib/libopenjp2'
