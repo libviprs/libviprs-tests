@@ -807,12 +807,7 @@ fn assert_the_cli_cell_runs_where_it_cannot_skip(ci: &Workflow) {
 /// guard refuses a row for a suite that does not exist, does not touch the
 /// CLI, or is wired after all, so the list cannot rot into a second place
 /// that silently disagrees with `ci.yml`.
-const CLI_SUITES_NOT_IN_CI: &[(&str, &str)] = &[(
-    "cli_surface_coverage",
-    "added while CI is paused (until 2026-10-08) and workflow edits are on hold; \
-     it belongs on the cli-differential step next to the _diff cells, which is a \
-     one-flag ci.yml change tracked by #245",
-)];
+const CLI_SUITES_NOT_IN_CI: &[(&str, &str)] = &[];
 
 /// The `tests/cli_*.rs` binaries whose source asks for the CLI sibling.
 ///
