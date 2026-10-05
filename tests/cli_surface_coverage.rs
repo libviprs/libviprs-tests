@@ -65,7 +65,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 mod common;
-use common::cli::{cli_dir, require_cli};
+use common::cli::{cli_dir, cli_source_available};
 use common::manifest;
 
 // ---------------------------------------------------------------------------
@@ -562,27 +562,6 @@ fn load_core() -> Core {
         lib_rs,
         modules,
     }
-}
-
-/// Whether the CLI sources are on disk. A skip without `VIPRS_REQUIRE_CLI=1`,
-/// a panic with it, exactly like `common::cli::cli_available`, except that a
-/// pre-built `$VIPRS_BIN` does not count: this guard reads the CLI's source,
-/// not its binary.
-fn cli_source_available() -> bool {
-    if cli_dir().join("Cargo.toml").is_file() {
-        return true;
-    }
-    assert!(
-        !require_cli(),
-        "VIPRS_REQUIRE_CLI=1 but there is no libviprs-cli checkout at {}, so the \
-         surface guard would skip and report a green that compared nothing",
-        cli_dir().display()
-    );
-    eprintln!(
-        "SKIP: no libviprs-cli checkout at {} (set $VIPRS_CLI_DIR)",
-        cli_dir().display()
-    );
-    false
 }
 
 fn load_cli() -> Cli {
