@@ -433,6 +433,10 @@ const WIRING_GUARDS: &[Guard] = &[
         "ci pins the release the fixtures came from",
         assert_ci_pins_the_release_the_fixtures_came_from,
     ),
+    (
+        "every cli suite runs where it cannot skip",
+        assert_every_cli_suite_runs_where_it_cannot_skip,
+    ),
 ];
 
 #[test]
@@ -543,6 +547,11 @@ fn the_wiring_guards_red_on_the_edits_they_exist_to_catch() {
             "          # GO_PMTILES_VERSION: 1.31.2\n          GO_PMTILES_VERSION: 1.30.0\n".to_string(),
         ),
         (
+            "Y17: a CLI suite that is neither a `_diff` nor `cli_pmtiles` loses its --test flag",
+            " --test cli_features",
+            String::new(),
+        ),
+        (
             "Y15: the CLI cell's --test flag becomes a comment in the same step",
             " --test cli_pmtiles",
             "\n        # TODO: re-enable --test cli_pmtiles once it is less flaky".to_string(),
@@ -651,6 +660,91 @@ fn assert_the_cli_cell_runs_where_it_cannot_skip(ci: &Workflow) {
              green having compared nothing."
         );
     }
+}
+
+/// `tests/cli_*.rs` suites that drive the CLI and are deliberately run by no
+/// CI step, each with the reason.
+///
+/// Empty on purpose. A new suite that calls `cli_available` (or
+/// `cli_source_available`) has two ways past the guard below: a `--test` line
+/// on a step that sees `VIPRS_REQUIRE_CLI=1`, or a row here saying why it runs
+/// nowhere. One row per suite, `("cli_name", "why it is not in CI")`; the
+/// guard refuses a row for a suite that does not exist, does not touch the
+/// CLI, or is wired after all, so the list cannot rot into a second place
+/// that silently disagrees with `ci.yml`.
+const CLI_SUITES_NOT_IN_CI: &[(&str, &str)] = &[];
+
+/// The `tests/cli_*.rs` binaries whose source asks for the CLI sibling.
+///
+/// Read from the source rather than the name, because the name is what let
+/// three suites through: the guard in `cli_counterpart_pinning.rs` globs
+/// `cli_*_diff.rs`, [`assert_the_cli_cell_runs_where_it_cannot_skip`] covers
+/// `cli_pmtiles*`, and `cli_features`, `cli_op_map_counts` and
+/// `cli_pdf_geo_plan` are neither. Each of them calls the skip-guard, and a
+/// skip-guard with no `VIPRS_REQUIRE_CLI=1` behind it is a green that compared
+/// nothing.
+fn cli_suites() -> Vec<String> {
+    test_binaries("cli_")
+        .into_iter()
+        .filter(|name| {
+            let source = read(&format!("tests/{name}.rs"));
+            source.contains("cli_available(") || source.contains("cli_source_available(")
+        })
+        .collect()
+}
+
+/// Every CLI-driven suite runs in CI where its skip turns into a failure, or
+/// says in [`CLI_SUITES_NOT_IN_CI`] why it runs nowhere.
+///
+/// "Runs" means a step names it with `cargo test --test <name>` and that step
+/// sees `VIPRS_REQUIRE_CLI=1`, set on the step or its job. Any job will do:
+/// a suite that needs a pdfium or a codec build belongs in the job that has
+/// it, and the env var is what makes that job honest about the CLI.
+fn assert_every_cli_suite_runs_where_it_cannot_skip(ci: &Workflow) {
+    let suites = cli_suites();
+    assert!(
+        suites.len() > 1,
+        "found {} tests/cli_*.rs suites calling cli_available; if they have been \
+         renamed or the helper has, this guard is pinning an empty set and passes \
+         forever",
+        suites.len()
+    );
+
+    let mut unwired = Vec::new();
+    for name in &suites {
+        let wired = ci.steps().any(|(job, step)| {
+            runs_binary(step, name) && job.env_for(step, "VIPRS_REQUIRE_CLI") == Some("1")
+        });
+        let opted_out = CLI_SUITES_NOT_IN_CI.iter().any(|(n, _)| n == name);
+        if wired && opted_out {
+            panic!(
+                "tests/{name}.rs is listed in CLI_SUITES_NOT_IN_CI and is also run \
+                 by a CI step with VIPRS_REQUIRE_CLI=1. Drop the row."
+            );
+        }
+        if !wired && !opted_out {
+            unwired.push(name.clone());
+        }
+    }
+    for (name, reason) in CLI_SUITES_NOT_IN_CI {
+        assert!(
+            suites.iter().any(|s| s == name),
+            "CLI_SUITES_NOT_IN_CI lists `{name}` ({reason}), and there is no \
+             tests/{name}.rs calling cli_available. Drop the row."
+        );
+        assert!(
+            !reason.trim().is_empty(),
+            "CLI_SUITES_NOT_IN_CI lists `{name}` with no reason"
+        );
+    }
+    assert!(
+        unwired.is_empty(),
+        "these tests/cli_*.rs suites call the CLI skip-guard and no CI step runs \
+         them with VIPRS_REQUIRE_CLI=1, so in CI they either run nowhere or skip \
+         to a green that compared nothing: {unwired:?}. Add `--test <name>` to a \
+         step that sees VIPRS_REQUIRE_CLI=1 (the `{CLI_JOB}` job is the usual \
+         one), or add a row to CLI_SUITES_NOT_IN_CI saying why it runs nowhere."
+    );
 }
 
 /// Every committed archive has to be described by the vector files and by the
