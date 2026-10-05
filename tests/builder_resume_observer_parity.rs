@@ -8,6 +8,7 @@
 //! * `LevelCompleted` — exactly once per level.
 //! * `Finished`      — exactly once per run.
 //! * `TileCompleted` — once per non-skipped tile.
+//! * `TileSkippedOnResume` — once per tile a Resume found in its checkpoint.
 //!
 //! These tests pin that contract so regressions in any engine's observer
 //! wiring are caught by a uniform set of counters rather than
@@ -22,7 +23,10 @@
 //! On Resume the observer and the sink measure different things, and both
 //! resume tests below pin both halves. The engine presents every planned tile
 //! to the observer, while `ResumeAwareSink` short-circuits the writes for
-//! tiles the checkpoint already records. Asserting only the event count would
+//! tiles the checkpoint already records. Core used to report those skipped
+//! tiles as `TileCompleted` too; libviprs#1166 reports them as
+//! `TileSkippedOnResume`, so the resume cells count the two together, which
+//! holds on either side of that change. Asserting only the event count would
 //! still pass if Resume had ignored the checkpoint and rewritten everything,
 //! so each of those tests carries a sink-write count as its positive control.
 
@@ -59,6 +63,7 @@ struct EventCounts {
     level_started: usize,
     level_completed: usize,
     tile_completed: usize,
+    tile_skipped_on_resume: usize,
     finished: usize,
 }
 
@@ -76,6 +81,10 @@ impl EventCounts {
             tile_completed: events
                 .iter()
                 .filter(|e| matches!(e, EngineEvent::TileCompleted { .. }))
+                .count(),
+            tile_skipped_on_resume: events
+                .iter()
+                .filter(|e| matches!(e, EngineEvent::TileSkippedOnResume { .. }))
                 .count(),
             finished: events
                 .iter()
@@ -304,8 +313,9 @@ fn monolithic_resume_emits_events_for_every_visited_tile() {
     let remaining = total - already_done as u64;
 
     // Second run: fresh observer, Resume mode. The engine still renders and
-    // presents every tile, so TileCompleted fires once per planned tile, while
-    // the resume wrapper short-circuits the writes the checkpoint already has.
+    // presents every tile, so every planned tile reaches the observer once, as
+    // TileCompleted or (since libviprs#1166) TileSkippedOnResume, while the
+    // resume wrapper short-circuits the writes the checkpoint already has.
     let inner = FsSink::new(base.clone(), plan.clone()).with_format(TileFormat::Raw);
     let recording = RecordingSink::new(inner);
     let obs = Arc::new(CollectingObserver::new());
@@ -318,10 +328,19 @@ fn monolithic_resume_emits_events_for_every_visited_tile() {
 
     let counts = EventCounts::from_events(&obs.events());
     assert_eq!(
-        counts.tile_completed as u64, total,
-        "the observer sees every tile the engine visits, so TileCompleted should \
-         fire {total} times (already_done={already_done}), got {}",
+        (counts.tile_completed + counts.tile_skipped_on_resume) as u64,
+        total,
+        "the observer sees every tile the engine visits, so TileCompleted plus \
+         TileSkippedOnResume should come to {total} (already_done={already_done}), \
+         got {} + {}",
         counts.tile_completed,
+        counts.tile_skipped_on_resume,
+    );
+    assert!(
+        counts.tile_skipped_on_resume == 0 || counts.tile_skipped_on_resume == already_done,
+        "a core that reports skips must report exactly the {already_done} checkpointed \
+         tiles, got {}",
+        counts.tile_skipped_on_resume,
     );
     // Positive control. Without this the assertion above would still pass if
     // Resume had ignored the checkpoint and rewritten the whole pyramid.
@@ -453,12 +472,13 @@ fn streaming_resume_emits_tile_events_but_writes_nothing_when_complete() {
 
     let counts = EventCounts::from_events(&obs.events());
     assert_eq!(
-        counts.tile_completed as u64,
+        (counts.tile_completed + counts.tile_skipped_on_resume) as u64,
         plan.total_tile_count(),
-        "the observer sees every tile the engine visits, so TileCompleted should fire \
-         {} times, got {}",
+        "the observer sees every tile the engine visits, so TileCompleted plus \
+         TileSkippedOnResume should come to {}, got {} + {}",
         plan.total_tile_count(),
-        counts.tile_completed
+        counts.tile_completed,
+        counts.tile_skipped_on_resume,
     );
     // Positive control. A fully short-circuited Resume must reach the inner
     // sink zero times; the event assertion alone cannot tell a working
