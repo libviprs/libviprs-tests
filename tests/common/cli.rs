@@ -259,26 +259,45 @@ pub fn cli_source_available() -> bool {
 /// Read before building so that a cell asking for a feature the CLI does not
 /// have fails on an assertion naming it, rather than on a `cargo build` exit
 /// status with the reason buried in its stderr.
+///
+/// Asked of `cargo metadata` rather than parsed out of the manifest by hand,
+/// so a feature table spread over several lines, or written as a dotted key,
+/// still comes back whole.
 pub fn cli_declared_features() -> Vec<String> {
     let manifest = cli_dir().join("Cargo.toml");
-    let text = fs::read_to_string(&manifest)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", manifest.display()));
-    let mut out = Vec::new();
-    let mut inside = false;
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            inside = trimmed == "[features]";
-            continue;
-        }
-        if !inside || trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        if let Some((name, _)) = trimmed.split_once('=') {
-            out.push(name.trim().to_string());
-        }
-    }
-    out
+    let out = Command::new(cargo_bin())
+        .args([
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--offline",
+        ])
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn `cargo metadata`: {e}"));
+    assert!(
+        out.status.success(),
+        "`cargo metadata` on {} failed: {}",
+        manifest.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let meta: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("`cargo metadata` prints JSON");
+    let package = meta["packages"]
+        .as_array()
+        .and_then(|packages| packages.iter().find(|p| p["name"] == "libviprs-cli"))
+        .unwrap_or_else(|| {
+            panic!(
+                "`cargo metadata` on {} lists no libviprs-cli",
+                manifest.display()
+            )
+        });
+    package["features"]
+        .as_object()
+        .map(|features| features.keys().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// Build `viprs` with an explicit feature set and return the path of a copy
@@ -288,6 +307,15 @@ pub fn cli_declared_features() -> Vec<String> {
 /// passed as one `--features` list. Each configuration is built at most once
 /// per test process, and across processes the copy is reused until a CLI
 /// source is newer than it, the same rule [`viprs_bin`] follows.
+///
+/// They are release builds at `opt-level = 1` with 256 codegen units rather
+/// than the profile's 3 and 16. Each configuration is a full compile of the
+/// core and the CLI, there are seven of them, and the cells only decode small
+/// fixtures, so the extra optimisation bought nothing but build time. It is
+/// still the release profile on purpose: a dev build turns on overflow checks
+/// and debug assertions inside the codec crates, which is a different program
+/// from the one users run, not just a slower one. The overrides go in through
+/// `CARGO_PROFILE_RELEASE_*` so they reach no other build in this suite.
 ///
 /// These builds go to `<cli>/target/feature-builds`, never to the
 /// `<cli>/target` [`viprs_bin`] uses. Cargo writes every configuration to the
@@ -371,6 +399,8 @@ fn build_viprs_config(default_features: bool, features: &[&str], key: &str) -> P
     // Same reason as `build_viprs_once`: not this crate's lints to enforce.
     let status = cmd
         .env_remove("RUSTFLAGS")
+        .env("CARGO_PROFILE_RELEASE_OPT_LEVEL", "1")
+        .env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "256")
         .status()
         .unwrap_or_else(|e| panic!("failed to spawn `cargo build` for viprs-{key}: {e}"));
     assert!(
