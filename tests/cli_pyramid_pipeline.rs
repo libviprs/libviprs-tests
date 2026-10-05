@@ -31,10 +31,19 @@
 //! so the PDF fixtures would test a render path this binary does not carry;
 //! the rasters extracted from them are what this file reads instead.
 //!
-//! The one cell that needs a feature, the object-store sink, sits behind this
-//! crate's `object-store-sink` feature (which `s3` aliases, so `--features s3`
-//! runs it too) and builds its own `viprs --features s3` into a target
-//! directory of its own, so it never replaces the shared binary.
+//! The two cells that need a feature, the object-store sink and the failure
+//! flags it lets us drive, sit behind this crate's `object-store-sink` feature
+//! (which `s3` aliases, so `--features s3` runs them too) and build their own
+//! `viprs --features s3` into a target directory of their own, so they never
+//! replace the shared binary. The stub store is the one output a run does not
+//! wipe first, so it is where a tile that can never land gets planted.
+//!
+//! # What the core does not record yet
+//!
+//! Neither the manifest nor the archive metadata records `--centre` or
+//! `--drop-blanks` (libviprs#1161), so `viprs verify` takes both flags and
+//! the verify cells hold it to them. When the core records them the flags
+//! become redundant, and these cells are where that shows.
 
 mod common;
 
@@ -47,7 +56,7 @@ use common::cli::{cli_available, run_viprs, viprs_bin};
 
 use libviprs::planner::TileCoord;
 use libviprs::sink_pmtiles::tile_coord_to_zxy;
-use libviprs::{Layout, PmTilesPyramidReader, PyramidPlanner, PyramidReader};
+use libviprs::{Layout, PmTilesPyramidReader, PyramidPlan, PyramidPlanner, PyramidReader};
 
 use tempfile::TempDir;
 
@@ -342,8 +351,8 @@ impl Sections {
 /// the two files to be identical outright, which is the determinism ordered
 /// emission exists to buy and which a race would break.
 #[test]
-fn an_ordered_arrival_run_is_byte_identical_to_the_tile_id_run() {
-    if skip_if_no_cli("an_ordered_arrival_run_is_byte_identical_to_the_tile_id_run") {
+fn an_ordered_arrival_run_matches_the_tile_id_run_section_for_section() {
+    if skip_if_no_cli("an_ordered_arrival_run_matches_the_tile_id_run_section_for_section") {
         return;
     }
     let tmp = TempDir::new().unwrap();
@@ -554,7 +563,7 @@ fn meaningless_pipeline_combinations_are_usage_errors() {
     let tree = tmp.path().join("tree");
     let tree_arg = s(&tree).to_string();
 
-    let cases: [(&str, Vec<&str>); 5] = [
+    let cases: [(&str, Vec<&str>); 7] = [
         (
             "--pmtiles-layout",
             vec![
@@ -572,6 +581,11 @@ fn meaningless_pipeline_combinations_are_usage_errors() {
         ("--retry-backoff-ms", vec!["--retry-backoff-ms", "10"]),
         ("--region", vec!["--region", "1,2,3"]),
         ("--events", vec!["--events", "xml"]),
+        // --drop-blanks leaves blanks out and --skip-blank writes a
+        // placeholder for each, so asking for both has no meaning.
+        ("--drop-blanks", vec!["--drop-blanks", "--skip-blank"]),
+        // --skip-failed carries on past a tile and --fail-fast stops at it.
+        ("--skip-failed", vec!["--skip-failed", "--fail-fast"]),
     ];
     for (flag, extra) in cases {
         let mut args = vec!["pyramid", s(&input)];
@@ -591,108 +605,225 @@ fn meaningless_pipeline_combinations_are_usage_errors() {
 }
 
 // ---------------------------------------------------------------------------
-// SIGINT and --resume
+// SIGINT, SIGKILL and --resume
 // ---------------------------------------------------------------------------
 
-/// Ctrl-C mid-run leaves a job `--resume` can finish, and the finished tree is
-/// the tree an uninterrupted run writes, byte for byte.
-///
-/// The interrupted run checkpoints after every tile, so it is slow enough to
-/// interrupt and leaves a checkpoint naming exactly what it finished. The
-/// signal goes out only after the event stream has reported forty completed
-/// tiles, so "mid-way" is observed rather than hoped for, and the tree is
-/// shown to be incomplete before the resume runs.
-#[test]
-fn sigint_leaves_a_job_that_resume_finishes_byte_identical() {
-    if skip_if_no_cli("sigint_leaves_a_job_that_resume_finishes_byte_identical") {
-        return;
-    }
-    let tmp = TempDir::new().unwrap();
-    let input = stage(tmp.path(), "extracted_blueprint_portrait.png", "portrait");
-    let reference = tmp.path().join("reference");
-    let out_dir = tmp.path().join("resumed");
-    let common = ["--storage", "directory", "--tile-size", "128"];
+/// What every interrupt cell builds: the portrait raster at a 128-pixel tile,
+/// which is over a thousand tiles, into a tree, on one worker. One worker
+/// keeps exactly one tile in flight, so "at most one tile rewritten" below is
+/// a bound rather than a hope.
+const INTERRUPT_ARGS: [&str; 6] = [
+    "--storage",
+    "directory",
+    "--tile-size",
+    "128",
+    "--concurrency",
+    "1",
+];
 
-    // The uninterrupted run everything is compared against.
-    let mut args = vec!["pyramid", s(&input), s(&reference)];
-    args.extend_from_slice(&common);
+/// Wall-clock ceiling on one interrupted run. A run that ignores the signal
+/// must fail the cell, not hang the suite.
+const INTERRUPT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// The uninterrupted run the interrupt cells compare against: every file, and
+/// the tiles on their own.
+fn interrupt_reference(
+    input: &Path,
+    dir: &Path,
+) -> (BTreeMap<String, Vec<u8>>, BTreeMap<String, Vec<u8>>) {
+    let mut args = vec!["pyramid", s(input), s(dir)];
+    args.extend_from_slice(&INTERRUPT_ARGS);
     ok(&args);
-    let (reference_files, _) = tree(&reference);
-    let reference_tiles = tiles_only(&reference_files);
+    let (files, _) = tree(dir);
+    let tiles = tiles_only(&files);
     assert!(
-        reference_tiles.len() > 200,
+        tiles.len() > 200,
         "the reference pyramid has {} tiles, too few to interrupt part way",
-        reference_tiles.len()
+        tiles.len()
     );
+    (files, tiles)
+}
 
-    // The run that gets interrupted.
+/// How an interrupted run ended.
+#[cfg(unix)]
+struct Interrupted {
+    status: std::process::ExitStatus,
+    stderr: String,
+}
+
+/// Start a checkpoint-every-tile run into `out_dir`, send `signal` once the
+/// event stream has reported `after` completed tiles, and wait for it to end.
+///
+/// stderr is drained on a thread of its own and stdout is read through a
+/// channel with a deadline, so neither a full pipe nor a run that never stops
+/// can hang the cell.
+#[cfg(unix)]
+fn interrupt_after(input: &Path, out_dir: &Path, signal: &str, after: usize) -> Interrupted {
+    use std::io::Read as _;
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::Instant;
+
     let mut child = Command::new(viprs_bin())
-        .args(["pyramid", s(&input), s(&out_dir)])
-        .args(common)
+        .args(["pyramid", s(input), s(out_dir)])
+        .args(INTERRUPT_ARGS)
         .args(["--checkpoint-every", "1", "--events", "json"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn viprs pyramid");
     let pid = child.id().to_string();
-    let stdout = child.stdout.take().expect("piped stdout");
+
+    let mut err_pipe = child.stderr.take().expect("piped stderr");
+    let stderr = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = err_pipe.read_to_string(&mut text);
+        text
+    });
+    let out_pipe = child.stdout.take().expect("piped stdout");
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(out_pipe).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+
+    let deadline = Instant::now() + INTERRUPT_DEADLINE;
     let mut completed = 0usize;
     let mut signalled = false;
-    for line in BufReader::new(stdout).lines() {
-        let line = line.expect("read an event line");
-        if line.contains("\"tile_completed\"") {
-            completed += 1;
-        }
-        if completed == 40 && !signalled {
-            let status = Command::new("kill")
-                .args(["-INT", &pid])
-                .status()
-                .expect("run kill -INT");
-            assert!(status.success(), "kill -INT {pid} failed");
-            signalled = true;
+    loop {
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(line) => {
+                if line.contains("\"tile_completed\"") {
+                    completed += 1;
+                }
+                if completed >= after && !signalled {
+                    let status = Command::new("kill")
+                        .args([format!("-{signal}"), pid.clone()])
+                        .status()
+                        .expect("run kill");
+                    assert!(status.success(), "kill -{signal} {pid} failed");
+                    signalled = true;
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Timeout) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!(
+                    "viprs pyramid was still running after {INTERRUPT_DEADLINE:?} \
+                     ({completed} tiles reported, signalled: {signalled})"
+                );
+            }
         }
     }
-    let interrupted = child
-        .wait_with_output()
-        .expect("wait for the interrupted run");
+    let status = child.wait().expect("wait for the interrupted run");
+    let stderr = stderr.join().expect("the stderr reader");
     assert!(
         signalled,
-        "the run finished after {completed} tile events, before 40, so it was never interrupted"
+        "the run finished after {completed} tile events, before {after}, so it was never \
+         interrupted\n--- stderr ---\n{stderr}"
     );
-    assert!(
-        !interrupted.status.success(),
-        "an interrupted run must exit non-zero, got {}\n--- stderr ---\n{}",
-        interrupted.status,
-        stderr_of(&interrupted)
-    );
-    assert!(
-        stderr_of(&interrupted).contains("--resume"),
-        "an interrupted run should say how to finish it:\n{}",
-        stderr_of(&interrupted)
-    );
+    Interrupted { status, stderr }
+}
 
-    // Mid-way, observed: a checkpoint, and not the whole pyramid.
-    let (partial_files, partial_jobs) = tree(&out_dir);
-    let partial_tiles = tiles_only(&partial_files);
+/// The interrupted tree holds a checkpoint and some of the tiles but not all
+/// of them, so the resume that follows has something to prove. Returns the
+/// tiles it holds.
+fn assert_part_way(
+    out_dir: &Path,
+    reference_tiles: &BTreeMap<String, Vec<u8>>,
+) -> BTreeMap<String, Vec<u8>> {
+    let (files, jobs) = tree(out_dir);
+    let tiles = tiles_only(&files);
     assert!(
-        partial_jobs
-            .iter()
-            .any(|j| j.ends_with(".libviprs-job.json")),
-        "the interrupted run left no checkpoint, so there is nothing to resume: {partial_jobs:?}"
+        jobs.iter().any(|j| j.ends_with(".libviprs-job.json")),
+        "the interrupted run left no checkpoint, so there is nothing to resume: {jobs:?}"
     );
     assert!(
-        !partial_tiles.is_empty() && partial_tiles.len() < reference_tiles.len(),
+        !tiles.is_empty() && tiles.len() < reference_tiles.len(),
         "the interrupted tree holds {} of {} tiles; it must be part way",
-        partial_tiles.len(),
+        tiles.len(),
         reference_tiles.len()
     );
-    assert_ne!(partial_tiles, reference_tiles);
+    tiles
+}
 
-    // Resume. The tiles the interrupted run finished must be left exactly
-    // where they are: a resume that regenerated everything would also end on
-    // the right bytes, so the evidence that it resumed is that it did not
-    // touch them. (The core defines a `tile_skipped_on_resume` event and never
-    // emits it, so the event stream cannot say this.)
+/// `--resume` into `out_dir`, requiring exit 0.
+fn resume(input: &Path, out_dir: &Path) -> Output {
+    let mut args = vec!["pyramid", s(input), s(out_dir)];
+    args.extend_from_slice(&INTERRUPT_ARGS);
+    args.extend_from_slice(&["--resume", "--events", "json"]);
+    ok(&args)
+}
+
+/// The finished tree is the uninterrupted one: the same files, byte for byte,
+/// and the same `.dzi` beside it. The resume bookkeeping is left out, since
+/// it describes the run rather than the pyramid.
+fn assert_same_tree(out_dir: &Path, reference: &Path, reference_files: &BTreeMap<String, Vec<u8>>) {
+    let (files, _) = tree(out_dir);
+    assert_eq!(
+        files.keys().collect::<Vec<_>>(),
+        reference_files.keys().collect::<Vec<_>>(),
+        "the resumed tree holds a different set of files from the uninterrupted one"
+    );
+    for (rel, bytes) in reference_files {
+        assert!(
+            &files[rel] == bytes,
+            "{rel} differs between the resumed and the uninterrupted run"
+        );
+    }
+    assert_eq!(
+        read(&reference.with_extension("dzi")),
+        read(&out_dir.with_extension("dzi")),
+        "the .dzi sidecars differ"
+    );
+}
+
+/// Ctrl-C mid-run exits 130 (the shell's own number for SIGINT, and the
+/// README's), says how to finish, and leaves a job `--resume` finishes to the
+/// tree an uninterrupted run writes, byte for byte.
+///
+/// The interrupted run checkpoints after every tile, so it leaves a checkpoint
+/// naming exactly what it finished. The signal goes out only after the event
+/// stream has reported forty completed tiles, so "mid-way" is observed rather
+/// than hoped for, and the tree is shown to be incomplete before the resume
+/// runs. Exit 130 exactly, not just non-zero: a panic (101) after the hint
+/// would pass a non-zero check.
+#[cfg(unix)]
+#[test]
+fn sigint_exits_130_and_leaves_a_job_that_resume_finishes_byte_identical() {
+    if skip_if_no_cli("sigint_exits_130_and_leaves_a_job_that_resume_finishes_byte_identical") {
+        return;
+    }
+    let tmp = TempDir::new().unwrap();
+    let input = stage(tmp.path(), "extracted_blueprint_portrait.png", "portrait");
+    let reference = tmp.path().join("reference");
+    let out_dir = tmp.path().join("resumed");
+    let (reference_files, reference_tiles) = interrupt_reference(&input, &reference);
+
+    let interrupted = interrupt_after(&input, &out_dir, "INT", 40);
+    assert_eq!(
+        interrupted.status.code(),
+        Some(130),
+        "Ctrl-C must exit 130, got {}\n--- stderr ---\n{}",
+        interrupted.status,
+        interrupted.stderr
+    );
+    assert!(
+        interrupted.stderr.contains("--resume"),
+        "an interrupted run should say how to finish it:\n{}",
+        interrupted.stderr
+    );
+    let partial_tiles = assert_part_way(&out_dir, &reference_tiles);
+
+    // The tiles the interrupted run finished must be left exactly where they
+    // are: a resume that regenerated everything would also end on the right
+    // bytes, so the evidence that it resumed is that it did not touch them.
+    // (The core never emits `tile_skipped_on_resume`, libviprs#1161, so the
+    // event stream cannot say this.)
     let mtime = |rel: &str| {
         std::fs::metadata(out_dir.join(rel))
             .and_then(|m| m.modified())
@@ -702,10 +833,7 @@ fn sigint_leaves_a_job_that_resume_finishes_byte_identical() {
         .keys()
         .map(|rel| (rel.clone(), mtime(rel)))
         .collect();
-    let mut args = vec!["pyramid", s(&input), s(&out_dir)];
-    args.extend_from_slice(&common);
-    args.extend_from_slice(&["--resume", "--events", "json"]);
-    let resumed = ok(&args);
+    let resumed = resume(&input, &out_dir);
     let completed = events_named(&json_events(&stdout_of(&resumed)), "tile_completed").len();
     assert!(completed > 0, "the resumed run reported no work at all");
     // At most one tile may have been rewritten: the one in flight when the
@@ -723,24 +851,93 @@ fn sigint_leaves_a_job_that_resume_finishes_byte_identical() {
         rewritten.len(),
         before.len()
     );
+    assert_same_tree(&out_dir, &reference, &reference_files);
+}
 
-    let (resumed_files, _) = tree(&out_dir);
-    assert_eq!(
-        resumed_files.keys().collect::<Vec<_>>(),
-        reference_files.keys().collect::<Vec<_>>(),
-        "the resumed tree holds a different set of files from the uninterrupted one"
-    );
-    for (rel, bytes) in &reference_files {
-        assert!(
-            &resumed_files[rel] == bytes,
-            "{rel} differs between the resumed and the uninterrupted run"
-        );
+/// `kill -9` gives the run no chance to tidy up: no handler, no last
+/// checkpoint, whatever tile was in flight cut off wherever it was. The
+/// checkpoint and the tiles are written through a temporary file and a
+/// rename, so what is on disk is still a job `--resume` can finish, and the
+/// finished tree has to be the uninterrupted one with no debris beside it.
+#[cfg(unix)]
+#[test]
+fn sigkill_leaves_a_job_that_resume_finishes_byte_identical() {
+    use std::os::unix::process::ExitStatusExt as _;
+
+    if skip_if_no_cli("sigkill_leaves_a_job_that_resume_finishes_byte_identical") {
+        return;
     }
+    let tmp = TempDir::new().unwrap();
+    let input = stage(tmp.path(), "extracted_blueprint_portrait.png", "portrait");
+    let reference = tmp.path().join("reference");
+    let out_dir = tmp.path().join("killed");
+    let (reference_files, reference_tiles) = interrupt_reference(&input, &reference);
+
+    let killed = interrupt_after(&input, &out_dir, "KILL", 40);
     assert_eq!(
-        read(&reference.with_extension("dzi")),
-        read(&out_dir.with_extension("dzi")),
-        "the .dzi sidecars differ"
+        killed.status.signal(),
+        Some(9),
+        "the run must have died by SIGKILL, got {}\n--- stderr ---\n{}",
+        killed.status,
+        killed.stderr
     );
+    assert_part_way(&out_dir, &reference_tiles);
+
+    resume(&input, &out_dir);
+    assert_same_tree(&out_dir, &reference, &reference_files);
+}
+
+/// A checkpoint cut off half way (a full disk, a copy that died) must never
+/// be trusted. `--resume` either refuses it with exit 1 and says what is
+/// wrong, or ignores it and regenerates, in which case the tree has to come
+/// out byte-identical. A panic, or a resume that believes half a list, is the
+/// failure.
+#[cfg(unix)]
+#[test]
+fn a_truncated_checkpoint_is_refused_or_regenerated_never_trusted() {
+    if skip_if_no_cli("a_truncated_checkpoint_is_refused_or_regenerated_never_trusted") {
+        return;
+    }
+    let tmp = TempDir::new().unwrap();
+    let input = stage(tmp.path(), "extracted_blueprint_portrait.png", "portrait");
+    let reference = tmp.path().join("reference");
+    let out_dir = tmp.path().join("truncated");
+    let (reference_files, reference_tiles) = interrupt_reference(&input, &reference);
+
+    let interrupted = interrupt_after(&input, &out_dir, "INT", 40);
+    assert_eq!(
+        interrupted.status.code(),
+        Some(130),
+        "{}",
+        interrupted.stderr
+    );
+    assert_part_way(&out_dir, &reference_tiles);
+    let (_, jobs) = tree(&out_dir);
+    let checkpoint = jobs
+        .iter()
+        .find(|j| j.ends_with(".libviprs-job.json"))
+        .map(|rel| out_dir.join(rel))
+        .expect("a checkpoint");
+    let bytes = read(&checkpoint);
+    std::fs::write(&checkpoint, &bytes[..bytes.len() / 2]).expect("truncate the checkpoint");
+
+    let mut args = vec!["pyramid", s(&input), s(&out_dir)];
+    args.extend_from_slice(&INTERRUPT_ARGS);
+    args.push("--resume");
+    let out = run_viprs(&args);
+    let err = stderr_of(&out);
+    assert!(
+        !err.contains("panicked"),
+        "a truncated checkpoint panicked viprs:\n{err}"
+    );
+    match out.status.code() {
+        Some(0) => assert_same_tree(&out_dir, &reference, &reference_files),
+        Some(1) => assert!(
+            err.contains("checkpoint") || err.contains(".libviprs-job"),
+            "the refusal must say it is about the checkpoint:\n{err}"
+        ),
+        other => panic!("--resume over a truncated checkpoint exited {other:?}:\n{err}"),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -902,6 +1099,339 @@ fn verify_with_source_catches_a_tree_made_from_a_different_image() {
     );
 }
 
+/// A tree written with `--checksum`, for the verify cells that damage one.
+fn checksummed_tree(tmp: &Path) -> (PathBuf, PyramidPlan) {
+    let input = stage(tmp, "canonical_input.png", "canonical");
+    let dir = tmp.join("tree");
+    ok(&[
+        "pyramid",
+        s(&input),
+        s(&dir),
+        "--storage",
+        "directory",
+        "--tile-size",
+        "64",
+        "--checksum",
+    ]);
+    let plan = PyramidPlanner::new(256, 256, 64, 0, Layout::DeepZoom)
+        .unwrap()
+        .plan();
+    (dir, plan)
+}
+
+/// A deleted tile and an emptied one are each named, with exit 1. Neither is
+/// a flipped byte, so these hold the presence pass and the size pass to
+/// account, not only the checksum pass.
+#[test]
+fn verify_names_a_deleted_tile_and_an_empty_tile_in_a_tree() {
+    if skip_if_no_cli("verify_names_a_deleted_tile_and_an_empty_tile_in_a_tree") {
+        return;
+    }
+    let tmp = TempDir::new().unwrap();
+    let (dir, plan) = checksummed_tree(tmp.path());
+    let out = ok(&["verify", s(&dir)]);
+    assert_eq!(verified_count(&stdout_of(&out)), plan.total_tile_count());
+
+    let top = top_level(&dir);
+    let deleted = format!("{top}/2_1.png");
+    std::fs::remove_file(dir.join(&deleted)).expect("delete a tile");
+    let err = stderr_of(&exits(1, &["verify", s(&dir)]));
+    assert!(
+        err.contains(&deleted) && err.contains("missing"),
+        "verify must name the deleted tile {deleted} as missing:\n{err}"
+    );
+    assert!(
+        err.contains("--drop-blanks"),
+        "a missing tile on a verify without --drop-blanks should say what else it could \
+         mean:\n{err}"
+    );
+
+    let emptied = format!("{top}/0_3.png");
+    std::fs::write(dir.join(&emptied), b"").expect("empty a tile");
+    let err = stderr_of(&exits(1, &["verify", s(&dir)]));
+    assert!(
+        err.contains(&emptied) && err.contains("empty"),
+        "verify must name the empty tile {emptied}:\n{err}"
+    );
+}
+
+/// The manifest copies a tree carries, beside it and inside it, whichever
+/// exist. verify reads the first; a hostile edit goes into both so the cell
+/// does not depend on which.
+fn manifest_copies(dir: &Path) -> Vec<PathBuf> {
+    let sibling = dir.with_file_name(format!(
+        "{}.manifest.json",
+        dir.file_name().unwrap().to_string_lossy()
+    ));
+    let copies: Vec<PathBuf> = [sibling, dir.join("manifest.json")]
+        .into_iter()
+        .filter(|p| p.is_file())
+        .collect();
+    assert!(!copies.is_empty(), "{} has no manifest", dir.display());
+    copies
+}
+
+fn edit_manifests(dir: &Path, edit: impl Fn(&mut serde_json::Value)) {
+    for path in manifest_copies(dir) {
+        let mut m: serde_json::Value =
+            serde_json::from_slice(&read(&path)).expect("manifest.json parses");
+        edit(&mut m);
+        std::fs::write(&path, serde_json::to_vec_pretty(&m).unwrap()).expect("write it back");
+    }
+}
+
+/// A manifest is input like any other. One that claims a source far bigger
+/// than the tree, one with a tile size no plan can have, and one that is not
+/// JSON at all are each exit 1 with a message, quickly, and never a panic.
+/// The oversized one is where the problem cap earns its keep: millions of
+/// missing tiles are reported as fifty and a line saying there are more.
+#[test]
+fn verify_refuses_hostile_manifests_with_exit_1_and_never_panics() {
+    if skip_if_no_cli("verify_refuses_hostile_manifests_with_exit_1_and_never_panics") {
+        return;
+    }
+    let started = std::time::Instant::now();
+
+    let tmp = TempDir::new().unwrap();
+    let (dir, _) = checksummed_tree(&tmp.path().join("huge"));
+    edit_manifests(&dir, |m| {
+        m["source"]["width"] = 1_000_000.into();
+        m["source"]["height"] = 1_000_000.into();
+    });
+    let err = stderr_of(&exits(1, &["verify", s(&dir)]));
+    let named = err.lines().filter(|l| l.contains("is missing")).count();
+    assert_eq!(
+        named, 50,
+        "a manifest naming millions of tiles must be reported as 50 problems:\n{err}"
+    );
+    assert!(
+        err.contains("stopped after 50 problems"),
+        "the report must say it stopped looking:\n{err}"
+    );
+
+    let (dir, _) = checksummed_tree(&tmp.path().join("zero"));
+    edit_manifests(&dir, |m| m["generation"]["tile_size"] = 0.into());
+    let err = stderr_of(&exits(1, &["verify", s(&dir)]));
+    assert!(
+        err.contains("no plan can describe"),
+        "a tile size of 0 must be refused as a plan that cannot exist:\n{err}"
+    );
+
+    let (dir, _) = checksummed_tree(&tmp.path().join("garbage"));
+    for path in manifest_copies(&dir) {
+        std::fs::write(&path, b"{\"version\": 1, \"generation\": [").unwrap();
+    }
+    let err = stderr_of(&exits(1, &["verify", s(&dir)]));
+    assert!(
+        err.contains("manifest"),
+        "an unreadable manifest must be named:\n{err}"
+    );
+
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(120),
+        "the hostile manifests took {:?}; a cap that does not cap would look like this",
+        started.elapsed()
+    );
+}
+
+/// The canonical image in the top-left corner of a white canvas twice its
+/// size, so a quarter of the full-resolution tiles have content and the rest
+/// are blank.
+fn sparse_input(dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let src = decode_rgba(&fixture("canonical_input.png"));
+    let mut canvas = image::RgbaImage::from_pixel(512, 512, image::Rgba([255, 255, 255, 255]));
+    image::imageops::replace(&mut canvas, &src, 0, 0);
+    let input = dir.join("sparse.png");
+    canvas.save(&input).expect("write the sparse input");
+    input
+}
+
+/// A `--drop-blanks` tree leaves its blank tiles out on purpose, and neither
+/// the manifest nor the archive says so yet (libviprs#1161). So verify fails
+/// it as missing tiles, and says what that could mean, until it is told with
+/// `--drop-blanks`, after which it passes. Told, it still catches a kept tile
+/// that goes missing, which is the control that `--drop-blanks` did not
+/// simply switch the presence check off.
+#[test]
+fn verify_needs_drop_blanks_to_pass_a_drop_blanks_tree_and_still_catches_a_lost_tile() {
+    if skip_if_no_cli(
+        "verify_needs_drop_blanks_to_pass_a_drop_blanks_tree_and_still_catches_a_lost_tile",
+    ) {
+        return;
+    }
+    let tmp = TempDir::new().unwrap();
+    let input = sparse_input(tmp.path());
+    let dir = tmp.path().join("dropped");
+    ok(&[
+        "pyramid",
+        s(&input),
+        s(&dir),
+        "--storage",
+        "directory",
+        "--tile-size",
+        "128",
+        "--drop-blanks",
+        "--checksum",
+    ]);
+
+    let err = stderr_of(&exits(1, &["verify", s(&dir)]));
+    assert!(
+        err.contains("missing") && err.contains("--drop-blanks"),
+        "verify without --drop-blanks must call the dropped blanks missing and point at the \
+         flag:\n{err}"
+    );
+    let out = ok(&["verify", s(&dir), "--drop-blanks"]);
+    assert!(
+        stdout_of(&out).contains("blank tiles dropped"),
+        "the summary should say blanks were allowed for:\n{}",
+        stdout_of(&out)
+    );
+
+    // Top-level tile 0_0 is the canonical image itself, so it is kept.
+    let kept = format!("{}/0_0.png", top_level(&dir));
+    std::fs::remove_file(dir.join(&kept)).expect("delete a kept tile");
+    let err = stderr_of(&exits(1, &["verify", s(&dir), "--drop-blanks"]));
+    assert!(
+        err.contains(&kept),
+        "verify --drop-blanks must still name a kept tile that went missing ({kept}):\n{err}"
+    );
+}
+
+/// The archive half of the cell above: the same input into PMTiles with
+/// `--drop-blanks` fails verify as missing tiles until verify is told, then
+/// passes.
+#[test]
+fn verify_needs_drop_blanks_to_pass_a_drop_blanks_archive() {
+    if skip_if_no_cli("verify_needs_drop_blanks_to_pass_a_drop_blanks_archive") {
+        return;
+    }
+    let tmp = TempDir::new().unwrap();
+    let input = sparse_input(tmp.path());
+    let archive = tmp.path().join("dropped.pmtiles");
+    ok(&[
+        "pyramid",
+        s(&input),
+        s(&archive),
+        "--tile-size",
+        "128",
+        "--drop-blanks",
+    ]);
+    let full = tmp.path().join("full.pmtiles");
+    ok(&["pyramid", s(&input), s(&full), "--tile-size", "128"]);
+    assert!(
+        read(&archive).len() < read(&full).len(),
+        "--drop-blanks dropped nothing from the archive, so this cell proves nothing"
+    );
+
+    let err = stderr_of(&exits(1, &["verify", s(&archive)]));
+    assert!(
+        err.contains("missing") && err.contains("--drop-blanks"),
+        "verify without --drop-blanks must call the dropped blanks missing and point at the \
+         flag:\n{err}"
+    );
+    ok(&["verify", s(&archive), "--drop-blanks"]);
+    ok(&["verify", s(&full)]);
+}
+
+/// A non-square input, so `--centre` moves the image on the XYZ canvas.
+fn wide_input(dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let src = decode_rgba(&fixture("canonical_input.png"));
+    let wide = image::imageops::crop_imm(&src, 0, 64, 256, 96).to_image();
+    let input = dir.join("wide.png");
+    wide.save(&input).expect("write the wide input");
+    input
+}
+
+/// A `--centre` pyramid is checked against the centred plan when verify is
+/// told, archive and tree alike, and the count it reports is the centred
+/// plan's. Nothing records the centring yet (libviprs#1161), which is why the
+/// flag exists at all.
+///
+/// The untold half is not asserted. On this core the centred plan names the
+/// same tiles as the uncentred one for every layout `pyramid` accepts with
+/// `--centre` (measured: google and xyz, 200x70 and 256x96 at a 64-pixel
+/// tile), so an untold verify passes too, and only `--source` could see the
+/// difference, which is refused with `--centre` (the cell below).
+#[test]
+fn verify_checks_a_centred_pyramid_against_the_centred_grid_when_told() {
+    if skip_if_no_cli("verify_checks_a_centred_pyramid_against_the_centred_grid_when_told") {
+        return;
+    }
+    let tmp = TempDir::new().unwrap();
+    let input = wide_input(tmp.path());
+    let centred = |layout: Layout| {
+        PyramidPlanner::new(256, 96, 64, 0, layout)
+            .unwrap()
+            .with_centre(true)
+            .plan()
+            .total_tile_count()
+    };
+
+    let archive = tmp.path().join("centred.pmtiles");
+    ok(&[
+        "pyramid",
+        s(&input),
+        s(&archive),
+        "--tile-size",
+        "64",
+        "--centre",
+    ]);
+    let out = ok(&["verify", s(&archive), "--centre"]);
+    assert_eq!(verified_count(&stdout_of(&out)), centred(Layout::Xyz));
+
+    for (layout, name) in [(Layout::Xyz, "xyz"), (Layout::Google, "google")] {
+        let dir = tmp.path().join(format!("centred-{name}"));
+        ok(&[
+            "pyramid",
+            s(&input),
+            s(&dir),
+            "--storage",
+            "directory",
+            "--layout",
+            name,
+            "--tile-size",
+            "64",
+            "--centre",
+            "--checksum",
+        ]);
+        let out = ok(&["verify", s(&dir), "--centre"]);
+        assert_eq!(verified_count(&stdout_of(&out)), centred(layout), "{name}");
+        assert!(
+            stdout_of(&out).contains("against its checksum"),
+            "the {name} tree's tiles were not checked against their checksums:\n{}",
+            stdout_of(&out)
+        );
+    }
+}
+
+/// `--source` re-renders the pyramid, and the re-render can do neither a
+/// dropped blank nor a centred grid. Both combinations are refused as usage
+/// errors naming the flag, before anything is read, rather than reported as
+/// damaged tiles (and, for `--centre`, rather than reaching the core's debug
+/// assertion on a centred plan, libviprs#1161).
+#[test]
+fn verify_source_refuses_centre_and_drop_blanks_as_usage_errors() {
+    if skip_if_no_cli("verify_source_refuses_centre_and_drop_blanks_as_usage_errors") {
+        return;
+    }
+    let tmp = TempDir::new().unwrap();
+    let (dir, _) = checksummed_tree(tmp.path());
+    let input = tmp.path().join("canonical.png");
+    for flag in ["--centre", "--drop-blanks"] {
+        let err = stderr_of(&exits(2, &["verify", s(&dir), "--source", s(&input), flag]));
+        assert!(
+            !err.contains("unexpected argument"),
+            "{flag} is not a flag this verify knows, so the exit 2 is not the refusal:\n{err}"
+        );
+        assert!(
+            err.contains(flag) && err.contains("--source"),
+            "the refusal must name {flag} and --source:\n{err}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // --events
 // ---------------------------------------------------------------------------
@@ -926,6 +1456,56 @@ fn events_json_is_one_line_per_event_and_completes_every_planned_tile() {
         "json",
     ]);
     let events = json_events(&stdout_of(&out));
+
+    // The JSON lines are a public contract: each one carries the schema
+    // version, and its name comes from a fixed table rather than from a
+    // `Debug` rendering that could change under it. The table is the core's
+    // events plus the one line the CLI adds itself, the closing `summary`.
+    const NAMES: [&str; 20] = [
+        "summary",
+        "source_load_started",
+        "source_loaded",
+        "plan_created",
+        "level_started",
+        "tile_completed",
+        "tile_failed",
+        "tile_skipped_on_resume",
+        "retry_attempted",
+        "level_completed",
+        "strip_rendered",
+        "batch_started",
+        "batch_completed",
+        "strip_dispatched",
+        "strip_executor_done",
+        "worker_joined",
+        "worker_left",
+        "memory_snapshot",
+        "checkpoint_flushed",
+        "finished",
+    ];
+    for event in &events {
+        assert_eq!(
+            event.get("v").and_then(|v| v.as_u64()),
+            Some(1),
+            "every event line carries \"v\":1: {event}"
+        );
+        let name = event["event"].as_str().unwrap();
+        assert!(
+            NAMES.contains(&name),
+            "{name:?} is not one of the documented event names: {event}"
+        );
+    }
+    for name in [
+        "level_started",
+        "level_completed",
+        "tile_completed",
+        "summary",
+    ] {
+        assert!(
+            !events_named(&events, name).is_empty(),
+            "a whole run reports {name}"
+        );
+    }
 
     let plan = PyramidPlanner::new(256, 256, 32, 0, Layout::Xyz)
         .unwrap()
@@ -989,7 +1569,7 @@ fn events_none_is_silent_and_text_is_one_line_per_event() {
 }
 
 // ---------------------------------------------------------------------------
-// --region, --skip-blanks, --manifest-source-hash
+// --region, --drop-blanks, --manifest-source-hash
 // ---------------------------------------------------------------------------
 
 /// A region run is crop-then-pyramid, so it is byte-identical to a plain run
@@ -1031,22 +1611,17 @@ fn a_region_run_equals_a_run_over_the_cropped_input() {
     assert_ne!(read(&region), read(&whole), "--region did nothing");
 }
 
-/// `--skip-blanks` drops uniform tiles altogether, which is not what the older
+/// `--drop-blanks` drops uniform tiles altogether, which is not what the older
 /// `--skip-blank` does (that one writes a placeholder per blank tile). The
-/// input is the canonical image in the top-left corner of a white canvas
-/// twice its size, so a quarter of the full-resolution tiles have content and
-/// the rest are blank.
+/// input is [`sparse_input`], so a quarter of the full-resolution tiles have
+/// content and the rest are blank.
 #[test]
-fn skip_blanks_drops_blank_tiles_and_keeps_the_rest_byte_identical() {
-    if skip_if_no_cli("skip_blanks_drops_blank_tiles_and_keeps_the_rest_byte_identical") {
+fn drop_blanks_drops_blank_tiles_and_keeps_the_rest_byte_identical() {
+    if skip_if_no_cli("drop_blanks_drops_blank_tiles_and_keeps_the_rest_byte_identical") {
         return;
     }
     let tmp = TempDir::new().unwrap();
-    let src = decode_rgba(&fixture("canonical_input.png"));
-    let mut canvas = image::RgbaImage::from_pixel(512, 512, image::Rgba([255, 255, 255, 255]));
-    image::imageops::replace(&mut canvas, &src, 0, 0);
-    let input = tmp.path().join("sparse.png");
-    canvas.save(&input).expect("write the sparse input");
+    let input = sparse_input(tmp.path());
 
     let full = tmp.path().join("full");
     let skipped = tmp.path().join("skipped");
@@ -1054,7 +1629,7 @@ fn skip_blanks_drops_blank_tiles_and_keeps_the_rest_byte_identical() {
     let base = ["--storage", "directory", "--tile-size", "128"];
     for (dir, extra) in [
         (&full, None),
-        (&skipped, Some("--skip-blanks")),
+        (&skipped, Some("--drop-blanks")),
         (&placeholder, Some("--skip-blank")),
     ] {
         let mut args = vec!["pyramid", s(&input), s(dir)];
@@ -1068,7 +1643,7 @@ fn skip_blanks_drops_blank_tiles_and_keeps_the_rest_byte_identical() {
 
     assert!(
         skipped_tiles.len() < full_tiles.len(),
-        "--skip-blanks dropped nothing ({} of {} tiles)",
+        "--drop-blanks dropped nothing ({} of {} tiles)",
         skipped_tiles.len(),
         full_tiles.len()
     );
@@ -1081,7 +1656,7 @@ fn skip_blanks_drops_blank_tiles_and_keeps_the_rest_byte_identical() {
         assert_eq!(
             Some(bytes),
             full_tiles.get(rel),
-            "{rel} changed under --skip-blanks"
+            "{rel} changed under --drop-blanks"
         );
     }
     for (rel, bytes) in &full_tiles {
@@ -1094,13 +1669,17 @@ fn skip_blanks_drops_blank_tiles_and_keeps_the_rest_byte_identical() {
         let first = img.pixels().next().copied();
         assert!(
             img.pixels().all(|p| Some(*p) == first),
-            "--skip-blanks dropped {rel}, which is not blank"
+            "--drop-blanks dropped {rel}, which is not blank"
         );
     }
 }
 
-/// `--manifest-source-hash` records the BLAKE3 of the decoded source pixels in
-/// the manifest, and leaving it off records nothing.
+/// `--manifest-source-hash` records the BLAKE3 of the source file's bytes in
+/// the manifest, which is what the core documents `bytes_hash` to be ("the raw
+/// source bytes"), and leaving it off records nothing. The digest of the
+/// decoded pixels is a different number, and it is checked not to be the one
+/// recorded, so the cell cannot pass on the old semantics. An input read from
+/// stdin leaves no file to hash and is refused as a usage error.
 #[test]
 fn manifest_source_hash_records_the_source_digest() {
     if skip_if_no_cli("manifest_source_hash_records_the_source_digest") {
@@ -1108,8 +1687,13 @@ fn manifest_source_hash_records_the_source_digest() {
     }
     let tmp = TempDir::new().unwrap();
     let input = stage(tmp.path(), "canonical_input.png", "canonical");
+    let expected = blake3::hash(&read(&input)).to_hex().to_string();
     let raster = libviprs::decode_file(&input).expect("decode the input");
-    let expected = blake3::hash(raster.data()).to_hex().to_string();
+    let pixels = blake3::hash(raster.data()).to_hex().to_string();
+    assert_ne!(
+        expected, pixels,
+        "the two digests must differ to tell them apart"
+    );
 
     let manifest = |dir: &Path| -> serde_json::Value {
         serde_json::from_slice(&read(&dir.join("manifest.json"))).expect("manifest.json parses")
@@ -1140,11 +1724,69 @@ fn manifest_source_hash_records_the_source_digest() {
         "--checksum",
     ]);
     assert!(manifest(&without)["source"]["bytes_hash"].is_null());
+
+    let stdin = tmp.path().join("stdin");
+    let out = Command::new(viprs_bin())
+        .args([
+            "pyramid",
+            "-",
+            s(&stdin),
+            "--storage",
+            "directory",
+            "--manifest-source-hash",
+        ])
+        .stdin(std::fs::File::open(&input).unwrap())
+        .output()
+        .expect("run viprs");
+    assert_eq!(out.status.code(), Some(2), "{}", stderr_of(&out));
+    assert!(
+        stderr_of(&out).contains("--manifest-source-hash") && stderr_of(&out).contains("stdin"),
+        "the refusal must name the flag and stdin:\n{}",
+        stderr_of(&out)
+    );
+    assert!(!stdin.exists(), "a refused run wrote {}", stdin.display());
 }
 
 // ---------------------------------------------------------------------------
-// The object-store sink, under the `s3` cell
+// The object-store sink, and the failure flags it lets us drive
 // ---------------------------------------------------------------------------
+
+/// The shared binary is built without the `s3` feature, and a feature a build
+/// left out is exit 1 everywhere (README, "Exit codes"), naming the feature.
+/// The stub store's directory flag is a test seam and stays out of the help.
+#[test]
+fn an_s3_sink_without_the_feature_exits_1_and_the_stub_flag_is_hidden() {
+    if skip_if_no_cli("an_s3_sink_without_the_feature_exits_1_and_the_stub_flag_is_hidden") {
+        return;
+    }
+    let tmp = TempDir::new().unwrap();
+    let input = stage(tmp.path(), "canonical_input.png", "canonical");
+    let out = run_viprs(&[
+        "pyramid",
+        s(&input),
+        "--sink",
+        "s3://tiles/run-1",
+        "--tile-size",
+        "64",
+    ]);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "a missing feature is an operational failure, exit 1:\n{}",
+        stderr_of(&out)
+    );
+    assert!(
+        stderr_of(&out).contains("`s3` feature"),
+        "the refusal must name the feature to rebuild with:\n{}",
+        stderr_of(&out)
+    );
+
+    let help = stdout_of(&ok(&["pyramid", "--help"]));
+    assert!(
+        !help.contains("--object-store-root"),
+        "--object-store-root is a hidden test seam, not a flag to point a job at:\n{help}"
+    );
+}
 
 /// `viprs` built with `--features s3`, into a target directory of its own so
 /// the shared `--no-default-features` binary every other cell runs is never
@@ -1182,6 +1824,14 @@ fn viprs_s3_bin() -> PathBuf {
     .clone()
 }
 
+#[cfg(feature = "object-store-sink")]
+fn run_s3(args: &[&str]) -> Output {
+    Command::new(viprs_s3_bin())
+        .args(args)
+        .output()
+        .expect("run viprs")
+}
+
 /// `--sink s3://bucket/prefix` against the local stub store writes the same
 /// tiles a directory run writes, under the bucket and prefix it was given.
 /// Without a store to write to it is refused rather than pretending to upload.
@@ -1191,14 +1841,11 @@ fn the_object_store_sink_writes_the_directory_tiles_into_the_stub_store() {
     if skip_if_no_cli("the_object_store_sink_writes_the_directory_tiles_into_the_stub_store") {
         return;
     }
-    let bin = viprs_s3_bin();
-    let run = |args: &[&str]| Command::new(&bin).args(args).output().expect("run viprs");
-
     let tmp = TempDir::new().unwrap();
     let input = stage(tmp.path(), "canonical_input.png", "canonical");
     let store = tmp.path().join("store");
 
-    let refused = run(&[
+    let refused = run_s3(&[
         "pyramid",
         s(&input),
         "--sink",
@@ -1209,7 +1856,7 @@ fn the_object_store_sink_writes_the_directory_tiles_into_the_stub_store() {
     assert_eq!(refused.status.code(), Some(2), "{}", stderr_of(&refused));
     assert!(stderr_of(&refused).contains("--object-store-root"));
 
-    let out = run(&[
+    let out = run_s3(&[
         "pyramid",
         s(&input),
         "--sink",
@@ -1243,4 +1890,151 @@ fn the_object_store_sink_writes_the_directory_tiles_into_the_stub_store() {
         uploaded, expected,
         "the uploaded tiles differ from the directory tiles"
     );
+}
+
+/// A stub store with a directory squatting where one tile goes, so every
+/// write of that tile fails and every other write lands. The store is the
+/// one output the run never wipes first, which is what makes it the place to
+/// plant a failure. Returns the store, the input, the reference tiles a clean
+/// run writes and the key of the tile that cannot land.
+#[cfg(feature = "object-store-sink")]
+fn store_with_a_blocked_tile(
+    tmp: &Path,
+    name: &str,
+) -> (PathBuf, PathBuf, BTreeMap<String, Vec<u8>>, String) {
+    let input = stage(tmp, "canonical_input.png", "canonical");
+    let reference = tmp.join("reference");
+    ok(&[
+        "pyramid",
+        s(&input),
+        s(&reference),
+        "--storage",
+        "directory",
+        "--tile-size",
+        "64",
+    ]);
+    let reference_tiles = tiles_only(&tree(&reference).0);
+    // An interior full-resolution tile, so neither the first write nor the
+    // last is the one that fails.
+    let blocked = format!("{}/1_1.png", top_level(&reference));
+    let store = tmp.join(name);
+    let squatter = store.join("tiles/run-1/canonical_files").join(&blocked);
+    std::fs::create_dir_all(&squatter).expect("plant the squatting directory");
+    std::fs::write(squatter.join("keep"), b"x").expect("and make it non-empty");
+    (store, input, reference_tiles, blocked)
+}
+
+#[cfg(feature = "object-store-sink")]
+fn run_into_store(store: &Path, input: &Path, extra: &[&str]) -> Output {
+    let mut args = vec![
+        "pyramid",
+        s(input),
+        "--sink",
+        "s3://tiles/run-1",
+        "--object-store-root",
+        s(store),
+        "--tile-size",
+        "64",
+    ];
+    args.extend_from_slice(extra);
+    run_s3(&args)
+}
+
+/// `--retries N` retries and then FAILS the run, exit 1, the same as no flag
+/// at all; it never quietly skips. Only `--skip-failed` turns a tile that
+/// keeps failing into a hole, and then the run carries on, writes every other
+/// tile exactly as a clean run would, and still exits 1 saying how many it
+/// skipped, because the output has a hole in it. With both, the retries are
+/// counted before the skip.
+#[cfg(feature = "object-store-sink")]
+#[test]
+fn retries_then_fail_and_only_skip_failed_skips_with_exit_1() {
+    if skip_if_no_cli("retries_then_fail_and_only_skip_failed_skips_with_exit_1") {
+        return;
+    }
+    let tmp = TempDir::new().unwrap();
+
+    for (name, extra) in [
+        ("plain", vec![]),
+        ("retries", vec!["--retries", "2", "--retry-backoff-ms", "1"]),
+        ("fail-fast", vec!["--fail-fast"]),
+    ] {
+        let (store, input, _, blocked) = store_with_a_blocked_tile(&tmp.path().join(name), name);
+        let out = run_into_store(&store, &input, &extra);
+        let err = stderr_of(&out);
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{name}: a tile that never lands must fail the run:\n{err}"
+        );
+        assert!(
+            !err.contains("were skipped"),
+            "{name}: only --skip-failed may skip a tile:\n{err}"
+        );
+        assert!(
+            err.contains(&blocked) || err.contains("generating pyramid"),
+            "{name}: the failure must say what failed:\n{err}"
+        );
+    }
+
+    for (name, extra, retries) in [
+        ("skip", vec!["--skip-failed", "--events", "json"], None),
+        (
+            "retry-skip",
+            vec![
+                "--retries",
+                "2",
+                "--retry-backoff-ms",
+                "1",
+                "--skip-failed",
+                "--events",
+                "json",
+            ],
+            Some(2),
+        ),
+    ] {
+        let (store, input, reference, blocked) =
+            store_with_a_blocked_tile(&tmp.path().join(name), name);
+        let out = run_into_store(&store, &input, &extra);
+        let err = stderr_of(&out);
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{name}: a run that skipped a tile has a hole and must exit 1:\n{err}"
+        );
+        assert!(
+            err.contains("1 tiles were skipped"),
+            "{name}: the run must say how many tiles it skipped:\n{err}"
+        );
+        if let Some(n) = retries {
+            assert!(
+                err.contains(&format!("Retries: {n},")),
+                "{name}: the {n} retries must be counted before the skip:\n{err}"
+            );
+        }
+
+        let failed = events_named(&json_events(&stdout_of(&out)), "tile_failed")
+            .into_iter()
+            .map(coord_of)
+            .collect::<Vec<_>>();
+        let top = blocked.split('/').next().unwrap().parse::<u32>().unwrap();
+        assert_eq!(
+            failed,
+            vec![(top, 1, 1)],
+            "{name}: exactly the blocked tile is reported failed"
+        );
+
+        let mut want = reference;
+        want.remove(&blocked);
+        let got = tiles_only(&tree(&store.join("tiles/run-1/canonical_files")).0);
+        assert_eq!(
+            got.keys().collect::<Vec<_>>(),
+            want.keys().collect::<Vec<_>>(),
+            "{name}: every tile but the blocked one must have landed"
+        );
+        assert!(
+            got == want,
+            "{name}: the tiles that landed differ from a clean run"
+        );
+    }
 }
