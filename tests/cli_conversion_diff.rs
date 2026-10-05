@@ -626,3 +626,61 @@ fn switch_matches_vips_exact() {
     run_viprs_ok(&["switch", &fx(COND), &fx(COND2), out.to_str().unwrap()]);
     decode_compare(&out, &cli_fixture("conversion/switch_expected.png"), EXACT);
 }
+
+// ---------------------------------------------------------------------------
+// join: S2 (two images then OUT, then the direction), libviprs/libviprs-cli#67.
+//
+// grad.png is 16x16 and odd.png 15x15, so the sizes differ on both axes and
+// every option has something to move. Without --expand a horizontal join
+// crops to the shorter image (31x15); with --expand, a shim of 3 and centre
+// alignment a vertical join is 16x34, with the shim gap and the one-pixel
+// alignment margin filled with the background 200. A join that ignored any of
+// direction, shim, expand, align or background fails on shape or on that fill.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn join_horizontal_matches_vips_exact() {
+    if skip_if_no_cli("join_horizontal") {
+        return;
+    }
+    let out = out_path("join_horizontal.png");
+    run_viprs_ok(&[
+        "join",
+        &fx(GRAD),
+        &fx(ODD),
+        out.to_str().unwrap(),
+        "horizontal",
+    ]);
+    decode_compare(
+        &out,
+        &cli_fixture("conversion/join_horizontal_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn join_vertical_expand_shim_align_background_matches_vips_exact() {
+    if skip_if_no_cli("join_vertical_expand") {
+        return;
+    }
+    let out = out_path("join_vertical_expand.png");
+    run_viprs_ok(&[
+        "join",
+        &fx(GRAD),
+        &fx(ODD),
+        out.to_str().unwrap(),
+        "vertical",
+        "--expand",
+        "--shim",
+        "3",
+        "--background",
+        "200",
+        "--align",
+        "centre",
+    ]);
+    decode_compare(
+        &out,
+        &cli_fixture("conversion/join_vertical_expand_expected.png"),
+        EXACT,
+    );
+}

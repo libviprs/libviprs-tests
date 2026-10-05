@@ -192,6 +192,66 @@ fn divide_matches_vips_exact() {
 }
 
 #[test]
+fn remainder_matches_vips_exact() {
+    // The two-image remainder the core gained after OP_MAP.md's first audit
+    // (libviprs/libviprs-cli#67). b is 40..168, never zero, so the one place
+    // core and vips disagree on purpose (x % 0 is 0 in the core and -1, read
+    // back as 255, in vips) is not in this input. a % b is format-preserving
+    // uchar in both, and a 0..255 ramp over a 40..168 ramp wraps several times,
+    // so an op that returned either input or a - b fails.
+    if skip_if_no_cli("remainder") {
+        return;
+    }
+    let out = op("remainder.png");
+    run_viprs_ok(&["remainder", &fx(A), &fx(B), &out]);
+    decode_compare(
+        &out_path("remainder.png"),
+        &cli_fixture("arithb/remainder_expected.png"),
+        EXACT,
+    );
+}
+
+#[test]
+fn remainder_by_a_zero_divisor_is_zero_and_exits_0() {
+    // The one place the core and vips disagree on purpose: the core documents
+    // x % 0 == 0, and vips answers -1, which reads back as 255 in uchar. There
+    // is no vips reference to compare against, so this pins the core's
+    // documented answer through the CLI instead: exit 0, the input's shape,
+    // and every sample 0. `a` is a 0..255 ramp, so an op that handed back its
+    // dividend, or vips' 255, fails.
+    if skip_if_no_cli("remainder by zero") {
+        return;
+    }
+    let a = libviprs::decode_file(&cli_fixture(A)).expect("decode the dividend");
+    assert!(
+        a.data().iter().any(|&v| v != 0),
+        "the dividend must not already be all zero, or this proves nothing"
+    );
+    let zeros = libviprs::Raster::new(a.width(), a.height(), a.format(), vec![0; a.data().len()])
+        .expect("a zero raster the dividend's shape");
+    let divisor = out_path("remainder_zero_divisor.png");
+    std::fs::write(
+        &divisor,
+        zeros.encode_png(6).expect("encode the zero divisor"),
+    )
+    .expect("write the zero divisor");
+
+    let out = op("remainder_by_zero.png");
+    run_viprs_ok(&["remainder", &fx(A), divisor.to_str().unwrap(), &out]);
+    let got = libviprs::decode_file(&out_path("remainder_by_zero.png")).expect("decode the output");
+    assert_eq!(
+        (got.width(), got.height(), got.format()),
+        (a.width(), a.height(), a.format()),
+        "remainder must keep the dividend's shape"
+    );
+    let nonzero = got.data().iter().filter(|&&v| v != 0).count();
+    assert_eq!(
+        nonzero, 0,
+        "x % 0 is documented as 0 in the core; {nonzero} samples are not"
+    );
+}
+
+#[test]
 fn minpair_matches_vips_exact() {
     if skip_if_no_cli("minpair") {
         return;

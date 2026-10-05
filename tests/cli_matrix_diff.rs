@@ -114,6 +114,8 @@ fn tmp_mat(name: &str, contents: &str) -> PathBuf {
 const M3: &str = "matrix/m3.mat";
 const M4: &str = "matrix/m4.mat";
 const LUT: &str = "matrix/lut.mat";
+/// 2 wide, 3 high: the right-hand operand for `matrixmultiply` against `M3`.
+const MM_RIGHT: &str = "matrix/mm_right.mat";
 
 /// Convenience: the absolute string path of a committed fixture.
 fn fx(rel: &str) -> String {
@@ -341,5 +343,56 @@ fn invertlut_size_above_core_cap_is_error_not_panic() {
     assert!(
         stderr.contains("size"),
         "expected a viprs-side 'size' message, got: {stderr}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// matrixmultiply: S2 (two matrix files then OUT), libviprs/libviprs-cli#67.
+//
+// `M3` (3x3) times `MM_RIGHT` (2 wide, 3 high) is a 2 wide, 3 high product, so
+// a swapped or transposed operand fails on shape before it fails on values.
+// The core accumulates in f64 and stores f32, vips stores double, so the
+// reference is cast to float exactly as the matrixinvert ones are; the inputs
+// are small exact decimals and the product is exact in f32, so tol 0.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn matrixmultiply_matches_vips_exact_after_cast() {
+    if skip_if_no_cli("matrixmultiply") {
+        return;
+    }
+    let out = out_path("matrixmultiply.v");
+    run_viprs_ok(&[
+        "matrixmultiply",
+        &fx(M3),
+        &fx(MM_RIGHT),
+        out.to_str().unwrap(),
+    ]);
+    decode_compare(
+        &out,
+        &cli_fixture("matrix/matrixmultiply_expected.v"),
+        MATRIXINVERT_TOL,
+    );
+}
+
+#[test]
+fn matrixmultiply_shape_mismatch_is_error_not_panic() {
+    // `MM_RIGHT` is 2 wide, `M3` is 3 high: right x left needs 2 == 3.
+    if skip_if_no_cli("matrixmultiply_shape") {
+        return;
+    }
+    let out = out_path("matrixmultiply_bad.v");
+    let o = run_viprs(&[
+        "matrixmultiply",
+        &fx(MM_RIGHT),
+        &fx(M3),
+        out.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        o.status.code(),
+        Some(1),
+        "a shape mismatch must be a clean exit 1, got {:?}: {}",
+        o.status.code(),
+        String::from_utf8_lossy(&o.stderr)
     );
 }
