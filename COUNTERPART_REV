@@ -311,4 +311,26 @@
 # the core as a path dependency with its own lock. The lossy JPEG 2000 cell
 # that libviprs/libviprs-tests#230 adds lands at max 19 against vips on 0.4.0
 # and inside its tolerance on 0.4.1, so 0.4.1 is the version this suite tests.
-cc083dd5183e442d0f19a19db3ff3c32de75b686
+#
+# Bumped to fe048824, the merge of libviprs#1179 and libviprs main's own tip
+# when I checked. This one is forced by libviprs-tests#257. Core #1167 made the
+# Netpbm decoder honour max_coord and max_pixels and had the SVG rasteriser
+# price its pixmap against max_alloc_bytes, and #1170 sniffs SVG in the decode
+# entry points. That fired codec_e2e's two tripwires,
+# limits_ppm_defect_is_still_there and limits_svg_defect_is_still_there, which
+# exist to go red the day the core fixes those defects. The pre-push gate tests
+# the core tree being pushed rather than this pin, so from then on every core
+# push failed here. The same PR flips the cells: limits_ppm and limits_svg lose
+# their #[ignore] and the two tripwires go.
+#
+# The move also fired three of pipeline_e2e's libviprs#1161 tripwires, because
+# core #1162 (centring and the blank-drop policy in the manifest), #1163
+# (stream_verify on a centred plan) and #1165 (with_config keeps the source
+# digest) are in this pin too. Their strict cells pass here and lose their
+# #[ignore] in the same PR. include_source_hash_records_a_source_digest stays
+# parked: #1164 is in this pin, but that cell still fails against it, and its
+# tripwire still holds.
+#
+# Cargo.lock doesn't move. The core is 0.5.0 on both sides, and #1179 moves the
+# core's own hayro-jpeg2000 to 0.4.1, which is what this lock already resolves.
+fe048824f647f5f664c7c0f6a84bd03b5729f24e
