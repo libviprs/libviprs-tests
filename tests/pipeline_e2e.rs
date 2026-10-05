@@ -859,9 +859,11 @@ fn cancel_then_resume_is_byte_identical_streaming() {
 /// reports every checkpointed tile as `TileCompleted`. Measured against core
 /// 8afc3ae5 on a checkpoint naming 35 of 105 tiles: `(105, 0)` where the
 /// contract says `(70, 35)`. Run it with `--ignored` to see that; it comes off
-/// ignore when core emits the event and `COUNTERPART_REV` moves past the fix.
+/// ignore when core emits the event (the events item on libviprs#1161) and
+/// `COUNTERPART_REV` moves past the fix. Its live partner below pins the
+/// defect as it stands, so the fix cannot land without someone noticing this.
 #[test]
-#[ignore = "core never emits TileSkippedOnResume and reports skipped tiles as TileCompleted (libviprs-tests#231)"]
+#[ignore = "libviprs#1161: core never emits TileSkippedOnResume and reports skipped tiles as TileCompleted"]
 fn resume_reports_skipped_tiles_as_skipped_and_not_as_completed() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (plan, src, base, checkpointed) = cancelled_run(dir.path());
@@ -893,6 +895,363 @@ fn resume_reports_skipped_tiles_as_skipped_and_not_as_completed() {
         "(TileCompleted, TileSkippedOnResume) for a resume over a checkpoint naming \
          {checkpointed} of {total} tiles"
     );
+}
+
+/// The live partner of the ignored cell above: it pins the defect as it is
+/// today, every checkpointed tile reported as `TileCompleted` and none as
+/// `TileSkippedOnResume`. It goes red the day core starts emitting the event,
+/// and that is the signal to delete it and take the cell above off ignore.
+#[test]
+fn resume_reports_skipped_tiles_as_completed_today_libviprs_1161() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (plan, src, base, checkpointed) = cancelled_run(dir.path());
+    let total = plan.total_tile_count();
+    assert!(checkpointed > 0 && checkpointed < total);
+
+    let observer = Arc::new(CollectingObserver::new());
+    let sink = FsSink::new(&base, plan.clone()).with_format(TileFormat::Png);
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_concurrency(1)
+        .with_resume(ResumePolicy::resume().with_checkpoint_every(1))
+        .with_observer_arc(observer.clone())
+        .run()
+        .expect("the resumed run");
+    let events = observer.events();
+    let completed = events
+        .iter()
+        .filter(|e| matches!(e, EngineEvent::TileCompleted { .. }))
+        .count() as u64;
+    let skipped = events
+        .iter()
+        .filter(|e| matches!(e, EngineEvent::TileSkippedOnResume { .. }))
+        .count() as u64;
+    assert_eq!(
+        (completed, skipped),
+        (total, 0),
+        "core now reports skipped tiles differently; if it emits TileSkippedOnResume, \
+         delete this cell and take resume_reports_skipped_tiles_as_skipped_and_not_as_completed \
+         off ignore"
+    );
+}
+
+/// The reference tree every resume-damage cell compares against, and the
+/// files in it that are the pyramid rather than the run's bookkeeping.
+fn uninterrupted_files(dir: &Path, plan: &PyramidPlan, src: &Raster) -> BTreeMap<PathBuf, Vec<u8>> {
+    let reference = dir.join("reference");
+    let sink = FsSink::new(&reference, plan.clone()).with_format(TileFormat::Png);
+    EngineBuilder::new(src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_concurrency(1)
+        .run()
+        .expect("the uninterrupted run");
+    tree_files(&reference)
+        .into_iter()
+        .filter(|(p, _)| !is_job_state(p))
+        .collect()
+}
+
+/// Resume `base` and either get the uninterrupted tree, byte for byte, or a
+/// typed error. A panic is the one answer that fails: it is caught here so
+/// the cell can say which.
+fn resume_or_refuse(
+    plan: &PyramidPlan,
+    src: &Raster,
+    base: &Path,
+    want: &BTreeMap<PathBuf, Vec<u8>>,
+    label: &str,
+) -> Option<EngineError> {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Png);
+        EngineBuilder::new(src, plan.clone(), &sink)
+            .with_engine(EngineKind::Monolithic)
+            .with_concurrency(1)
+            .with_resume(ResumePolicy::resume().with_checkpoint_every(1))
+            .run()
+    }));
+    match outcome {
+        Err(_) => panic!("{label}: the resume panicked instead of refusing or regenerating"),
+        Ok(Err(e)) => Some(e),
+        Ok(Ok(_)) => {
+            let got: BTreeMap<_, _> = tree_files(base)
+                .into_iter()
+                .filter(|(p, _)| !is_job_state(p))
+                .collect();
+            assert_eq!(
+                got.keys().collect::<Vec<_>>(),
+                want.keys().collect::<Vec<_>>(),
+                "{label}: the resumed tree holds a different set of files"
+            );
+            for (path, bytes) in want {
+                assert!(
+                    &got[path] == bytes,
+                    "{label}: {} differs from the uninterrupted run",
+                    path.display()
+                );
+            }
+            None
+        }
+    }
+}
+
+/// What `kill -9` can leave that a clean cancel never does: a tile the
+/// checkpoint does not name sitting on disk half written. The checkpoint is
+/// the only record of what finished, so a resume has to write that tile
+/// again rather than trust that a file of the right name is the right file.
+#[test]
+fn resume_rewrites_a_half_written_tile_the_checkpoint_does_not_name() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (plan, src, base, _) = cancelled_run(dir.path());
+    let want = uninterrupted_files(dir.path(), &plan, &src);
+    let done = libviprs::JobCheckpoint::load(&base)
+        .expect("the checkpoint loads")
+        .expect("a checkpoint")
+        .completed_tiles;
+    let victim = plan
+        .tile_coords()
+        .find(|c| !done.contains(c))
+        .expect("a tile the cancelled run did not finish");
+    let path = tile_file(&base, &plan, victim, "png");
+    let full = &want[path.strip_prefix(&base).unwrap()];
+    // The cancelled run may not have reached this tile's level yet, so its
+    // directory is made the way the sink would have made it.
+    std::fs::create_dir_all(path.parent().unwrap()).expect("the tile's level directory");
+    std::fs::write(&path, &full[..full.len() / 2]).expect("plant the half-written tile");
+
+    if let Some(e) = resume_or_refuse(&plan, &src, &base, &want, "half-written tile") {
+        panic!("a half-written tile outside the checkpoint must be rewritten, not refused: {e}");
+    }
+}
+
+/// A checkpoint cut off half way, its header or its segment log, must never
+/// be believed. The resume either refuses it with a typed error or ignores it
+/// and regenerates, and then the tree has to be the uninterrupted one.
+#[test]
+fn a_truncated_checkpoint_is_refused_or_regenerated_never_trusted() {
+    for file in [
+        libviprs::resume::CHECKPOINT_FILENAME,
+        ".libviprs-job.segments",
+    ] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (plan, src, base, _) = cancelled_run(dir.path());
+        let want = uninterrupted_files(dir.path(), &plan, &src);
+        let path = base.join(file);
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("the cancelled run left no {file}: {e}"));
+        assert!(bytes.len() > 1, "{file} is too short to truncate");
+        std::fs::write(&path, &bytes[..bytes.len() / 2]).expect("truncate it");
+
+        if let Some(e) = resume_or_refuse(&plan, &src, &base, &want, file) {
+            let text = e.to_string();
+            assert!(
+                text.contains("checkpoint") || text.contains("resume"),
+                "{file}: the refusal must say it is about the checkpoint: {text}"
+            );
+        }
+    }
+}
+
+/// A run whose engine config carries a source digest, cancelled part way.
+fn cancelled_with_digest(dir: &Path, digest: &str) -> (PyramidPlan, PathBuf) {
+    let plan = deepzoom_plan(640, 448, 64);
+    let src = canonical_raster_scaled(640, 448);
+    let base = dir.join("digest");
+    let token = CancelToken::new();
+    let sink = FsSink::new(&base, plan.clone()).with_format(TileFormat::Png);
+    let first = EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_concurrency(1)
+        .with_resume(ResumePolicy::resume().with_checkpoint_every(1))
+        .with_config(EngineConfig::default().with_source_content_hash(digest))
+        .with_cancel(token.clone())
+        .with_observer(CancelAfter {
+            token: token.clone(),
+            seen: AtomicU64::new(0),
+            after: plan.total_tile_count() / 3,
+        })
+        .run();
+    assert!(
+        matches!(first, Err(EngineError::Cancelled)),
+        "got {first:?}"
+    );
+    (plan, base)
+}
+
+/// Resume `base` from a different image of the same size, saying so through
+/// a different digest.
+fn resume_with_digest(
+    plan: &PyramidPlan,
+    base: &Path,
+    digest: &str,
+) -> Result<libviprs::EngineResult, EngineError> {
+    let mut other = canonical_raster_scaled(640, 448);
+    other.data_mut()[0] ^= 0xFF;
+    let sink = FsSink::new(base, plan.clone()).with_format(TileFormat::Png);
+    EngineBuilder::new(&other, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_concurrency(1)
+        .with_resume(ResumePolicy::resume().with_checkpoint_every(1))
+        .with_config(EngineConfig::default().with_source_content_hash(digest))
+        .run()
+}
+
+/// `EngineConfig::source_content_hash` exists so that resuming a checkpoint
+/// against a different source, even one of the same size, is refused rather
+/// than interleaving two images. `EngineBuilder::with_config` is the only way
+/// to hand the builder that digest, and it drops it, so the guard cannot be
+/// reached and the resume below is accepted. Ignored until the source-hash
+/// item on libviprs#1161 lands; the live partner below pins the defect.
+#[test]
+#[ignore = "libviprs#1161: EngineBuilder::with_config drops source_content_hash"]
+fn resume_against_a_different_source_digest_is_refused() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (plan, base) = cancelled_with_digest(dir.path(), "digest-of-image-a");
+    let result = resume_with_digest(&plan, &base, "digest-of-image-b");
+    assert!(
+        matches!(result, Err(EngineError::PlanHashMismatch { .. })),
+        "a resume from a different source digest must be refused, got {result:?}"
+    );
+}
+
+/// The live partner: today the different digest is accepted and the resume
+/// finishes. Red the day `with_config` keeps the digest, which is the signal
+/// to delete this and take the cell above off ignore.
+#[test]
+fn resume_against_a_different_source_digest_is_accepted_today_libviprs_1161() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (plan, base) = cancelled_with_digest(dir.path(), "digest-of-image-a");
+    let result = resume_with_digest(&plan, &base, "digest-of-image-b");
+    assert!(
+        result.is_ok(),
+        "with_config now carries the digest (got {result:?}); delete this cell and take \
+         resume_against_a_different_source_digest_is_refused off ignore"
+    );
+}
+
+/// A tree written with a manifest, and that manifest parsed as JSON.
+fn manifest_of(
+    dir: &Path,
+    plan: &PyramidPlan,
+    src: &Raster,
+    skip_blanks: bool,
+    hash: bool,
+) -> serde_json::Value {
+    let sink = FsSink::new(dir, plan.clone())
+        .with_format(TileFormat::Png)
+        .with_manifest(libviprs::manifest::ManifestBuilder::new().include_source_hash(hash));
+    EngineBuilder::new(src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .with_skip_blanks(skip_blanks)
+        .run()
+        .expect("generate with a manifest");
+    serde_json::from_slice(&std::fs::read(dir.join("manifest.json")).expect("manifest.json"))
+        .expect("manifest.json parses")
+}
+
+/// `ManifestBuilder::include_source_hash(true)` promises the source digest in
+/// `source.bytes_hash`. The flag is stored and never read, so the field is
+/// always absent, and `viprs` patches it in after the run (libviprs-cli#66).
+/// The cell asserts only that a 64-digit hex digest is there, not which bytes
+/// it covers: the builder's doc says the raster bytes and the field's doc says
+/// the raw source bytes, and settling that is part of the fix on
+/// libviprs#1161. The live partner below pins the defect.
+#[test]
+#[ignore = "libviprs#1161: ManifestBuilder::include_source_hash is stored and never read"]
+fn include_source_hash_records_a_source_digest() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let plan = deepzoom_plan(256, 192, 64);
+    let src = canonical_raster_scaled(256, 192);
+    let m = manifest_of(&dir.path().join("hashed"), &plan, &src, false, true);
+    let hash = m["source"]["bytes_hash"].as_str().unwrap_or_default();
+    assert!(
+        hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()),
+        "include_source_hash(true) must record a digest, got {:?}",
+        m["source"]["bytes_hash"]
+    );
+}
+
+/// The live partner: today the digest is absent whether it was asked for or
+/// not.
+#[test]
+fn include_source_hash_records_nothing_today_libviprs_1161() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let plan = deepzoom_plan(256, 192, 64);
+    let src = canonical_raster_scaled(256, 192);
+    let m = manifest_of(&dir.path().join("hashed"), &plan, &src, false, true);
+    assert!(
+        m["source"]["bytes_hash"].is_null(),
+        "include_source_hash now records {}; delete this cell and take \
+         include_source_hash_records_a_source_digest off ignore",
+        m["source"]["bytes_hash"]
+    );
+}
+
+/// The parts of a manifest that say how a pyramid was generated, which is
+/// where centring and the blank policy belong. Tile checksums and the level
+/// table are left out: they change with the pixels, and the point is whether
+/// the settings are recorded, not whether the tiles moved.
+fn settings(m: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "generation": m["generation"],
+        "source": m["source"],
+        "sparse_policy": m["sparse_policy"],
+    })
+}
+
+/// A centred plan, and a run that drops its blank tiles, are different
+/// pyramids from the plain one, and a reader rebuilding the plan from the
+/// manifest (`viprs verify`, `pmtiles pack --manifest`) needs to know both.
+/// The manifest records neither, so the settings sections of all three runs
+/// are identical. Ignored until the manifest item on libviprs#1161 lands; the
+/// live partner below pins it.
+#[test]
+#[ignore = "libviprs#1161: the manifest records neither centring nor the blank-drop policy"]
+fn the_manifest_records_centring_and_the_blank_drop_policy() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (plain, centred, dropped) = three_manifests(dir.path());
+    assert_ne!(
+        settings(&plain),
+        settings(&centred),
+        "centring is not recorded"
+    );
+    assert_ne!(
+        settings(&plain),
+        settings(&dropped),
+        "the blank-drop policy is not recorded"
+    );
+}
+
+/// The live partner: the three settings sections are identical today.
+#[test]
+fn the_manifest_records_neither_centring_nor_blank_dropping_today_libviprs_1161() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (plain, centred, dropped) = three_manifests(dir.path());
+    assert_eq!(
+        settings(&plain),
+        settings(&centred),
+        "the manifest now records centring; delete this cell and take \
+         the_manifest_records_centring_and_the_blank_drop_policy off ignore"
+    );
+    assert_eq!(
+        settings(&plain),
+        settings(&dropped),
+        "the manifest now records the blank-drop policy; delete this cell and take \
+         the_manifest_records_centring_and_the_blank_drop_policy off ignore"
+    );
+}
+
+/// Plain, centred and blank-dropping runs of one Google-layout source with
+/// white margins, each into a tree with a manifest.
+fn three_manifests(dir: &Path) -> (serde_json::Value, serde_json::Value, serde_json::Value) {
+    let src = canonical_raster_scaled(200, 70);
+    let planner = || PyramidPlanner::new(200, 70, 64, 0, Layout::Google).expect("a plan");
+    let plain = planner().plan();
+    let centred = planner().with_centre(true).plan();
+    (
+        manifest_of(&dir.join("plain"), &plain, &src, false, false),
+        manifest_of(&dir.join("centred"), &centred, &src, false, false),
+        manifest_of(&dir.join("dropped"), &plain, &src, true, false),
+    )
 }
 
 // ===========================================================================
@@ -930,6 +1289,27 @@ impl FlakySink {
     fn attempts(&self) -> BTreeMap<(u32, u32, u32), u32> {
         self.attempts.lock().expect("attempts").clone()
     }
+
+    /// Spend one of the failures still owed, if any are left.
+    ///
+    /// A compare-and-swap loop rather than `fetch_update`, which Rust 1.99
+    /// deprecates, or its replacement `try_update`, which is newer than this
+    /// crate's MSRV.
+    fn take_a_failure(&self) -> bool {
+        let mut left = self.failures_left.load(Ordering::SeqCst);
+        while left > 0 {
+            match self.failures_left.compare_exchange(
+                left,
+                left - 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => return true,
+                Err(now) => left = now,
+            }
+        }
+        false
+    }
 }
 
 impl TileSink for FlakySink {
@@ -941,12 +1321,7 @@ impl TileSink for FlakySink {
             .expect("attempts")
             .entry((c.level, c.col, c.row))
             .or_insert(0) += 1;
-        if c == self.target
-            && self
-                .failures_left
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                .is_ok()
-        {
+        if c == self.target && self.take_a_failure() {
             return Err(SinkError::Other(format!("injected failure at {c:?}")));
         }
         self.inner.write_tile(tile)
@@ -1127,9 +1502,11 @@ fn retry_then_skip_drops_only_the_chosen_tile() {
 /// chosen tile reach the observer as nothing. `EngineResult::retry_count`
 /// does see them, which `retry_recovers_when_the_failures_fit_inside_the_budget`
 /// pins. Run this with `--ignored` to see the gap; it comes off ignore when
-/// core emits the event and `COUNTERPART_REV` moves past the fix.
+/// core emits the event (the events item on libviprs#1161) and
+/// `COUNTERPART_REV` moves past the fix, and its live partner below goes red at
+/// that point to say so.
 #[test]
-#[ignore = "core never emits EngineEvent::RetryAttempted (libviprs-tests#231)"]
+#[ignore = "libviprs#1161: core never emits EngineEvent::RetryAttempted"]
 fn retry_attempts_are_reported_to_the_observer() {
     let (src, plan, target) = retry_fixture();
     let sink = FlakySink::new(target, 2);
@@ -1154,6 +1531,35 @@ fn retry_attempts_are_reported_to_the_observer() {
         attempts,
         vec![(target, 1), (target, 2)],
         "two retries of the chosen tile must reach the observer as RetryAttempted 1 and 2"
+    );
+}
+
+/// The live partner of the ignored cell above: today no retry reaches the
+/// observer at all. Red the day core emits `RetryAttempted`, which is the
+/// signal to delete this and take the cell above off ignore.
+#[test]
+fn retry_attempts_never_reach_the_observer_today_libviprs_1161() {
+    let (src, plan, target) = retry_fixture();
+    let sink = FlakySink::new(target, 2);
+    let observer = Arc::new(CollectingObserver::new());
+    let result = run_flaky(
+        &src,
+        &plan,
+        &sink,
+        FailurePolicy::RetryThenFail(no_backoff(3)),
+        observer.clone(),
+    )
+    .expect("two failures fit inside three retries");
+    assert_eq!(result.retry_count, 2, "the retries did happen");
+    let seen = observer
+        .events()
+        .into_iter()
+        .filter(|e| matches!(e, EngineEvent::RetryAttempted { .. }))
+        .count();
+    assert_eq!(
+        seen, 0,
+        "core now emits RetryAttempted; delete this cell and take \
+         retry_attempts_are_reported_to_the_observer off ignore"
     );
 }
 
@@ -1233,6 +1639,53 @@ fn stream_verify_refuses_a_missing_tile() {
     assert!(
         err.to_string().contains(&format!("{victim:?}")),
         "the refusal must name the missing tile {victim:?}: {err}"
+    );
+}
+
+/// A clean raw tree on a centred Google plan, the shape `viprs verify
+/// --centre --source` would hand `verify_from_strip_source`.
+fn centred_raw_tree(dir: &Path) -> (Raster, PyramidPlan, PathBuf) {
+    let plan = PyramidPlanner::new(200, 70, 64, 0, Layout::Google)
+        .expect("a plan")
+        .with_centre(true)
+        .plan();
+    let src = canonical_raster_scaled(200, 70);
+    let base = dir.join("centred-raw");
+    run_tree(&src, &plan, &base, TileFormat::Raw);
+    (src, plan, base)
+}
+
+/// `verify_from_strip_source` assembles the source into a canvas the size of
+/// the source and then asserts it is the size of the plan's top level, which
+/// a centred plan's is not (`stream_verify.rs`, the two `debug_assert_eq!`s
+/// after the strip assembly). So a clean centred tree cannot be verified
+/// against its source, and `viprs verify` refuses `--centre --source` rather
+/// than reach it. Ignored until the stream_verify item on libviprs#1161 lands
+/// (comment 5988586794 there); the live partner below pins it.
+#[test]
+#[ignore = "libviprs#1161: stream_verify debug_asserts the canvas is the top level, which a centred plan breaks"]
+fn stream_verify_passes_a_clean_centred_raw_tree() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (src, plan, base) = centred_raw_tree(dir.path());
+    strip_verify(&src, &plan, &base).expect("a clean centred tree verifies");
+}
+
+/// The live partner, in a debug build where the assertion is compiled in:
+/// verifying a clean centred tree panics today. Red the day it stops, which
+/// is the signal to delete this and take the cell above off ignore.
+#[cfg(debug_assertions)]
+#[test]
+fn stream_verify_panics_on_a_clean_centred_raw_tree_today_libviprs_1161() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (src, plan, base) = centred_raw_tree(dir.path());
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        strip_verify(&src, &plan, &base)
+    }));
+    assert!(
+        outcome.is_err(),
+        "verify_from_strip_source no longer panics on a centred plan (got {:?}); delete \
+         this cell and take stream_verify_passes_a_clean_centred_raw_tree off ignore",
+        outcome.ok()
     );
 }
 
