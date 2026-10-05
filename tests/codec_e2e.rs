@@ -342,6 +342,29 @@ fn is_feature_refusal(feature: &str, err: &SourceError) -> bool {
     }
 }
 
+/// An `svg` build must never read an `Unsupported` I/O error as the missing
+/// feature: with the renderer compiled in, that error is the renderer failing,
+/// and calling it a skip would hide it.
+#[test]
+fn an_svg_build_never_skips_an_unsupported_error() {
+    if !svg_build() {
+        let _ = writeln!(
+            std::io::stderr(),
+            "SKIP codec_e2e::an_svg_build_never_skips_an_unsupported_error: built without \
+             `svg`, where Unsupported is the refusal. Run with `--features svg`."
+        );
+        return;
+    }
+    let err = SourceError::Io(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "the renderer gave up",
+    ));
+    assert!(
+        !is_feature_refusal("svg", &err),
+        "an svg build treats an Unsupported error from the renderer as a skip"
+    );
+}
+
 fn is_encode_refusal(feature: &str, err: &libviprs::EncodeError) -> bool {
     matches!(err, libviprs::EncodeError::Unsupported { format } if format == feature)
 }
@@ -365,6 +388,15 @@ fn skip(feature: &str, cell: &str) {
         "SKIP codec_e2e::{cell}: libviprs built without the `{feature}` feature, nothing was \
          checked. Run `cargo test --test codec_e2e --features libviprs/{feature}`."
     );
+}
+
+/// Whether this crate was built with its own `svg` feature, which forwards
+/// the core's (libviprs/libviprs-tests#235). Before that forwarding lands the
+/// feature does not exist here, `cfg!` answers false, and check-cfg would warn
+/// about the unknown name, hence the allow.
+#[allow(unexpected_cfgs)]
+const fn svg_build() -> bool {
+    cfg!(feature = "svg")
 }
 
 /// Decode `file` for `cell`, or `None` when the cell skipped for a missing
@@ -1339,9 +1371,33 @@ fn limits_gif() {
 /// over. Ignored until the core fix lands and the pin moves to it; run it with
 /// `--ignored` to see it fail.
 #[test]
-#[ignore = "core defect: the Netpbm decoder ignores DecodeLimits::max_coord and max_pixels (#230)"]
+#[ignore = "core defect: the Netpbm decoder ignores DecodeLimits::max_coord and max_pixels (the core tracking issue)"]
 fn limits_ppm() {
     limits_row("limits_ppm", None, sniffed, "ppm.ppm");
+}
+/// The live half of the parked `limits_ppm`: it pins the defect as it is
+/// today, so the day the core starts honouring `max_coord` and `max_pixels`
+/// for Netpbm this goes red and says to un-ignore `limits_ppm` and delete it.
+#[test]
+fn limits_ppm_defect_is_still_there() {
+    let b = bytes("ppm.ppm");
+    let r = sniffed(&b, DecodeLimits::default()).expect("ppm.ppm decodes at the defaults");
+    let (w, h) = (r.width(), r.height());
+    let d = DecodeLimits::default();
+    for (what, l) in [
+        ("max_coord", d.with_max_coord(w.max(h) - 1)),
+        (
+            "max_pixels",
+            d.with_max_pixels(u64::from(w) * u64::from(h) - 1),
+        ),
+    ] {
+        assert!(
+            sniffed(&b, l).is_ok(),
+            "the Netpbm decoder now refuses {what} one below the {w}x{h} file, \
+             so the core fixed the defect on the core tracking issue: un-ignore \
+             limits_ppm and delete this cell"
+        );
+    }
 }
 #[test]
 fn limits_vips_native() {
@@ -1389,9 +1445,30 @@ fn limits_avif() {
 /// allocation budget does not bound an SVG decode. Ignored until the core fix
 /// lands and the pin moves to it; run it with `--ignored` to see it fail.
 #[test]
-#[ignore = "core defect: the SVG rasteriser ignores DecodeLimits::max_alloc_bytes (#230)"]
+#[ignore = "core defect: the SVG rasteriser ignores DecodeLimits::max_alloc_bytes (the core tracking issue)"]
 fn limits_svg() {
     limits_row("limits_svg", Some("svg"), svg_dec, "svg.svg");
+}
+/// The live half of the parked `limits_svg`, the same way round as
+/// `limits_ppm_defect_is_still_there`: an allocation budget one byte under the
+/// decoded raster still renders, until the core prices the pixmap.
+#[test]
+fn limits_svg_defect_is_still_there() {
+    let Some(r) = decode_for(
+        "limits_svg_defect_is_still_there",
+        Some("svg"),
+        svg_dec,
+        "svg.svg",
+    ) else {
+        return;
+    };
+    let tight = DecodeLimits::default().with_max_alloc_bytes(r.data().len() as u64 - 1);
+    assert!(
+        svg_dec(&bytes("svg.svg"), tight).is_ok(),
+        "the SVG rasteriser now refuses an allocation budget one byte under its \
+         raster, so the core fixed the defect on the core tracking issue: \
+         un-ignore limits_svg and delete this cell"
+    );
 }
 
 // ---------------------------------------------------------------------------
