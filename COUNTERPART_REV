@@ -296,4 +296,19 @@
 # against this pin with the lock exactly as committed. The core holds
 # hayro-jpeg2000 at 0.4.0 in its own CI (libviprs#1160); nothing here depends on
 # which version that is.
-ead7f7aa4021d3860eb3de2bdb261a18cd737551
+#
+# Bumped to cc083dd5, the merge of libviprs#1159, which was libviprs main's own
+# tip when I checked with `gh api repos/libviprs/libviprs/commits/main`. It
+# moves because CLI_COUNTERPART_REV moves with it: libviprs-cli main matches on
+# `SourceError::Pdf` and opens password-protected PDFs through the core's new
+# pdfium route, and neither exists at ead7f7aa, so the cli-differential job
+# could not lay a `viprs` binary down against the old core at all.
+#
+# Cargo.lock moves in the same commit, but not because of the core. This
+# crate now forwards `jp2k` (libviprs/libviprs-cli#64), so hayro-jpeg2000 is in
+# its graph for the first time, and I resolve it to 0.4.1. The core holds
+# 0.4.0 in its own CI while libviprs#1160 re-measures it; this suite consumes
+# the core as a path dependency with its own lock. The lossy JPEG 2000 cell
+# that libviprs/libviprs-tests#230 adds lands at max 19 against vips on 0.4.0
+# and inside its tolerance on 0.4.1, so 0.4.1 is the version this suite tests.
+cc083dd5183e442d0f19a19db3ff3c32de75b686
