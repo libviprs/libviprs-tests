@@ -264,9 +264,9 @@ source image, and every reference was written by a tool that is not libviprs.
 ### Oracle
 
 - **vips 8.18.4**, built by `tools/Dockerfile.vips-oracle` (the image the
-  CLI-differential families use, carried by #236 at `352f422`; libvips v8.18.4
-  on debian:trixie-slim with openjpeg v2.5.4 and libultrahdr v1.4.0 from
-  source). This is the same vips the `cli/` references pin
+  CLI-differential families use, added by libviprs/libviprs-tests#236;
+  libvips v8.18.4 on debian:trixie-slim with openjpeg v2.5.4 and libultrahdr
+  v1.4.0 from source). This is the same vips the `cli/` references pin
   (`cli/PROVENANCE.md`), not the Debian 8.14.1 the dzsave fixtures above use.
 - `tools/Dockerfile.codec-oracle` layers on it: `libheif-plugin-aomenc`
   (1.23.4, aom 3.12.1) so vips can write AVIF, `openimageio-tools` (oiiotool
@@ -278,14 +278,32 @@ source image, and every reference was written by a tool that is not libviprs.
   cfitsio 4.6.2, cgif 0.5.0, librsvg 2.60.0, OpenEXR 3.1.13, matio 1.5.28.
 - Built and run in `linux/amd64` containers on the native x86_64 NAS.
 
+### Naming
+
+These names follow the codec, not the command, and they differ from the
+CLI-differential references in `cli/` on purpose, so the two trees cannot be
+mistaken for each other even though one vips wrote both:
+
+- `codec/<fmt>[_<variant>].<ext>` is a file vips (or the writer named in the
+  oracle) encoded from the source, and `codec/<fmt>[_<variant>]_ref.png` (or
+  `_ref.v` for float) is vips's own decode of it. `_p<N>` marks page N of a
+  multi-page file.
+- `codec/enc/libviprs_<fmt>[_<variant>].<ext>` is libviprs's encode of the
+  source, and `codec/enc/libviprs_<fmt>[_<variant>]_vips.png` (or `_vips.v`
+  for float) is vips's decode of that file.
+- The references in `cli/foreign/` (libviprs/libviprs-tests#236) are named
+  after the `viprs` command they check: `<command>_expected.<ext>` for what a
+  loader should decode, `<command>[_<variant>].<ext>` for the file a saver
+  should write. Those cells compare a command's output, not a codec's.
+
 ### Regenerating
 
 ```bash
-docker build --platform linux/amd64 -t vips-oracle:8.18.4 - < tools/Dockerfile.vips-oracle   # from #236
+docker build --platform linux/amd64 -t vips-oracle:8.18.4 - < tools/Dockerfile.vips-oracle
 docker build --platform linux/amd64 -t codec-oracle:8.18.4 - < tools/Dockerfile.codec-oracle
 docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work codec-oracle:8.18.4 \
     bash tools/gen_fixtures.sh codec-vips
-cargo test --features 'jxl libviprs/jp2k' --test codec_e2e -- --ignored --exact generate_libviprs_encodes
+cargo test --features 'jxl jp2k' --test codec_e2e -- --ignored --exact generate_libviprs_encodes
 docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work codec-oracle:8.18.4 \
     bash tools/gen_fixtures.sh codec-enc
 ```

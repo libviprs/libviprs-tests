@@ -12,8 +12,9 @@
 # on), then `tools/gen_fixtures.sh codec-enc` (see that script). Built and run
 # on the native x86_64 NAS, never under emulation.
 #
-# tools/Dockerfile.vips-oracle arrives with libviprs/libviprs-tests#236, so
-# this file only builds once that has merged; #236 lands first.
+# tools/Dockerfile.vips-oracle came in with libviprs/libviprs-tests#236, and
+# this one builds FROM the image it makes, so build that one first (the tag
+# has to be vips-oracle:8.18.4, or pass --build-arg BASE=<your tag>).
 #
 # What is added, and why each one:
 #

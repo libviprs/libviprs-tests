@@ -39,10 +39,10 @@
 //! core is built with the feature:
 //!
 //! ```text
-//! cargo test --test codec_e2e --features libviprs/avif
-//! cargo test --test codec_e2e --features libviprs/svg
+//! cargo test --test codec_e2e --features avif
+//! cargo test --test codec_e2e --features svg
 //! cargo test --test codec_e2e --features jxl
-//! cargo test --test codec_e2e --features libviprs/jp2k
+//! cargo test --test codec_e2e --features jp2k
 //! ```
 //!
 //! CI runs all four at once, as `--features "jxl avif svg jp2k"`, with
@@ -405,10 +405,7 @@ fn skip(feature: &str, cell: &str) {
 }
 
 /// Whether this crate was built with its own `svg` feature, which forwards
-/// the core's (libviprs/libviprs-tests#235). Before that forwarding lands the
-/// feature does not exist here, `cfg!` answers false, and check-cfg would warn
-/// about the unknown name, hence the allow.
-#[allow(unexpected_cfgs)]
+/// the core's (libviprs/libviprs-tests#235).
 const fn svg_build() -> bool {
     cfg!(feature = "svg")
 }

@@ -42,7 +42,7 @@ cd "$FIXTURES_DIR"
 #
 #   docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work \
 #       codec-oracle:8.18.4 bash tools/gen_fixtures.sh codec-vips
-#   cargo test --features 'jxl libviprs/jp2k' --test codec_e2e -- \
+#   cargo test --features 'jxl jp2k' --test codec_e2e -- \
 #       --ignored --exact generate_libviprs_encodes
 #   docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work \
 #       codec-oracle:8.18.4 bash tools/gen_fixtures.sh codec-enc
