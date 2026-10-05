@@ -141,6 +141,54 @@ fn exits(code: i32, args: &[&str]) -> Output {
     out
 }
 
+/// Run `viprs` and require the exact exit code `code` within `limit`, killing
+/// it and failing the cell if it runs longer. For the cells whose failure mode
+/// is a run that never ends, where waiting on it would hang the suite instead
+/// of failing it.
+fn exits_within(code: i32, limit: std::time::Duration, args: &[&str]) -> Output {
+    use std::io::Read as _;
+    let mut child = Command::new(viprs_bin())
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn viprs");
+    let drain = |mut pipe: Box<dyn std::io::Read + Send>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = pipe.read_to_end(&mut bytes);
+            bytes
+        })
+    };
+    let stdout = drain(Box::new(child.stdout.take().expect("piped stdout")));
+    let stderr = drain(Box::new(child.stderr.take().expect("piped stderr")));
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("poll viprs") {
+            break status;
+        }
+        if started.elapsed() > limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("viprs {args:?} was still running after {limit:?}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let out = Output {
+        status,
+        stdout: stdout.join().expect("the stdout reader"),
+        stderr: stderr.join().expect("the stderr reader"),
+    };
+    assert_eq!(
+        out.status.code(),
+        Some(code),
+        "viprs {args:?} should exit {code}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        stdout_of(&out),
+        stderr_of(&out),
+    );
+    out
+}
+
 fn read(path: &Path) -> Vec<u8> {
     std::fs::read(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
@@ -1185,12 +1233,14 @@ fn edit_manifests(dir: &Path, edit: impl Fn(&mut serde_json::Value)) {
 /// JSON at all are each exit 1 with a message, quickly, and never a panic.
 /// The oversized one is where the problem cap earns its keep: millions of
 /// missing tiles are reported as fifty and a line saying there are more.
+/// Each run gets a minute, so a verify without the cap fails the cell rather
+/// than hanging the suite walking a trillion tiles.
 #[test]
 fn verify_refuses_hostile_manifests_with_exit_1_and_never_panics() {
     if skip_if_no_cli("verify_refuses_hostile_manifests_with_exit_1_and_never_panics") {
         return;
     }
-    let started = std::time::Instant::now();
+    let limit = std::time::Duration::from_secs(60);
 
     let tmp = TempDir::new().unwrap();
     let (dir, _) = checksummed_tree(&tmp.path().join("huge"));
@@ -1198,7 +1248,7 @@ fn verify_refuses_hostile_manifests_with_exit_1_and_never_panics() {
         m["source"]["width"] = 1_000_000.into();
         m["source"]["height"] = 1_000_000.into();
     });
-    let err = stderr_of(&exits(1, &["verify", s(&dir)]));
+    let err = stderr_of(&exits_within(1, limit, &["verify", s(&dir)]));
     let named = err.lines().filter(|l| l.contains("is missing")).count();
     assert_eq!(
         named, 50,
@@ -1211,7 +1261,7 @@ fn verify_refuses_hostile_manifests_with_exit_1_and_never_panics() {
 
     let (dir, _) = checksummed_tree(&tmp.path().join("zero"));
     edit_manifests(&dir, |m| m["generation"]["tile_size"] = 0.into());
-    let err = stderr_of(&exits(1, &["verify", s(&dir)]));
+    let err = stderr_of(&exits_within(1, limit, &["verify", s(&dir)]));
     assert!(
         err.contains("no plan can describe"),
         "a tile size of 0 must be refused as a plan that cannot exist:\n{err}"
@@ -1221,16 +1271,10 @@ fn verify_refuses_hostile_manifests_with_exit_1_and_never_panics() {
     for path in manifest_copies(&dir) {
         std::fs::write(&path, b"{\"version\": 1, \"generation\": [").unwrap();
     }
-    let err = stderr_of(&exits(1, &["verify", s(&dir)]));
+    let err = stderr_of(&exits_within(1, limit, &["verify", s(&dir)]));
     assert!(
         err.contains("manifest"),
         "an unreadable manifest must be named:\n{err}"
-    );
-
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(120),
-        "the hostile manifests took {:?}; a cap that does not cap would look like this",
-        started.elapsed()
     );
 }
 
