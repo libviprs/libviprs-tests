@@ -145,7 +145,10 @@ jobs:
         # its own, so it never replaces the --no-default-features binary the
         # cells above share (libviprs/libviprs-cli#64). cli_foreign_diff is the
         # codec load/save differential (libviprs/libviprs-cli#65).
-        run: cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff --test cli_pmtiles --test cli_features --test cli_foreign_diff
+        # cli_op_map_counts holds OP_MAP.md's summary counts to its own tables
+        # and to `viprs __dump-commands` (libviprs/libviprs-cli#67); without the
+        # CLI sibling it skips, so it lives here too.
+        run: cargo test --test install_hooks_mirror_ci --test cli_morphology_diff --test cli_bands_diff --test cli_extract_diff --test cli_conversion_diff --test cli_core_diff --test cli_convolution_diff --test cli_matrix_diff --test cli_colour_diff --test cli_resample_diff --test cli_histogram_diff --test cli_composite_diff --test cli_freqfilt_diff --test cli_mosaicing_diff --test cli_create_diff --test cli_draw_diff --test cli_aritha_diff --test cli_arithb_diff --test cli_iocleanup_diff --test cli_pmtiles --test cli_features --test cli_foreign_diff --test cli_op_map_counts
       # cli_foreign_diff's JPEG XL, JPEG 2000, AVIF and SVG cells are ignored
       # without this crate's matching features, because the decode half of each
       # comparison runs through the library. This run is the one that has them,
