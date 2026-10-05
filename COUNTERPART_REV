@@ -271,4 +271,29 @@
 # changelog_release_claims to tell "deliberately staged" from "broken
 # invocation"; the benchmark envelope arrived later (core #1022) and has not
 # been taught the same thing. It is filed rather than worked around here.
-410af4434452142e1074432cdd2527093aa2143b
+#
+# Bumped to ead7f7aa, the merge of libviprs#1158 (closing libviprs#1157), and
+# libviprs main's own tip when I checked with `gh api
+# repos/libviprs/libviprs/commits/main`. This one is forced by the toolchain.
+# 1.99 stable deprecates `Atomic::fetch_update`, the core denies deprecations,
+# and the core at 410af443 still called it, so nothing at the old pin compiles
+# on current stable. That's what kept this repo's CI red, since every job here
+# installs `dtolnay/rust-toolchain@stable`. #1158 moves the core onto
+# `AtomicU64::update`, which is stable since 1.95, so the core builds on 1.99
+# and still on its 1.97 MSRV. The gate image moves to a concrete 1.99.0 in the
+# same PR as this bump, and it can only do that against a core that compiles
+# there.
+#
+# One thing worth knowing for the next bump: 410af443 is not an ancestor of
+# this pin. Main's history was rewritten after the last bump (the compare API
+# answers "diverged"), so a commit count between the two means nothing, and the
+# old pin now names a tree that isn't on main. That's the failure the
+# main-only rule above warns about, arriving from the other side.
+#
+# Cargo.lock doesn't move. The core's new dependency, hayro-jpeg2000, sits
+# behind its non-default `jp2k` feature, which nothing here turns on, so it
+# isn't in this crate's graph at all, and `cargo metadata --locked` resolves
+# against this pin with the lock exactly as committed. The core holds
+# hayro-jpeg2000 at 0.4.0 in its own CI (libviprs#1160); nothing here depends on
+# which version that is.
+ead7f7aa4021d3860eb3de2bdb261a18cd737551

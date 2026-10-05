@@ -225,3 +225,148 @@ fn s3_alias_comment_states_no_build_time_signal() {
          warning for the feature alias, so consumers get no automated signal (#391)"
     );
 }
+
+/// This crate's own `Cargo.lock`. The controls further down feed inline locks
+/// to the same assertions, so there's no override for pointing this elsewhere.
+fn read_tests_lock() -> (PathBuf, String) {
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.lock");
+    let text = std::fs::read_to_string(&p)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", p.display()));
+    (p, text)
+}
+
+/// `(version, source)` for every `[[package]]` block named `pdfium-render`.
+fn locked_pdfium_entries(lock: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for block in lock.split("[[package]]").skip(1) {
+        let field = |key: &str| {
+            block
+                .lines()
+                .find_map(|l| l.strip_prefix(key)?.strip_prefix(" = \""))
+                .and_then(|v| v.strip_suffix('"'))
+                .map(str::to_owned)
+        };
+        if field("name").as_deref() == Some("pdfium-render") {
+            out.push((
+                field("version").unwrap_or_default(),
+                field("source").unwrap_or_default(),
+            ));
+        }
+    }
+    out
+}
+
+/// A locked version as `(major, minor, patch)`, with any `-pre` or `+build`
+/// suffix dropped first, so `0.9.5-rc.1` compares as 0.9.5. Anything else
+/// panics: a version the guard can't read is a broken guard, not a zero.
+fn locked_version(label: &str, version: &str) -> (u64, u64, u64) {
+    let core = version.split(['-', '+']).next().unwrap_or_default();
+    let parts: Option<Vec<u64>> = core.split('.').map(|n| n.parse().ok()).collect();
+    match parts.as_deref() {
+        Some(&[major, minor, patch]) => (major, minor, patch),
+        _ => panic!("{label}: cannot parse pdfium-render version `{version}` (#222)"),
+    }
+}
+
+/// Panics if any `pdfium-render` entry in `lock` (named `label` in messages)
+/// is off the crates.io registry or below 0.9.4. Split out from the test so the
+/// controls below can run the same assertions over locks that must fail.
+fn assert_lockfile_pins(label: &str, lock: &str) {
+    let entries = locked_pdfium_entries(lock);
+    assert!(
+        !entries.is_empty(),
+        "{label} has no `pdfium-render` entry at all"
+    );
+    for (version, source) in &entries {
+        assert!(
+            source.starts_with("registry+https://github.com/rust-lang/crates.io-index"),
+            "{label}: pdfium-render {version} is locked from `{source}`, expected the \
+             crates.io registry (#222); run `cargo update -p pdfium-render`"
+        );
+        assert!(
+            locked_version(label, version) >= (0, 9, 4),
+            "{label}: pdfium-render is locked at {version}, the core requires >= 0.9.4 \
+             (#222); run `cargo update -p pdfium-render`"
+        );
+    }
+}
+
+/// #222: the core requires `pdfium-render` 0.9.4 from crates.io, so a lock that
+/// still carries the retired git fork at 0.9.3 cannot resolve and the pre-push
+/// gate cannot even build its image.
+#[test]
+fn lockfile_pins_pdfium_render_from_registry_222() {
+    let (path, lock) = read_tests_lock();
+    assert_lockfile_pins(&path.display().to_string(), &lock);
+}
+
+// Controls: the same assertions over inline locks. The first is the shape this
+// repo's lock had before #222 was fixed (both git-sourced 0.9.3 entries, cut
+// down to the fields the guard reads), so the guard is shown failing on the
+// real drift on every run instead of once by hand.
+
+const OLD_LOCK_222: &str = r#"
+[[package]]
+name = "pdfium-render"
+version = "0.9.3"
+source = "git+https://github.com/libviprs/pdfium-render.git?branch=libviprs%2Fintegration#1000a1aff1888425004c11432b376d2c36a4d3f2"
+
+[[package]]
+name = "pdfium-render"
+version = "0.9.3"
+source = "git+https://github.com/libviprs/pdfium-render.git?rev=3b03093295b85486c2e42f514cef9647eb629c63#3b03093295b85486c2e42f514cef9647eb629c63"
+"#;
+
+const CLEAN_LOCK_222: &str = r#"
+[[package]]
+name = "pdfium-render"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8948a803616a9e936b15a6637af2cd48c5fb8ae0fcdeb3c32eac3a540e255a19"
+"#;
+
+/// One registry `pdfium-render` entry at `version`.
+fn registry_lock(version: &str) -> String {
+    format!(
+        "[[package]]\nname = \"pdfium-render\"\nversion = \"{version}\"\n\
+         source = \"registry+https://github.com/rust-lang/crates.io-index\"\n"
+    )
+}
+
+#[test]
+#[should_panic(expected = "run `cargo update -p pdfium-render`")]
+fn control_the_pre_222_lock_fails_the_guard() {
+    assert_lockfile_pins("old lock", OLD_LOCK_222);
+}
+
+#[test]
+#[should_panic(expected = "run `cargo update -p pdfium-render`")]
+fn control_a_registry_lock_below_0_9_4_fails_the_guard_222() {
+    assert_lockfile_pins("old registry lock", &registry_lock("0.9.3"));
+}
+
+#[test]
+fn control_the_clean_lock_passes_the_guard_222() {
+    assert_lockfile_pins("clean lock", CLEAN_LOCK_222);
+}
+
+/// A pre-release or build suffix is stripped before comparing, so `0.9.5-rc.1`
+/// reads as 0.9.5 rather than as 0.9.0.
+#[test]
+fn control_a_suffixed_version_compares_on_its_numbers_222() {
+    assert_lockfile_pins("rc lock", &registry_lock("0.9.5-rc.1"));
+    assert_lockfile_pins("build-meta lock", &registry_lock("0.9.4+meta"));
+}
+
+/// A version the guard can't read is an error, not a zero.
+#[test]
+#[should_panic(expected = "cannot parse")]
+fn control_an_unparseable_version_panics_222() {
+    assert_lockfile_pins("short lock", &registry_lock("0.9"));
+}
+
+#[test]
+#[should_panic(expected = "cannot parse")]
+fn control_a_non_numeric_version_panics_222() {
+    assert_lockfile_pins("junk lock", &registry_lock("x.9.4"));
+}

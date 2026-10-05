@@ -1,0 +1,230 @@
+//! The gate image's Rust toolchain must be pinned, and never below the core's MSRV (#222).
+//!
+//! `Dockerfile` used to say `FROM rust:latest`. When `latest` moved to 1.99 it
+//! deprecated `Atomic::fetch_update`, the core denies deprecations
+//! (`[lints.rust] deprecated = "deny"`), and the pre-push gate stopped compiling
+//! the core at all. Nothing about the pushed branch had changed, so the failure
+//! read as the branch's fault. A floating tag makes the gate's result depend on
+//! the day it ran, which is what a gate must not do.
+//!
+//! This reads every `FROM rust...` stage (skipping `--platform=...` style flags
+//! and matching `FROM` in any case, as docker does), and requires the tag to come
+//! from the one global `RUST_VERSION` arg, to resolve to a concrete
+//! `major.minor.patch` (a bare `1.99` tag moves with every point release), and
+//! to be at least the core's `rust-version`. It doesn't ask for the MSRV itself:
+//! the gate sits on a concrete stable so it lints the way CI does, and the
+//! core's own MSRV job covers the floor. It is a text check on a checked-in
+//! file, needs no docker, and runs under the default `cargo test`.
+
+use std::path::PathBuf;
+
+fn read(rel: &str) -> String {
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rel);
+    std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("failed to read {}: {e}", p.display()))
+}
+
+/// The `[package]` `rust-version` from the core manifest, e.g. `1.97`.
+fn core_msrv() -> String {
+    read("../libviprs/Cargo.toml")
+        .lines()
+        .find_map(|l| {
+            let v = l.trim().strip_prefix("rust-version")?;
+            Some(
+                v.trim_start()
+                    .strip_prefix('=')?
+                    .trim()
+                    .trim_matches('"')
+                    .to_owned(),
+            )
+        })
+        .expect("core Cargo.toml has no `rust-version`")
+}
+
+/// The rest of `line` if it's the Dockerfile instruction `keyword`. Docker
+/// matches instructions case-insensitively, so this does too.
+fn instruction<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
+    let (word, rest) = line.split_once(char::is_whitespace)?;
+    word.eq_ignore_ascii_case(keyword)
+        .then_some(rest.trim_start())
+}
+
+/// Global `ARG NAME=default` values (those before the first `FROM`).
+fn global_args(dockerfile: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for line in dockerfile.lines().map(str::trim) {
+        if instruction(line, "FROM").is_some() {
+            break;
+        }
+        if let Some((k, v)) = instruction(line, "ARG").and_then(|a| a.split_once('=')) {
+            out.push((k.trim().to_owned(), v.trim().trim_matches('"').to_owned()));
+        }
+    }
+    out
+}
+
+/// Every `FROM rust...` image as `(written, resolved)`: the reference as the
+/// file spells it, and the same with global `${ARG}` defaults substituted.
+/// Flags such as `--platform=$BUILDPLATFORM` come before the image and are
+/// skipped, so they can't hide a stage.
+fn rust_images(dockerfile: &str) -> Vec<(String, String)> {
+    let args = global_args(dockerfile);
+    dockerfile
+        .lines()
+        .map(str::trim)
+        .filter_map(|l| instruction(l, "FROM"))
+        .filter_map(|rest| rest.split_whitespace().find(|t| !t.starts_with("--")))
+        .map(|written| {
+            let mut image = written.to_owned();
+            for (k, v) in &args {
+                image = image
+                    .replace(&format!("${{{k}}}"), v)
+                    .replace(&format!("${k}"), v);
+            }
+            (written.to_owned(), image)
+        })
+        .filter(|(_, i)| i.starts_with("rust:") || i == "rust")
+        .collect()
+}
+
+/// `1.97`, `1.97.1`, `1.97-bookworm` or `1.97.1-slim-bookworm` as a
+/// `(major, minor, patch)` triple, patch defaulting to 0, plus whether the tag
+/// actually spelled the patch out. `None` for anything that isn't at least
+/// `major.minor` in plain numbers, so `1`, `latest` and `stable` all read as
+/// floating.
+fn version_triple(tag: &str) -> Option<((u64, u64, u64), bool)> {
+    let numbers = tag.split('-').next()?;
+    let parts: Vec<u64> = numbers
+        .split('.')
+        .map(|n| n.parse().ok())
+        .collect::<Option<_>>()?;
+    match parts[..] {
+        [major, minor] => Some(((major, minor, 0), false)),
+        [major, minor, patch] => Some(((major, minor, patch), true)),
+        _ => None,
+    }
+}
+
+/// Everything wrong with the builder's Rust image in `dockerfile`, measured
+/// against core MSRV `msrv`. Empty means the pin is fine. Split out from the
+/// test so the controls below run the same check over Dockerfiles that must fail.
+fn dockerfile_problems(dockerfile: &str, msrv: &str) -> Vec<String> {
+    let images = rust_images(dockerfile);
+    if images.is_empty() {
+        return vec!["Dockerfile has no `FROM rust:...` stage".to_owned()];
+    }
+    let (floor, _) = version_triple(msrv)
+        .unwrap_or_else(|| panic!("cannot parse the core's rust-version `{msrv}`"));
+    let mut problems = Vec::new();
+    for (written, image) in &images {
+        let tag = image.strip_prefix("rust:").unwrap_or("");
+        if !written.contains("${RUST_VERSION}") && !written.contains("$RUST_VERSION") {
+            problems.push(format!(
+                "`FROM {written}` doesn't take its tag from `${{RUST_VERSION}}`; \
+                 move the version into the one `ARG RUST_VERSION` (#222)"
+            ));
+        }
+        match version_triple(tag) {
+            None => problems.push(format!(
+                "`FROM {written}` resolves to `{image}`, which floats: pin a concrete \
+                 version so the gate's toolchain cannot change under it (#222)"
+            )),
+            Some((v, _)) if v < floor => problems.push(format!(
+                "`FROM {written}` resolves to `{image}`, below the core's MSRV {msrv}, \
+                 which can't build the core (#222)"
+            )),
+            Some((_, false)) => problems.push(format!(
+                "`FROM {written}` resolves to `{image}`, a version without a patch, \
+                 and the rust image moves that tag with every point release: pin \
+                 `major.minor.patch` (#222)"
+            )),
+            Some((_, true)) => {}
+        }
+    }
+    problems
+}
+
+#[test]
+fn dockerfile_rust_image_is_pinned_at_or_above_the_core_msrv_222() {
+    let problems = dockerfile_problems(&read("Dockerfile"), &core_msrv());
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+// Controls: the same check over Dockerfiles it has to reject (or accept). A
+// guard that never fails proves nothing, and the first two shapes below are
+// ones it used to wave through. Each control names the problem it expects, so
+// one that fails for some other reason doesn't count as the guard working.
+
+/// Runs the guard over `df` against MSRV 1.97 and panics unless one of the
+/// problems it reports mentions `expected`.
+fn assert_rejected_for(df: &str, expected: &str) {
+    let problems = dockerfile_problems(df, "1.97");
+    assert!(
+        problems.iter().any(|p| p.contains(expected)),
+        "expected a problem mentioning `{expected}` for\n{df}\ngot: {problems:#?}"
+    );
+}
+
+/// A `--platform` flag sits between `FROM` and the image. Taking the first
+/// token after `FROM` as the image skipped this stage entirely. A good builder
+/// stage sits next to it, so the guard can't pass this by noticing that no
+/// stage was found at all.
+#[test]
+fn control_a_platform_flag_does_not_hide_a_floating_tag_222() {
+    assert_rejected_for(
+        "ARG RUST_VERSION=1.99.0\n\
+         FROM rust:${RUST_VERSION}-bookworm AS builder\n\
+         FROM --platform=$BUILDPLATFORM rust:latest AS tools\n",
+        "rust:latest",
+    );
+}
+
+/// Dockerfile instructions are case-insensitive, so `from` is a stage too,
+/// again next to a good builder stage.
+#[test]
+fn control_a_lowercase_from_is_still_a_stage_222() {
+    assert_rejected_for(
+        "ARG RUST_VERSION=1.99.0\n\
+         FROM rust:${RUST_VERSION}-bookworm AS builder\n\
+         from rust:latest as tools\n",
+        "rust:latest",
+    );
+}
+
+/// The tag comes from the one `RUST_VERSION` arg, not a literal typed into the
+/// `FROM` line, so there's a single place to move it.
+#[test]
+fn control_a_literal_tag_that_skips_the_arg_is_rejected_222() {
+    assert_rejected_for(
+        "ARG RUST_VERSION=1.99.0\nFROM rust:1.99.0-bookworm AS builder\n",
+        "doesn't take its tag from `${RUST_VERSION}`",
+    );
+}
+
+/// A toolchain below the core's MSRV can't build the core.
+#[test]
+fn control_a_toolchain_below_the_msrv_is_rejected_222() {
+    assert_rejected_for(
+        "ARG RUST_VERSION=1.96.0\nFROM rust:${RUST_VERSION}-bookworm AS builder\n",
+        "below the core's MSRV",
+    );
+}
+
+/// `rust:1.99-bookworm` is a tag the rust image moves to every 1.99.x point
+/// release, so a version without its patch still floats, just more slowly.
+/// The gate has to pin the patch to give the same answer on every day.
+#[test]
+fn control_a_version_without_its_patch_is_rejected_222() {
+    assert_rejected_for(
+        "ARG RUST_VERSION=1.99\nFROM rust:${RUST_VERSION}-bookworm AS builder\n",
+        "without a patch",
+    );
+}
+
+/// A concrete, patch-pinned toolchain newer than the MSRV is fine; the guard
+/// asks for a concrete pin at or above it, not for equality.
+#[test]
+fn control_a_concrete_newer_toolchain_is_accepted_222() {
+    let df = "ARG RUST_VERSION=1.99.0\nFROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-bookworm AS builder\n";
+    let problems = dockerfile_problems(df, "1.97");
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}

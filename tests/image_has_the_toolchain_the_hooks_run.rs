@@ -3,7 +3,8 @@
 //!
 //! # Why this exists
 //!
-//! `Dockerfile`'s builder stage is `FROM rust:latest`, and `rust:latest` used to
+//! `Dockerfile`'s builder stage used to be `FROM rust:latest` (it's pinned now,
+//! see `tests/dockerfile_pins_rust_toolchain_222.rs`), and `rust:latest` used to
 //! ship rustfmt and clippy in its default profile. Nothing here ever had to ask
 //! for them, so nothing did, and the omission was never a decision. Then the
 //! base image stopped: 1.98.1 installs exactly `cargo`, `rust-std` and `rustc`.
