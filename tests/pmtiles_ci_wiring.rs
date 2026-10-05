@@ -678,8 +678,10 @@ fn the_wiring_guards_red_on_the_edits_they_exist_to_catch() {
         ),
         (
             "Y26: the pipeline cells leave the CLI job's plain step",
-            " --test cli_op_map_counts --test cli_pyramid_pipeline\n",
-            " --test cli_op_map_counts\n".to_string(),
+            // No trailing newline in the anchor, so a suite appended after
+            // cli_pyramid_pipeline on the same line doesn't strand this row.
+            " --test cli_op_map_counts --test cli_pyramid_pipeline",
+            " --test cli_op_map_counts".to_string(),
         ),
         (
             "Y27: the s3 step of the pipeline cells loses its feature",
