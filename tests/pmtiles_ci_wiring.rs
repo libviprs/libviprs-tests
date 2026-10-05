@@ -556,6 +556,46 @@ fn the_wiring_guards_red_on_the_edits_they_exist_to_catch() {
             " --test cli_pmtiles",
             "\n        # TODO: re-enable --test cli_pmtiles once it is less flaky".to_string(),
         ),
+        (
+            "Y18: the pdf/geo/plan step stops requiring pdfium, so its pdfium cells skip",
+            "          VIPRS_REQUIRE_PDFIUM: 1\n",
+            String::new(),
+        ),
+        (
+            "Y19: the pdf/geo/plan step stops requiring the CLI",
+            "      - env:\n          VIPRS_REQUIRE_CLI: 1\n          VIPRS_REQUIRE_PDFIUM: 1\n",
+            "      - env:\n          VIPRS_REQUIRE_PDFIUM: 1\n".to_string(),
+        ),
+        (
+            "Y20: the pdf/geo/plan --test flag becomes a comment, so the name survives as text",
+            "        run: cargo test --test cli_pdf_geo_plan",
+            "        # run: cargo test --test cli_pdf_geo_plan\n        run: cargo test --test cli_pmtiles".to_string(),
+        ),
+        (
+            "Y21: the pdf/geo/plan step tolerates its own failure",
+            "      - env:\n          VIPRS_REQUIRE_CLI: 1\n          VIPRS_REQUIRE_PDFIUM: 1\n",
+            "      - continue-on-error: true\n        env:\n          VIPRS_REQUIRE_CLI: 1\n          VIPRS_REQUIRE_PDFIUM: 1\n".to_string(),
+        ),
+        (
+            "Y22: the PDFium the pdf/geo/plan cells load is no longer checksum-verified",
+            "pdfium.tgz\" | sha256sum -c -\n          mkdir -p \"$RUNNER_TEMP/pdfium\"",
+            "pdfium.tgz\" | sha256sum -c - || true\n          mkdir -p \"$RUNNER_TEMP/pdfium\"".to_string(),
+        ),
+        (
+            "Y23: the pdf/geo/plan cells never learn where libpdfium is",
+            "          echo \"PDFIUM_PATH=$RUNNER_TEMP/pdfium/lib/libpdfium.so\" >> \"$GITHUB_ENV\"\n",
+            String::new(),
+        ),
+        (
+            "Y24: the viprs handed to the pdf/geo/plan cells is built without pdfium",
+            "cargo build --release --bin viprs --manifest-path ../libviprs-cli/Cargo.toml",
+            "cargo build --release --no-default-features --bin viprs --manifest-path ../libviprs-cli/Cargo.toml".to_string(),
+        ),
+        (
+            "Y25: the pdfium-enabled viprs is built and never handed over",
+            "          echo \"VIPRS_BIN=$RUNNER_TEMP/viprs-pdfium/release/viprs\" >> \"$GITHUB_ENV\"\n",
+            String::new(),
+        ),
     ];
 
     let stale: Vec<String> = mutations
