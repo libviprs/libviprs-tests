@@ -627,6 +627,11 @@ fn the_wiring_guards_red_on_the_edits_they_exist_to_catch() {
             String::new(),
         ),
         (
+            "Y18: the built-ins suite (#232) loses its --test flag",
+            " --test cli_builtins_e2e",
+            String::new(),
+        ),
+        (
             "Y15: the CLI cell's --test flag becomes a comment in the same step",
             " --test cli_pmtiles",
             "\n        # TODO: re-enable --test cli_pmtiles once it is less flaky".to_string(),
