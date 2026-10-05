@@ -47,7 +47,43 @@ RUN case "${TARGETARCH}" in \
     tar xzf /tmp/pdfium.tgz -C /opt/pdfium --strip-components=1 && \
     rm /tmp/pdfium.tgz
 
-# Stage 2: Build and test
+# Stage 2: the dependency skeleton of both crates (libviprs-tests#249)
+#
+# Only what `cargo fetch` reads: every Cargo.toml, the Cargo.lock beside it when
+# there is one, and an empty file for every source the manifests point at (a
+# stub `src/lib.rs` for each package, since the harness has no `src/` at all and
+# cargo will not load a package with no targets, and every explicit
+# `path = "..."` target, like the core's fuzz binaries). Nothing else.
+#
+# The fetch used to run after copying both whole trees in, so its cache key was
+# every byte of both trees: a one-line comment in a test file gave BuildKit a new
+# key for both fetches, it downloaded the registry again, and it kept another
+# copy of it as a cache record. Measured on 2026-10-05: 469 MB of new build cache
+# per edit (286.5 MB and 101.3 MB for the two fetches, 81.3 MB for the harness
+# COPY), and none of it freed by removing the image afterwards.
+#
+# The trees come in through a bind mount rather than a COPY, so this stage adds
+# no copy of the context to the cache, and BuildKit keys `COPY --from=skeleton`
+# below on the content it copies. The skeleton only changes when a manifest or a
+# lockfile does, so neither does the fetch layer built on it.
+FROM debian:bookworm-slim AS skeleton
+RUN --mount=type=bind,target=/ctx \
+    set -eu; \
+    cd /ctx; \
+    find libviprs libviprs-tests -name Cargo.toml -type f | while read -r manifest; do \
+        dir=$(dirname "$manifest"); \
+        mkdir -p "/skel/$dir/src"; \
+        cp "$manifest" "/skel/$manifest"; \
+        if [ -f "$dir/Cargo.lock" ]; then cp "$dir/Cargo.lock" "/skel/$dir/Cargo.lock"; fi; \
+        : > "/skel/$dir/src/lib.rs"; \
+        sed -n 's/^[[:space:]]*path[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" \
+        | while read -r target; do \
+            mkdir -p "/skel/$dir/$(dirname "$target")"; \
+            : > "/skel/$dir/$target"; \
+        done; \
+    done
+
+# Stage 3: Build and test
 FROM rust:${RUST_VERSION}-bookworm AS builder
 
 # shellcheck is here because the pre-commit hook runs it and `ubuntu-latest`
@@ -83,13 +119,24 @@ RUN rustup component add rustfmt clippy
 COPY --from=pdfium /opt/pdfium/lib/libpdfium.so /usr/local/lib/libpdfium.so
 RUN ldconfig
 
+# Fetch against the skeleton first. This is the layer that holds the registry,
+# and it is shared by every run whose manifests and lockfiles match. The
+# skeleton itself goes in the same step, so the image never carries the stubs.
+COPY --from=skeleton /skel/ /deps/
+RUN cd /deps/libviprs && cargo fetch \
+ && cd /deps/libviprs-tests && cargo fetch \
+ && rm -rf /deps
+
 WORKDIR /src
 
 # Copy both crates
 COPY libviprs/ libviprs/
 COPY libviprs-tests/ libviprs-tests/
 
-# Fetch dependencies for both crates
+# Fetch again against the real trees. In the usual case there is nothing left to
+# download and these layers are small. They stay because the core commits no
+# Cargo.lock, so it resolves here exactly as it did before the skeleton existed,
+# and whatever the skeleton's resolution got wrong, this one puts right.
 WORKDIR /src/libviprs
 RUN cargo fetch
 
