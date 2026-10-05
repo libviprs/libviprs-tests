@@ -1,0 +1,41 @@
+# The oracle for tests/codec_e2e.rs's fixtures: vips 8.18.4 plus the three
+# writers vips itself does not have. It layers on tools/Dockerfile.vips-oracle
+# (the vips 8.18.4 build every CLI-differential family uses, openjpeg 2.5.4
+# included) rather than repeating it, so the two can never disagree on which
+# vips wrote a reference. Build that one first, then this:
+#
+#   docker build --platform linux/amd64 -t vips-oracle:8.18.4 - < tools/Dockerfile.vips-oracle
+#   docker build --platform linux/amd64 -t codec-oracle:8.18.4 - < tools/Dockerfile.codec-oracle
+#
+# and run, inside it, `tools/gen_fixtures.sh codec-vips`, then the
+# `generate_libviprs_encodes` cell of tests/codec_e2e.rs (with jxl and jp2k
+# on), then `tools/gen_fixtures.sh codec-enc` (see that script). Built and run
+# on the native x86_64 NAS, never under emulation.
+#
+# tools/Dockerfile.vips-oracle came in with libviprs/libviprs-tests#236, and
+# this one builds FROM the image it makes, so build that one first (the tag
+# has to be vips-oracle:8.18.4, or pass --build-arg BASE=<your tag>).
+#
+# What is added, and why each one:
+#
+# - libheif-plugin-aomenc: the vips-oracle image carries AV1 decoders only, so
+#   `vips heifsave --compression av1` has nothing to encode with.
+# - openimageio-tools: vips can load OpenEXR but has no exrsave, so `oiiotool`
+#   writes the EXR and vips reads it back for the reference.
+# - python3-nibabel: vips 8.18 has no niftiload in any build and no analyze or
+#   nifti saver, so nibabel writes both files. vips reads the Analyze pair
+#   back for its reference; the NIfTI reference is the voxels nibabel was
+#   handed.
+# - python3-scipy: vips has matload but no matsave, so scipy.io.savemat writes
+#   the MATLAB file and vips reads it back.
+ARG BASE=vips-oracle:8.18.4
+FROM ${BASE}
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libheif-plugin-aomenc openimageio-tools python3-nibabel python3-scipy \
+        python3-numpy python3-pil \
+    && rm -rf /var/lib/apt/lists/*
+RUN vips --version && oiiotool --version \
+    && python3 -c 'import nibabel, scipy, numpy, PIL; print("nibabel", nibabel.__version__, "scipy", scipy.__version__)' \
+    && vips black /tmp/b.v 16 16 --bands 3 && vips heifsave /tmp/b.v /tmp/b.avif --compression av1 \
+    && rm -f /tmp/b.v /tmp/b.avif
