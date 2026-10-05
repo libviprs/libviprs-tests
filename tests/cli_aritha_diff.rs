@@ -523,15 +523,16 @@ fn clamp_inverted_bounds_is_rejected() {
         return;
     }
     // --min > --max would panic the core `clamp` (assert); the CLI must turn it
-    // into a clean exit-1, not an abort (exit 134).
+    // into a clean refusal, not an abort (exit 134). The command line alone
+    // decides it, so it is a usage error, exit 2 (libviprs-cli#78).
     let out = o("clamp_bad.png");
     let res = run_viprs(&["clamp", &fx(AGRAY), &out, "--min", "200", "--max", "50"]);
     assert!(
         !res.status.success(),
         "an inverted --min/--max must be rejected"
     );
-    // Exit 1 (op error), never a signal / abort.
-    assert_eq!(res.status.code(), Some(1), "expected a clean exit 1");
+    // Exit 2 (usage), never a signal / abort.
+    assert_eq!(res.status.code(), Some(2), "expected a clean exit 2");
 }
 
 #[test]
@@ -542,7 +543,8 @@ fn clamp_nan_bound_is_rejected() {
     // clap's f64 value_parser accepts "nan". `NaN > hi` is false, so a bare
     // `lo > hi` guard let a NaN bound slip past into the core `assert!(lo <= hi)`
     // and abort with exit 101 (§8 violation). The `!(lo <= hi)` guard rejects it
-    // as a clean exit 1. Cover both bounds; NEVER a panic/abort (exit 134).
+    // as a clean usage error, exit 2 (libviprs-cli#78). Cover both bounds; NEVER
+    // a panic/abort (exit 134).
     for (min_v, max_v) in [("nan", "200"), ("0", "nan")] {
         let out = o("clamp_nan.png");
         let res = run_viprs(&["clamp", &fx(AGRAY), &out, "--min", min_v, "--max", max_v]);
@@ -552,8 +554,8 @@ fn clamp_nan_bound_is_rejected() {
         );
         assert_eq!(
             res.status.code(),
-            Some(1),
-            "expected a clean exit 1 for a NaN bound (--min {min_v} --max {max_v}), \
+            Some(2),
+            "expected a clean exit 2 for a NaN bound (--min {min_v} --max {max_v}), \
              not the core assert abort"
         );
     }
@@ -564,15 +566,16 @@ fn linear_per_band_vector_is_rejected() {
     if skip_if_no_cli("linear_vector") {
         return;
     }
-    // Multi-element a/b is a per-band linear the core cannot back — a typed
-    // exit-1 error, not a silent wrong result.
+    // Multi-element a/b is a per-band linear the core cannot back. The command
+    // line alone rules it out, so it is a usage error, exit 2
+    // (libviprs-cli#78), not a silent wrong result.
     let out = o("linear_bad.v");
     let res = run_viprs(&["linear", &fx(AGRAY), &out, "2 3", "1 1"]);
     assert!(
         !res.status.success(),
         "a per-band linear vector must be rejected"
     );
-    assert_eq!(res.status.code(), Some(1), "expected a clean exit 1");
+    assert_eq!(res.status.code(), Some(2), "expected a clean exit 2");
 }
 
 #[test]

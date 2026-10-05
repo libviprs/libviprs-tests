@@ -973,7 +973,8 @@ reference output.
 vips `merge` honours `--mblend N` and produces a valid, different blend for any
 N; `viprs merge` exposes the flag for parity but the core public `try_merge`
 fixes the blend width at the vips default 10 and offers no API to vary it, so
-`viprs` **exits 1 on any non-default `--mblend`** where vips would succeed. This
+`viprs` **refuses any non-default `--mblend`** where vips would succeed (a usage
+error, exit 2, since libviprs-cli#78; it was exit 1 before). This
 is intentional (loud-fail beats a silently-wrong "success"; the `add` 16-bit
 lesson) but IS a real divergence from the oracle — recorded here so a parity
 auditor is not surprised, and left uncovered by the differential precisely

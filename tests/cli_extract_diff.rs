@@ -596,8 +596,8 @@ fn extract_area_negative_coord_is_a_clean_error() {
     }
     let out = out_path("extract_area_neg.png");
     // vips's LEFT admits the signed gint range at parse; the core geometry is
-    // u32-only, so a negative coordinate is a typed exit-1 error — NEVER a
-    // u32::try_from abort (CLI_CONTRACT.md §8).
+    // u32-only, so a negative coordinate is a usage error (exit 2,
+    // libviprs-cli#78) — NEVER a u32::try_from abort (CLI_CONTRACT.md §8).
     let res = run_viprs(&[
         "extract_area",
         &fx(RGB),
@@ -610,6 +610,11 @@ fn extract_area_negative_coord_is_a_clean_error() {
     assert!(
         !res.status.success(),
         "a negative extract_area coordinate must exit nonzero"
+    );
+    assert_eq!(
+        res.status.code(),
+        Some(2),
+        "the command line alone rules this out, so it is a usage error"
     );
     let stderr = String::from_utf8_lossy(&res.stderr);
     assert!(
