@@ -1009,8 +1009,10 @@ fn copy_to_jpg_stays_banned_in_the_op_harness() {
     if skip_if_no_cli("copy_to_jpg_stays_banned_in_the_op_harness") {
         return;
     }
+    // The output path alone decides this one, so it is a usage error, exit 2
+    // (libviprs-cli#78), rather than an operational refusal.
     let out = out_path("copy_to.jpg");
-    refused(&["copy", &canonical(), s(&out)], &out, &["banned"]);
+    usage_error(&["copy", &canonical(), s(&out)], &out, &["banned"]);
 }
 
 // ---------------------------------------------------------------------------

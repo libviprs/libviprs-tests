@@ -96,4 +96,14 @@
 # It needs COUNTERPART_REV at cc083dd5 or later, because the CLI at this
 # revision matches on the core's `SourceError::Pdf`, which arrived with
 # libviprs#1159. The two pins move together in one commit for that reason.
-bd517b81ba3dff1dc4ea43c571c0c736ac96e538
+#
+# Bumped to fe9096dc, libviprs-cli main after libviprs-cli#84 (closing
+# libviprs-cli#78) merged, and the SHA `gh api
+# repos/libviprs/libviprs-cli/commits/main` answered when I made this bump.
+# An op that refuses a value on the command line alone now exits 2 instead
+# of 1, so the cells that pinned those refusals at 1 (inverted and NaN clamp
+# bounds, a per-band linear vector, `copy` to a .jpg) move to 2 in this same
+# commit, and the fractsurf and extract_area range cells now pin the 2 they
+# only implied before. Refusals the input or the core decides keep their 1.
+# COUNTERPART_REV stays at cc083dd5, which this CLI builds against.
+fe9096dc662607941b7445fcfaf207cdfd39d57d

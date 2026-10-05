@@ -641,11 +641,17 @@ fn fractsurf_out_of_range_dimension_is_rejected() {
         return;
     }
     let out = out_path("fractsurf_bad.v");
-    // fractal-dimension 5.0 is outside vips's 2..3; viprs rejects it (exit 1).
+    // fractal-dimension 5.0 is outside vips's 2..3; viprs rejects it as a usage
+    // error (exit 2, libviprs-cli#78).
     let result = common::cli::run_viprs(&["fractsurf", out.to_str().unwrap(), "16", "16", "5.0"]);
     assert!(
         !result.status.success(),
         "an out-of-range fractal dimension must be a nonzero exit"
+    );
+    assert_eq!(
+        result.status.code(),
+        Some(2),
+        "the command line alone rules this out, so it is a usage error"
     );
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(
