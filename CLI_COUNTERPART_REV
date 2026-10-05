@@ -84,4 +84,16 @@
 # commit on `main` and not a branch head. `gh api
 # repos/libviprs/libviprs-cli/commits/main` answers exactly this SHA, which is
 # the merge commit of PR #55.
-23f85a8cfa46d8be5c49dd53dbb1dbf0aebd6c67
+#
+# Bumped to bd517b81, libviprs-cli main after libviprs-cli#72 merged, and the
+# SHA `gh api repos/libviprs/libviprs-cli/commits/main` answered when I made
+# this bump. It carries the whole of the epic's CLI half that this suite
+# drives: `viprs features` and the typed missing-feature refusal (#69), a vips
+# named load and save for every codec (#70), the op-family residue (#73), the
+# PDF password, geo and plan commands (#71) and the pyramid pipeline controls
+# (#72). None of those commands exist at 23f85a8.
+#
+# It needs COUNTERPART_REV at cc083dd5 or later, because the CLI at this
+# revision matches on the core's `SourceError::Pdf`, which arrived with
+# libviprs#1159. The two pins move together in one commit for that reason.
+bd517b81ba3dff1dc4ea43c571c0c736ac96e538
