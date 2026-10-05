@@ -434,6 +434,31 @@ fn assert_the_cli_pipeline_cells_run_where_they_cannot_skip(ci: &Workflow) {
     }
 }
 
+/// `pipeline_e2e` (#231) has to run in the interop job with
+/// `VIPRS_REQUIRE_GO_PMTILES=1`. Its arrival-layout cells read every archive
+/// back through go-pmtiles and skip that half when the binary is missing, and
+/// it is not a `pmtiles_*.rs`, so the glob above never sees it.
+fn assert_pipeline_e2e_runs_where_go_pmtiles_is(ci: &Workflow) {
+    let job = ci.job(INTEROP_JOB);
+    let runner = job
+        .steps
+        .iter()
+        .find(|s| runs_binary(s, "pipeline_e2e"))
+        .unwrap_or_else(|| {
+            panic!(
+                "no step of `{INTEROP_JOB}` runs `cargo test --test pipeline_e2e`, and that \
+                 is the one job with go-pmtiles"
+            )
+        });
+    let set = job.env_for(runner, "VIPRS_REQUIRE_GO_PMTILES");
+    assert_eq!(
+        set,
+        Some("1"),
+        "the step running pipeline_e2e sees VIPRS_REQUIRE_GO_PMTILES as {set:?}, so its \
+         go-pmtiles halves can skip to a green"
+    );
+}
+
 /// The `tests/<prefix>*.rs` binaries this repo has.
 fn test_binaries(prefix: &str) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(repo_root().join("tests"))
@@ -470,6 +495,10 @@ const WIRING_GUARDS: &[Guard] = &[
     (
         "the cli pipeline cells run where they cannot skip",
         assert_the_cli_pipeline_cells_run_where_they_cannot_skip,
+    ),
+    (
+        "pipeline_e2e runs where go-pmtiles is",
+        assert_pipeline_e2e_runs_where_go_pmtiles_is,
     ),
     (
         "ci pins the release the fixtures came from",
@@ -651,6 +680,11 @@ fn the_wiring_guards_red_on_the_edits_they_exist_to_catch() {
             "Y27: the s3 step of the pipeline cells loses its feature",
             "cargo test --features s3 --test cli_pyramid_pipeline",
             "cargo test --test cli_pyramid_pipeline".to_string(),
+        ),
+        (
+            "Y28: pipeline_e2e leaves the job that has go-pmtiles",
+            " --test pipeline_e2e",
+            String::new(),
         ),
     ];
 
