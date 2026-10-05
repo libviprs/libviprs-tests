@@ -154,6 +154,34 @@ jobs:
       - env:
           VIPRS_REQUIRE_CLI: 1
         run: cargo test --features "jxl jp2k avif svg" --test cli_foreign_diff
+      # cli_pdf_geo_plan drives `viprs pdf`, `viprs geo` and the plan query
+      # flags (libviprs/libviprs-cli#68). Its password, background and DPI cells
+      # need a `viprs` built WITH the CLI's default `pdfium` feature and a
+      # libpdfium, and the --no-default-features binary the cells above share
+      # has neither. So this installs the same pinned, checksum-verified PDFium
+      # as test-pdfium (keep PDFIUM_RELEASE and the digest in lockstep with the
+      # Dockerfile), builds that binary into a target dir of its own so it never
+      # replaces the shared one, and hands it over as $VIPRS_BIN.
+      # VIPRS_REQUIRE_PDFIUM=1 turns the pdfium cells' SKIP into a failure, so
+      # this step cannot go green by not running them.
+      - name: Install PDFium for cli_pdf_geo_plan
+        env:
+          PDFIUM_RELEASE: pdfium-8054
+          PDFIUM_SHA256: b42d1731f07fb73edea38cbd294afe9be4bdcf8e4ed8523de51cd5d12fc8d271
+        run: |
+          curl -fsSL -o pdfium.tgz "https://github.com/libviprs/libviprs-dep/releases/download/${PDFIUM_RELEASE}/pdfium-linux-x64.tgz"
+          echo "${PDFIUM_SHA256}  pdfium.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/pdfium"
+          tar xzf pdfium.tgz -C "$RUNNER_TEMP/pdfium" --strip-components=1
+          echo "PDFIUM_PATH=$RUNNER_TEMP/pdfium/lib/libpdfium.so" >> "$GITHUB_ENV"
+      - name: Build a pdfium-enabled viprs for cli_pdf_geo_plan
+        run: |
+          cargo build --release --bin viprs --manifest-path ../libviprs-cli/Cargo.toml --target-dir "$RUNNER_TEMP/viprs-pdfium"
+          echo "VIPRS_BIN=$RUNNER_TEMP/viprs-pdfium/release/viprs" >> "$GITHUB_ENV"
+      - env:
+          VIPRS_REQUIRE_CLI: 1
+          VIPRS_REQUIRE_PDFIUM: 1
+        run: cargo test --test cli_pdf_geo_plan
 
   hook-mirror:
     name: Hook Mirror (every repo in the org)

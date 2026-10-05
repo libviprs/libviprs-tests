@@ -38,8 +38,19 @@
 //! the cells pin the wording a person sees ("a password is needed" with the
 //! `--password` hint, and "wrong password") rather than just "non-zero".
 //!
-//! All three need a pdfium-enabled `viprs` and a libpdfium, the same as the
-//! cells in the next section, because the encrypted file only opens through
+//! The password reaches the CLI three ways (`--password`, `--password-file`
+//! with `-` for stdin, and `VIPRS_PDF_PASSWORD`), and each has a cell. Every
+//! password cell also checks that neither the right nor the wrong password
+//! turns up in stdout or stderr. Every run here clears `VIPRS_PDF_PASSWORD`
+//! first, so a value left in the caller's environment cannot answer for a
+//! cell that means to give none.
+//!
+//! `owner-password-only.pdf` is the other side of it: AES-256 too, but with an
+//! empty user password, so it opens without one and `pdf extract` must hand
+//! back its stored 64x48 image rather than a 72-DPI render of the page.
+//!
+//! All of them need a pdfium-enabled `viprs` and a libpdfium, the same as the
+//! cells in the next section, because the encrypted files only open through
 //! pdfium. `password_fixture_is_encrypted_and_not_open_without_a_password`
 //! pins the premise (the fixture really is protected) and records how `secret`
 //! was established, so a cell cannot be red for a reason that is the fixture's
@@ -62,10 +73,11 @@
 
 mod common;
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::process::{Command, Output, Stdio};
 
-use common::cli::{cli_available, run_viprs};
+use common::cli::{cli_available, viprs_bin};
 
 use libviprs::{
     GeoCoord, GeoTransform, Layout, PixelCoord, PixelFormat, PyramidPlanner, decode_file,
@@ -132,6 +144,55 @@ fn stdout(out: &Output) -> String {
 
 fn stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+/// The environment variable the CLI reads a password from.
+const PASSWORD_ENV: &str = "VIPRS_PDF_PASSWORD";
+
+/// Run `viprs` with `VIPRS_PDF_PASSWORD` cleared, then set to `env_password`
+/// if one is given, feeding `stdin` if one is given.
+fn run_with(args: &[&str], env_password: Option<&str>, stdin: Option<&[u8]>) -> Output {
+    let mut cmd = Command::new(viprs_bin());
+    cmd.args(args).env_remove(PASSWORD_ENV);
+    if let Some(password) = env_password {
+        cmd.env(PASSWORD_ENV, password);
+    }
+    cmd.stdin(if stdin.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    });
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to run viprs {args:?}: {e}"));
+    if let Some(bytes) = stdin {
+        child
+            .stdin
+            .take()
+            .expect("stdin was piped")
+            .write_all(bytes)
+            .expect("viprs must take its stdin");
+    }
+    child
+        .wait_with_output()
+        .unwrap_or_else(|e| panic!("failed to wait for viprs {args:?}: {e}"))
+}
+
+/// Run `viprs` with no password in its environment.
+fn run_viprs(args: &[&str]) -> Output {
+    run_with(args, None, None)
+}
+
+/// Neither stream of `out` may carry `password`.
+fn assert_password_not_echoed(out: &Output, password: &str, what: &str) {
+    assert!(
+        !stdout(out).contains(password) && !stderr(out).contains(password),
+        "{what}: the password {password:?} must not appear in the output\n\
+         --- stdout ---\n{}\n--- stderr ---\n{}",
+        stdout(out),
+        stderr(out),
+    );
 }
 
 /// Run `viprs` and require exit 0, returning stdout. The failure message
@@ -255,7 +316,10 @@ fn pdf_68_password_pdf_with_the_right_password_opens() {
         return;
     }
     let pdf = fixture("password.pdf");
-    let text = ok(&["pdf", "info", s(&pdf), "--password", SECRET]);
+    let info = run_viprs(&["pdf", "info", s(&pdf), "--password", SECRET]);
+    assert!(info.status.success(), "pdf info: {}", stderr(&info));
+    assert_password_not_echoed(&info, SECRET, "pdf info with the right password");
+    let text = stdout(&info);
     assert!(text.contains("Pages: 1"), "pdf info output was: {text}");
     // The page is A4, 595.28 x 841.89 pt, which is what the fixture's MediaBox
     // says and what unlocking it has to surface.
@@ -266,7 +330,13 @@ fn pdf_68_password_pdf_with_the_right_password_opens() {
 
     let dir = TempDir::new().unwrap();
     let out_png = dir.path().join("unlocked.png");
-    ok(&["pdf", "extract", s(&pdf), s(&out_png), "--password", SECRET]);
+    let extract = run_viprs(&["pdf", "extract", s(&pdf), s(&out_png), "--password", SECRET]);
+    assert!(
+        extract.status.success(),
+        "pdf extract: {}",
+        stderr(&extract)
+    );
+    assert_password_not_echoed(&extract, SECRET, "pdf extract with the right password");
     let raster = decode_file(&out_png).expect("the unlocked extract decodes as a PNG");
     assert!(
         raster.width() > 0 && raster.height() > 0 && !raster.data().is_empty(),
@@ -306,6 +376,11 @@ fn pdf_68_password_pdf_with_a_wrong_password_exits_1_naming_the_password() {
             "not-the-password",
         ],
     );
+    assert_password_not_echoed(
+        &out,
+        "not-the-password",
+        "pdf extract with a wrong password",
+    );
     let msg = stderr(&out).to_lowercase();
     assert!(
         msg.contains("wrong password"),
@@ -319,6 +394,243 @@ fn pdf_68_password_pdf_with_a_wrong_password_exits_1_naming_the_password() {
         !out_png.exists(),
         "a refused extract must not leave an output"
     );
+}
+
+/// Decode an extract of `password.pdf` and require the decrypted page: A4 at
+/// 72 DPI with ink on it.
+fn assert_unlocked_page(png: &Path) {
+    let raster = decode_file(png).expect("the unlocked extract decodes as a PNG");
+    assert_eq!(
+        (raster.width(), raster.height()),
+        (595, 841),
+        "a page that needs a user password is rendered at 72 DPI"
+    );
+    let bpp = raster.format().bytes_per_pixel();
+    assert!(
+        raster
+            .data()
+            .chunks_exact(bpp)
+            .any(|px| px[..bpp.min(3)].iter().any(|&c| c != 255)),
+        "the unlocked page rendered blank, so it was never decrypted"
+    );
+}
+
+/// 68: `VIPRS_PDF_PASSWORD` opens the file when no flag is given, on both
+/// commands, and is never echoed.
+#[test]
+fn pdf_68_password_from_the_environment_opens_the_file() {
+    if skip_if_no_pdfium("pdf_68_password_from_the_environment") {
+        return;
+    }
+    let pdf = fixture("password.pdf");
+    let info = run_with(&["pdf", "info", s(&pdf)], Some(SECRET), None);
+    assert!(info.status.success(), "pdf info: {}", stderr(&info));
+    assert!(stdout(&info).contains("595.3 x 841.9"), "{}", stdout(&info));
+    assert_password_not_echoed(&info, SECRET, "pdf info with VIPRS_PDF_PASSWORD");
+
+    let dir = TempDir::new().unwrap();
+    let out_png = dir.path().join("env.png");
+    let extract = run_with(
+        &["pdf", "extract", s(&pdf), s(&out_png)],
+        Some(SECRET),
+        None,
+    );
+    assert!(
+        extract.status.success(),
+        "pdf extract: {}",
+        stderr(&extract)
+    );
+    assert_password_not_echoed(&extract, SECRET, "pdf extract with VIPRS_PDF_PASSWORD");
+    assert_unlocked_page(&out_png);
+}
+
+/// 68: a wrong `VIPRS_PDF_PASSWORD` is a wrong password, said as such and not
+/// echoed.
+#[test]
+fn pdf_68_a_wrong_password_from_the_environment_exits_1_without_echoing_it() {
+    if skip_if_no_pdfium("pdf_68_a_wrong_password_from_the_environment") {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let out_png = dir.path().join("o.png");
+    let pdf = fixture("password.pdf");
+    let wrong = "env-wrong-password";
+    let out = run_with(&["pdf", "extract", s(&pdf), s(&out_png)], Some(wrong), None);
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", stderr(&out));
+    assert!(
+        stderr(&out).to_lowercase().contains("wrong password"),
+        "stderr: {}",
+        stderr(&out)
+    );
+    assert_password_not_echoed(&out, wrong, "pdf extract with a wrong VIPRS_PDF_PASSWORD");
+    assert!(
+        !out_png.exists(),
+        "a refused extract must not leave an output"
+    );
+}
+
+/// 68: `--password-file PATH` opens the file (the trailing newline an editor
+/// adds is not part of the password), on both commands, and is never echoed.
+#[test]
+fn pdf_68_password_from_a_file_opens_the_file() {
+    if skip_if_no_pdfium("pdf_68_password_from_a_file") {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("pw.txt");
+    std::fs::write(&file, format!("{SECRET}\n")).unwrap();
+    let pdf = fixture("password.pdf");
+
+    let info = run_viprs(&["pdf", "info", s(&pdf), "--password-file", s(&file)]);
+    assert!(info.status.success(), "pdf info: {}", stderr(&info));
+    assert!(stdout(&info).contains("595.3 x 841.9"), "{}", stdout(&info));
+    assert_password_not_echoed(&info, SECRET, "pdf info with --password-file");
+
+    let out_png = dir.path().join("file.png");
+    let extract = run_viprs(&[
+        "pdf",
+        "extract",
+        s(&pdf),
+        s(&out_png),
+        "--password-file",
+        s(&file),
+    ]);
+    assert!(
+        extract.status.success(),
+        "pdf extract: {}",
+        stderr(&extract)
+    );
+    assert_password_not_echoed(&extract, SECRET, "pdf extract with --password-file");
+    assert_unlocked_page(&out_png);
+}
+
+/// 68: `--password-file -` reads the password from stdin, so a pipe can hand
+/// it over without it touching argv or the disk.
+#[test]
+fn pdf_68_password_from_stdin_opens_the_file() {
+    if skip_if_no_pdfium("pdf_68_password_from_stdin") {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let out_png = dir.path().join("stdin.png");
+    let pdf = fixture("password.pdf");
+    let stdin = format!("{SECRET}\n");
+    let extract = run_with(
+        &[
+            "pdf",
+            "extract",
+            s(&pdf),
+            s(&out_png),
+            "--password-file",
+            "-",
+        ],
+        None,
+        Some(stdin.as_bytes()),
+    );
+    assert!(
+        extract.status.success(),
+        "pdf extract: {}",
+        stderr(&extract)
+    );
+    assert_password_not_echoed(&extract, SECRET, "pdf extract with --password-file -");
+    assert_unlocked_page(&out_png);
+}
+
+/// 68: a wrong password in a file is a wrong password, not echoed.
+#[test]
+fn pdf_68_a_wrong_password_from_a_file_exits_1_without_echoing_it() {
+    if skip_if_no_pdfium("pdf_68_a_wrong_password_from_a_file") {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("pw.txt");
+    let wrong = "file-wrong-password";
+    std::fs::write(&file, format!("{wrong}\n")).unwrap();
+    let pdf = fixture("password.pdf");
+    let out = run_viprs(&["pdf", "info", s(&pdf), "--password-file", s(&file)]);
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", stderr(&out));
+    assert!(
+        stderr(&out).to_lowercase().contains("wrong password"),
+        "stderr: {}",
+        stderr(&out)
+    );
+    assert_password_not_echoed(&out, wrong, "pdf info with a wrong --password-file");
+}
+
+/// The stored image `owner-password-only.pdf` carries: 64x48, pixel (x, y) =
+/// (4x, 5y, 128). See `tests/fixtures/README.md` for how it was made.
+fn assert_owner_only_stored_image(png: &Path) {
+    let raster = decode_file(png).expect("the owner-only extract decodes as a PNG");
+    assert_eq!(
+        (raster.width(), raster.height()),
+        (64, 48),
+        "an owner-password-only file opens without a password, so extract must give its \
+         embedded image at the stored 64x48, not a 200x150 render of the page"
+    );
+    let bpp = raster.format().bytes_per_pixel();
+    assert!(
+        bpp >= 3,
+        "expected colour pixels, got {:?}",
+        raster.format()
+    );
+    for (x, y) in [(0u32, 0u32), (63, 0), (0, 47), (63, 47), (10, 20)] {
+        let at = ((y * 64 + x) as usize) * bpp;
+        assert_eq!(
+            &raster.data()[at..at + 3],
+            &[(4 * x) as u8, (5 * y) as u8, 128],
+            "stored pixel ({x}, {y})"
+        );
+    }
+}
+
+/// 68: an owner password only restricts permissions, so `pdf extract` with no
+/// password hands back the embedded image at its stored resolution, as for an
+/// unencrypted file. lopdf cannot decrypt this AES-256 file, so this is the
+/// pdfium route, and it must still extract rather than render.
+#[test]
+fn pdf_68_owner_password_only_pdf_extracts_its_embedded_image() {
+    if skip_if_no_pdfium("pdf_68_owner_password_only_pdf") {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let pdf = fixture("owner-password-only.pdf");
+    let out_png = dir.path().join("owner.png");
+    ok(&["pdf", "extract", s(&pdf), s(&out_png)]);
+    assert_owner_only_stored_image(&out_png);
+
+    let text = ok(&["pdf", "info", s(&pdf)]);
+    assert!(text.contains("Pages: 1"), "pdf info output was: {text}");
+    assert!(
+        text.contains("200.0 x 150.0"),
+        "pdf info output was: {text}"
+    );
+}
+
+/// 68: a password given for a file that needs none is ignored, as it is for an
+/// unencrypted file: the stored image still comes back, not a render.
+#[test]
+fn pdf_68_owner_password_only_pdf_ignores_a_password_it_does_not_need() {
+    if skip_if_no_pdfium("pdf_68_owner_password_only_pdf_ignores") {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let pdf = fixture("owner-password-only.pdf");
+    let out_png = dir.path().join("owner-pw.png");
+    let out = run_viprs(&[
+        "pdf",
+        "extract",
+        s(&pdf),
+        s(&out_png),
+        "--password",
+        "owner-only-secret",
+    ]);
+    assert!(out.status.success(), "pdf extract: {}", stderr(&out));
+    assert_password_not_echoed(
+        &out,
+        "owner-only-secret",
+        "pdf extract on an owner-only file",
+    );
+    assert_owner_only_stored_image(&out_png);
 }
 
 /// 68: `--password` on a file that is not encrypted is accepted and changes
@@ -980,8 +1292,11 @@ fn plan_68_estimate_memory_agrees_with_the_library() {
     );
 }
 
-/// 68: `--dzi-manifest [FORMAT]` is the library's `.dzi`, and the format is
-/// live. Only Deep Zoom has one.
+/// 68: `--dzi-manifest[=FORMAT]` is the library's `.dzi`, and the format is
+/// live. Only Deep Zoom has one. The format takes an `=`: a bare
+/// `--dzi-manifest` means png and never swallows the next word, so
+/// `--dzi-manifest png` leaves `png` as a stray argument (exit 2) instead of
+/// quietly taking it, and the input given after the flag stays the input.
 #[test]
 fn plan_68_dzi_manifest_matches_the_library() {
     if skip_if_no_cli("plan_68_dzi_manifest") {
@@ -994,17 +1309,22 @@ fn plan_68_dzi_manifest_matches_the_library() {
 
     let base = plan_args("deep-zoom", "2");
     assert_eq!(
-        ok(&with(base.clone(), &["--dzi-manifest", "png"])).trim(),
+        ok(&with(base.clone(), &["--dzi-manifest=png"])).trim(),
         png.trim()
     );
     assert_eq!(
-        ok(&with(base.clone(), &["--dzi-manifest", "jpg"])).trim(),
+        ok(&with(base.clone(), &["--dzi-manifest=jpg"])).trim(),
         jpg.trim()
     );
     // Bare flag means the default format.
-    assert_eq!(ok(&with(base, &["--dzi-manifest"])).trim(), png.trim());
+    assert_eq!(
+        ok(&with(base.clone(), &["--dzi-manifest"])).trim(),
+        png.trim()
+    );
+    // And it never takes the next word as its format.
+    exits(2, &with(base, &["--dzi-manifest", "jpg"]));
 
-    let out = exits(1, &with(plan_args("xyz", "0"), &["--dzi-manifest", "png"]));
+    let out = exits(1, &with(plan_args("xyz", "0"), &["--dzi-manifest=png"]));
     assert!(
         stderr(&out).contains("no .dzi manifest"),
         "a layout without a manifest must say so: {}",

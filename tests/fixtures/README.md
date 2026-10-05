@@ -27,6 +27,7 @@ bash tools/gen_fixtures.sh
 | `blueprint-mix.pdf` | Mixed vector+raster PDF, embedded 12738x220 RGB8 strip |
 | `blueprint.pdf` | Landscape blueprint (used for CLI plan tests, no fixtures generated) |
 | `password.pdf` | Password-protected PDF for error-handling tests |
+| `owner-password-only.pdf` | One 200x150 pt page holding a single 64x48 RGB image (FlateDecode, pixel (x, y) = (4x, 5y, 128)), encrypted AES-256 R6 with an empty user password and owner password `owner-only-secret` by qpdf 11.3.0: `qpdf --encrypt "" owner-only-secret 256 --print=none --modify=none --extract=n -- plain.pdf owner-password-only.pdf`. AES salts are random, so it is not byte-reproducible; it is byte-identical to libviprs `tests/fixtures/owner-password-only.pdf` (sha256 `afac1290...cde0ae`) |
 
 ## Canonical fixture set
 
