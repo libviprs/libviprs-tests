@@ -1376,39 +1376,12 @@ fn limits_webp() {
 fn limits_gif() {
     limits_row("limits_gif", None, gif_dec, "gif.gif");
 }
-/// Red against the core: `decode_netpbm` (core `src/textio.rs`) checks only
-/// `check_image_alloc`, never `check_coord` or `check_pixels`, so a Netpbm
-/// file decodes straight through a `max_coord` or `max_pixels` ceiling it is
-/// over. Ignored until the core fix lands and the pin moves to it; run it with
-/// `--ignored` to see it fail.
+/// Netpbm used to decode straight through a `max_coord` or `max_pixels`
+/// ceiling it was over, because `decode_netpbm` only checked the allocation.
+/// Core #1167 fixed that, and this row is what holds it (libviprs-tests#257).
 #[test]
-#[ignore = "core defect: the Netpbm decoder ignores DecodeLimits::max_coord and max_pixels (the core tracking issue)"]
 fn limits_ppm() {
     limits_row("limits_ppm", None, sniffed, "ppm.ppm");
-}
-/// The live half of the parked `limits_ppm`: it pins the defect as it is
-/// today, so the day the core starts honouring `max_coord` and `max_pixels`
-/// for Netpbm this goes red and says to un-ignore `limits_ppm` and delete it.
-#[test]
-fn limits_ppm_defect_is_still_there() {
-    let b = bytes("ppm.ppm");
-    let r = sniffed(&b, DecodeLimits::default()).expect("ppm.ppm decodes at the defaults");
-    let (w, h) = (r.width(), r.height());
-    let d = DecodeLimits::default();
-    for (what, l) in [
-        ("max_coord", d.with_max_coord(w.max(h) - 1)),
-        (
-            "max_pixels",
-            d.with_max_pixels(u64::from(w) * u64::from(h) - 1),
-        ),
-    ] {
-        assert!(
-            sniffed(&b, l).is_ok(),
-            "the Netpbm decoder now refuses {what} one below the {w}x{h} file, \
-             so the core fixed the defect on the core tracking issue: un-ignore \
-             limits_ppm and delete this cell"
-        );
-    }
 }
 #[test]
 fn limits_vips_native() {
@@ -1450,36 +1423,12 @@ fn limits_jp2k() {
 fn limits_avif() {
     limits_row("limits_avif", Some("avif"), avif_dec, "avif_q75.avif");
 }
-/// Red against the core: the SVG rasteriser (core `src/svg.rs`) checks
-/// `max_coord` and `max_pixels` and then allocates the pixmap and its
-/// demultiplied copy without asking `max_alloc_bytes`, so a caller's
-/// allocation budget does not bound an SVG decode. Ignored until the core fix
-/// lands and the pin moves to it; run it with `--ignored` to see it fail.
+/// The SVG rasteriser used to allocate its pixmap and the demultiplied copy
+/// without asking `max_alloc_bytes`. Core #1167 prices both now, and this row
+/// is what holds it (libviprs-tests#257).
 #[test]
-#[ignore = "core defect: the SVG rasteriser ignores DecodeLimits::max_alloc_bytes (the core tracking issue)"]
 fn limits_svg() {
     limits_row("limits_svg", Some("svg"), svg_dec, "svg.svg");
-}
-/// The live half of the parked `limits_svg`, the same way round as
-/// `limits_ppm_defect_is_still_there`: an allocation budget one byte under the
-/// decoded raster still renders, until the core prices the pixmap.
-#[test]
-fn limits_svg_defect_is_still_there() {
-    let Some(r) = decode_for(
-        "limits_svg_defect_is_still_there",
-        Some("svg"),
-        svg_dec,
-        "svg.svg",
-    ) else {
-        return;
-    };
-    let tight = DecodeLimits::default().with_max_alloc_bytes(r.data().len() as u64 - 1);
-    assert!(
-        svg_dec(&bytes("svg.svg"), tight).is_ok(),
-        "the SVG rasteriser now refuses an allocation budget one byte under its \
-         raster, so the core fixed the defect on the core tracking issue: \
-         un-ignore limits_svg and delete this cell"
-    );
 }
 
 // ---------------------------------------------------------------------------
