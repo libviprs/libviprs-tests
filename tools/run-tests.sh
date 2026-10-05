@@ -49,6 +49,15 @@ set -euo pipefail
 #                                (default: tmp/build-context beside this
 #                                script, so runs from different worktrees
 #                                reuse one warm copy)
+#
+# Disk and concurrency (libviprs-tests#248):
+#   RUN_TESTS_KEEP_IMAGE=1       keep the test image when the run ends (default:
+#                                remove it; the container always goes)
+#   RUN_TESTS_MAX_PARALLEL=2     how many runs on this machine may build and
+#                                run at once; the rest wait for a slot
+#   RUN_TESTS_SLOT_DIR=PATH      where the slots live (default:
+#                                ~/.cache/libviprs-tests/run-tests-slots, one
+#                                directory for every clone and worktree)
 # ---------------------------------------------------------------------------
 
 RUN_MIRI=false
@@ -350,6 +359,107 @@ if [ "$PRINT_PLAN" = true ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Cleanup and slots
+# ---------------------------------------------------------------------------
+# Every run builds its own image, and for a long time nothing ever removed it.
+# Each rebuild moved the per-tree tag onto a new image and left the old one
+# behind untagged, and the container only went away on the one path where
+# `docker run` came back normally. Ten lanes gating at once on one laptop
+# filled Docker Desktop's 196.6 GB disk that way, and from then on every
+# pre-push died with `No space left on device` (libviprs-tests#248).
+#
+# So the container and the image go on every way out of here, a pass, a test
+# failure, a failed build, Ctrl-C, through one trap rather than a cleanup step
+# at the bottom that `set -e` or a signal can skip. `rmi` runs without -f on
+# purpose: if something else is using the image, that is not this run's call to
+# overrule. Removing the image does not cost the next run its warm build,
+# because BuildKit's cache records outlive the image they built.
+# RUN_TESTS_KEEP_IMAGE=1 keeps the image for poking at by hand.
+#
+# Nothing capped how many runs shared the daemon either, and each one holds an
+# image and a target dir while it runs, so the slots below make the rest wait.
+# They are directories because `mkdir` is atomic everywhere and macOS ships no
+# flock(1). They live in one place per machine rather than under this
+# checkout's tmp/, because every lane has its own clone (and every worktree its
+# own copy of this script), and a per-checkout lock would have held back none
+# of the ten runs that filled the disk.
+SLOT_DIR="${RUN_TESTS_SLOT_DIR:-${HOME:-/tmp}/.cache/libviprs-tests/run-tests-slots}"
+MAX_PARALLEL="${RUN_TESTS_MAX_PARALLEL:-2}"
+SLOT_POLL="${RUN_TESTS_SLOT_POLL:-10}"
+HELD_SLOT=""
+
+case "$MAX_PARALLEL" in
+    ''|*[!0-9]*|0)
+        echo "Error: RUN_TESTS_MAX_PARALLEL='$MAX_PARALLEL' is not a positive whole number."
+        exit 1
+        ;;
+esac
+
+release_slot() {
+    if [ -n "$HELD_SLOT" ] && [ "$(cat "$HELD_SLOT/pid" 2>/dev/null)" = "$$" ]; then
+        rm -f "$HELD_SLOT/pid"
+        rmdir "$HELD_SLOT" 2>/dev/null || true
+    fi
+    HELD_SLOT=""
+}
+
+cleanup() {
+    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    if [ "${RUN_TESTS_KEEP_IMAGE:-}" != 1 ]; then
+        docker rmi "$IMAGE_NAME" >/dev/null 2>&1 || true
+    fi
+    release_slot
+}
+
+# One cleanup, on EXIT. The signal traps only turn a signal into an exit with
+# the usual 128+N status, which runs the EXIT trap exactly once.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+try_slot() {
+    if mkdir "$1" 2>/dev/null; then
+        echo "$$" > "$1/pid"
+        HELD_SLOT="$1"
+        return 0
+    fi
+    return 1
+}
+
+acquire_slot() {
+    local i slot pid holders announced=false
+    mkdir -p "$SLOT_DIR"
+    while :; do
+        holders=""
+        for i in $(seq 1 "$MAX_PARALLEL"); do
+            slot="$SLOT_DIR/slot$i"
+            try_slot "$slot" && return 0
+            pid="$(cat "$slot/pid" 2>/dev/null || true)"
+            # A holder that is gone (SIGKILL, a crashed laptop) never released
+            # its slot. Rename it aside before taking it, because the rename
+            # succeeds for exactly one of the runs that noticed, where a plain
+            # rm-then-mkdir would let two of them both take it.
+            if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null \
+                && mv "$slot" "$slot.stale.$$" 2>/dev/null; then
+                rm -rf "$slot.stale.$$"
+                try_slot "$slot" && return 0
+            fi
+            holders="$holders ${pid:-?}"
+        done
+        if [ "$announced" = false ]; then
+            echo ""
+            echo "Waiting for a slot: all $MAX_PARALLEL in $SLOT_DIR are held (pids:$holders)."
+            echo "RUN_TESTS_MAX_PARALLEL raises the cap."
+            announced=true
+        fi
+        sleep "$SLOT_POLL"
+    done
+}
+
+acquire_slot
+echo "  slot:           $HELD_SLOT"
+
+# ---------------------------------------------------------------------------
 # Reference fixtures for the ported_tests cells (idempotent, offline-tolerant)
 # ---------------------------------------------------------------------------
 # The green ported_* cells (tools/run_ported_cells.sh) compare against the
@@ -519,6 +629,12 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     docker rm -f "$CONTAINER_NAME" >/dev/null
 fi
 
+# Whatever the tag points at now (a RUN_TESTS_KEEP_IMAGE=1 run, or a run from
+# before the cleanup trap existed) goes before the build. Otherwise the build
+# moves the tag and the old image stays behind untagged, where `docker images`
+# does not show it unless you ask for dangling ones (libviprs-tests#248).
+docker rmi "$IMAGE_NAME" >/dev/null 2>&1 || true
+
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
@@ -560,11 +676,8 @@ set -e
 # failure and must not be allowed to read as one.
 OOM_KILLED="$(docker inspect --format '{{.State.OOMKilled}}' "$CONTAINER_NAME" 2>/dev/null || echo false)"
 
-# ---------------------------------------------------------------------------
-# Cleanup
-# ---------------------------------------------------------------------------
-
-docker rm "$CONTAINER_NAME" >/dev/null 2>&1 || true
+# The container and the image go in the EXIT trap above, on this path and on
+# every other one.
 
 if [ $EXIT_CODE -eq 0 ]; then
     echo ""
