@@ -873,7 +873,7 @@ fn verify_follows_the_exit_code_contract() {
             s(&fixture("canonical_input.png")),
             "--drop-blanks",
         ],
-        &["--drop-blanks cannot be combined with --source"],
+        &["--source applies to a tile tree, not an archive"],
     );
     exits(
         1,
