@@ -1107,6 +1107,13 @@ fn verify_passes_a_clean_tree_and_names_the_tile_with_a_flipped_byte() {
 /// because an encoded tile cannot be compared against a re-render byte for
 /// byte. The control is the same input with one pixel changed, and the
 /// failure has to name the one tile that pixel lands in.
+///
+/// The tree records its source digest (`--manifest-source-hash`), which is
+/// what lets verify re-render a different file at all (libviprs-cli#103): the
+/// run folds the input's digest into the plan hash its checkpoint records, and
+/// the checkpoint holds only the hash. A tree that did not record it still
+/// fails a different source, but as "made from a different source" without
+/// naming a tile, and says what to write the tree with.
 #[test]
 fn verify_with_source_catches_a_tree_made_from_a_different_image() {
     if skip_if_no_cli("verify_with_source_catches_a_tree_made_from_a_different_image") {
@@ -1126,6 +1133,7 @@ fn verify_with_source_catches_a_tree_made_from_a_different_image() {
         "--format",
         "raw",
         "--checksum",
+        "--manifest-source-hash",
     ]);
 
     let out = ok(&["verify", s(&dir), "--source", s(&input)]);
@@ -1144,6 +1152,32 @@ fn verify_with_source_catches_a_tree_made_from_a_different_image() {
     assert!(
         err.contains(&format!("{top}/2_3")),
         "verify --source must name the tile the changed pixel is in ({top}/2_3):\n{err}"
+    );
+
+    // Without a recorded digest the different source is still refused, and
+    // the message says how to get a tree verify can name the tile for.
+    let plain = tmp.path().join("unrecorded");
+    ok(&[
+        "pyramid",
+        s(&input),
+        s(&plain),
+        "--storage",
+        "directory",
+        "--tile-size",
+        "64",
+        "--format",
+        "raw",
+        "--checksum",
+    ]);
+    ok(&["verify", s(&plain), "--source", s(&input)]);
+    let err = stderr_of(&exits(
+        1,
+        &["verify", s(&plain), "--source", s(&other_path)],
+    ));
+    assert!(
+        err.contains("made from a different source") && err.contains("--manifest-source-hash"),
+        "a tree without a recorded digest must say it was made from a different source and \
+         point at --manifest-source-hash:\n{err}"
     );
 }
 
