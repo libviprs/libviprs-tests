@@ -56,7 +56,7 @@ const BLUEPRINT_PDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures
 /// The stored output the migration is compared against, under
 /// `tests/fixtures/pmtiles/`, with its provenance in `PROVENANCE.md` beside it.
 const GOLDEN: &str = "migrate-google-blueprint-portrait.pmtiles";
-const GOLDEN_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+const GOLDEN_SHA256: &str = "a21cc6ea0edfcd6ca8e59e7ee41f11b26d47b486b0b0751816e595670b909fd7";
 
 fn portrait_raster() -> Raster {
     extract_page_image(Path::new(PORTRAIT_PDF), 1)
