@@ -1164,6 +1164,25 @@ fn encode_jp2k_is_byte_identical_to_vips_jp2ksave() {
     );
 }
 
+/// The Radiance header carries `SOFTWARE=libviprs <crate version>`, so the
+/// golden would go stale at every release cut. Mask the version and keep every
+/// other byte pinned.
+fn mask_software_version(b: &[u8]) -> Vec<u8> {
+    const KEY: &[u8] = b"SOFTWARE=libviprs ";
+    let Some(at) = b.windows(KEY.len()).position(|w| w == KEY) else {
+        return b.to_vec();
+    };
+    let start = at + KEY.len();
+    let end = b[start..]
+        .iter()
+        .position(|&c| c == b'\n')
+        .map_or(b.len(), |n| start + n);
+    let mut out = b[..start].to_vec();
+    out.extend_from_slice(b"<version>");
+    out.extend_from_slice(&b[end..]);
+    out
+}
+
 /// Radiance is lossy by construction (RGBE shares one exponent), so the
 /// source cannot come back exactly; what has to hold exactly is that vips and
 /// libviprs read the same RGBE file to the same floats, and that the encode
@@ -1174,7 +1193,7 @@ fn encode_radiance_read_back_by_vips() {
     let cell = "encode_radiance_read_back_by_vips";
     let fresh = encode_for(cell, &ENC_RAD).expect("radiance has no feature");
     assert!(
-        fresh == bytes(ENC_RAD.file),
+        mask_software_version(&fresh) == mask_software_version(&bytes(ENC_RAD.file)),
         "{cell}: encoder output moved off the committed file"
     );
     let vips = Img::from_v(ENC_RAD.vips);
