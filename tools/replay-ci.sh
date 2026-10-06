@@ -299,7 +299,7 @@ sudo install -m 0755 go-pmtiles/pmtiles /usr/local/bin/pmtiles
 pmtiles version
 STEP
 step VIPRS_REQUIRE_GO_PMTILES=1 <<'STEP'
-cargo test --test pmtiles_interop --test phase_pmtiles --test pmtiles_bounded --test pmtiles_ci_wiring --test pmtiles_sweep --test pipeline_e2e
+cargo test --test pmtiles_interop --test phase_pmtiles --test pmtiles_bounded --test pmtiles_ci_wiring --test pmtiles_sweep --test pmtiles_migrate_google --test pipeline_e2e
 STEP
 
 job lint
