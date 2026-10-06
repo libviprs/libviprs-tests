@@ -1291,17 +1291,16 @@ fn sparse_input(dir: &Path) -> PathBuf {
     input
 }
 
-/// A `--drop-blanks` tree leaves its blank tiles out on purpose, and neither
-/// the manifest nor the archive says so yet (libviprs#1161). So verify fails
-/// it as missing tiles, and says what that could mean, until it is told with
-/// `--drop-blanks`, after which it passes. Told, it still catches a kept tile
-/// that goes missing, which is the control that `--drop-blanks` did not
-/// simply switch the presence check off.
+/// A `--drop-blanks` tree leaves its blank tiles out on purpose, and its
+/// manifest says so (`skip_blanks`, libviprs#1162), so verify passes it with
+/// no flag (libviprs-cli#85). It still catches a kept tile that goes
+/// missing, which is the control that dropped blanks did not simply switch
+/// the presence check off. A manifest from before the field reads as no
+/// blanks dropped, so for one of those verify fails the dropped blanks as
+/// missing, says what that could mean, and passes once told `--drop-blanks`.
 #[test]
-fn verify_needs_drop_blanks_to_pass_a_drop_blanks_tree_and_still_catches_a_lost_tile() {
-    if skip_if_no_cli(
-        "verify_needs_drop_blanks_to_pass_a_drop_blanks_tree_and_still_catches_a_lost_tile",
-    ) {
+fn verify_reads_drop_blanks_from_a_tree_and_still_catches_a_lost_tile() {
+    if skip_if_no_cli("verify_reads_drop_blanks_from_a_tree_and_still_catches_a_lost_tile") {
         return;
     }
     let tmp = TempDir::new().unwrap();
@@ -1319,35 +1318,76 @@ fn verify_needs_drop_blanks_to_pass_a_drop_blanks_tree_and_still_catches_a_lost_
         "--checksum",
     ]);
 
-    let err = stderr_of(&exits(1, &["verify", s(&dir)]));
+    for told in [&[][..], &["--drop-blanks"][..]] {
+        let mut args = vec!["verify", s(&dir)];
+        args.extend_from_slice(told);
+        let out = ok(&args);
+        assert!(
+            stdout_of(&out).contains("blank tiles dropped"),
+            "the summary should say blanks were allowed for ({told:?}):\n{}",
+            stdout_of(&out)
+        );
+    }
+    // The re-render skips a dropped blank too (libviprs#1174).
+    for told in [&[][..], &["--drop-blanks"][..]] {
+        let mut args = vec!["verify", s(&dir), "--source", s(&input)];
+        args.extend_from_slice(told);
+        let out = ok(&args);
+        assert!(
+            stdout_of(&out).contains("re-render"),
+            "--source on a --drop-blanks tree was not re-rendered ({told:?}):\n{}",
+            stdout_of(&out)
+        );
+    }
+
+    // A manifest from before `skip_blanks` existed: verify has to be told.
+    let old = tmp.path().join("old");
+    ok(&[
+        "pyramid",
+        s(&input),
+        s(&old),
+        "--storage",
+        "directory",
+        "--tile-size",
+        "128",
+        "--drop-blanks",
+        "--checksum",
+    ]);
+    edit_manifests(&old, |m| {
+        m["generation"]
+            .as_object_mut()
+            .unwrap()
+            .remove("skip_blanks");
+    });
+    let err = stderr_of(&exits(1, &["verify", s(&old)]));
     assert!(
         err.contains("missing") && err.contains("--drop-blanks"),
-        "verify without --drop-blanks must call the dropped blanks missing and point at the \
-         flag:\n{err}"
+        "verify of a tree whose manifest predates skip_blanks must call the dropped blanks \
+         missing and point at the flag:\n{err}"
     );
-    let out = ok(&["verify", s(&dir), "--drop-blanks"]);
-    assert!(
-        stdout_of(&out).contains("blank tiles dropped"),
-        "the summary should say blanks were allowed for:\n{}",
-        stdout_of(&out)
-    );
+    ok(&["verify", s(&old), "--drop-blanks"]);
+    ok(&["verify", s(&old), "--drop-blanks", "--source", s(&input)]);
 
     // Top-level tile 0_0 is the canonical image itself, so it is kept.
     let kept = format!("{}/0_0.png", top_level(&dir));
     std::fs::remove_file(dir.join(&kept)).expect("delete a kept tile");
-    let err = stderr_of(&exits(1, &["verify", s(&dir), "--drop-blanks"]));
-    assert!(
-        err.contains(&kept),
-        "verify --drop-blanks must still name a kept tile that went missing ({kept}):\n{err}"
-    );
+    for told in [&[][..], &["--drop-blanks"][..]] {
+        let mut args = vec!["verify", s(&dir)];
+        args.extend_from_slice(told);
+        let err = stderr_of(&exits(1, &args));
+        assert!(
+            err.contains(&kept),
+            "verify must still name a kept tile that went missing ({kept}, {told:?}):\n{err}"
+        );
+    }
 }
 
 /// The archive half of the cell above: the same input into PMTiles with
-/// `--drop-blanks` fails verify as missing tiles until verify is told, then
-/// passes.
+/// `--drop-blanks` records it in the archive's `vnd.libviprs` metadata, so
+/// verify passes it told or not.
 #[test]
-fn verify_needs_drop_blanks_to_pass_a_drop_blanks_archive() {
-    if skip_if_no_cli("verify_needs_drop_blanks_to_pass_a_drop_blanks_archive") {
+fn verify_reads_drop_blanks_from_an_archive() {
+    if skip_if_no_cli("verify_reads_drop_blanks_from_an_archive") {
         return;
     }
     let tmp = TempDir::new().unwrap();
@@ -1368,11 +1408,11 @@ fn verify_needs_drop_blanks_to_pass_a_drop_blanks_archive() {
         "--drop-blanks dropped nothing from the archive, so this cell proves nothing"
     );
 
-    let err = stderr_of(&exits(1, &["verify", s(&archive)]));
+    let out = ok(&["verify", s(&archive)]);
     assert!(
-        err.contains("missing") && err.contains("--drop-blanks"),
-        "verify without --drop-blanks must call the dropped blanks missing and point at the \
-         flag:\n{err}"
+        stdout_of(&out).contains("blank tiles dropped"),
+        "the summary should say blanks were allowed for:\n{}",
+        stdout_of(&out)
     );
     ok(&["verify", s(&archive), "--drop-blanks"]);
     ok(&["verify", s(&full)]);
@@ -1388,19 +1428,21 @@ fn wide_input(dir: &Path) -> PathBuf {
     input
 }
 
-/// A `--centre` pyramid is checked against the centred plan when verify is
-/// told, archive and tree alike, and the count it reports is the centred
-/// plan's. Nothing records the centring yet (libviprs#1161), which is why the
-/// flag exists at all.
+/// A `--centre` pyramid is checked against the centred plan, archive and
+/// tree alike, and the count it reports is the centred plan's. The manifest
+/// and the archive record the centring (libviprs#1162), so verify needs no
+/// flag; `--centre` is only for a pyramid written before that.
 ///
-/// The untold half is not asserted. On this core the centred plan names the
-/// same tiles as the uncentred one for every layout `pyramid` accepts with
-/// `--centre` (measured: google and xyz, 200x70 and 256x96 at a 64-pixel
-/// tile), so an untold verify passes too, and only `--source` could see the
-/// difference, which is refused with `--centre` (the cell below).
+/// The centred plan names the same tiles as the uncentred one for every
+/// layout `pyramid` accepts with `--centre` (measured: google and xyz,
+/// 200x70 and 256x96 at a 64-pixel tile), so only `--source` sees the
+/// difference. The re-render lays a source out on a centred grid
+/// (libviprs#1163), so the tree is also re-rendered here, told and untold,
+/// and once more from a manifest that predates `centre`, where it takes the
+/// flag to pass.
 #[test]
-fn verify_checks_a_centred_pyramid_against_the_centred_grid_when_told() {
-    if skip_if_no_cli("verify_checks_a_centred_pyramid_against_the_centred_grid_when_told") {
+fn verify_checks_a_centred_pyramid_against_the_centred_grid() {
+    if skip_if_no_cli("verify_checks_a_centred_pyramid_against_the_centred_grid") {
         return;
     }
     let tmp = TempDir::new().unwrap();
@@ -1440,7 +1482,18 @@ fn verify_checks_a_centred_pyramid_against_the_centred_grid_when_told() {
             "--centre",
             "--checksum",
         ]);
-        let out = ok(&["verify", s(&dir), "--centre"]);
+        for told in [&[][..], &["--centre"][..]] {
+            let mut args = vec!["verify", s(&dir), "--source", s(&input)];
+            args.extend_from_slice(told);
+            let out = ok(&args);
+            assert_eq!(verified_count(&stdout_of(&out)), centred(layout), "{name}");
+            assert!(
+                stdout_of(&out).contains("re-render"),
+                "the {name} tree was not re-rendered ({told:?}):\n{}",
+                stdout_of(&out)
+            );
+        }
+        let out = ok(&["verify", s(&dir)]);
         assert_eq!(verified_count(&stdout_of(&out)), centred(layout), "{name}");
         assert!(
             stdout_of(&out).contains("against its checksum"),
@@ -1450,30 +1503,30 @@ fn verify_checks_a_centred_pyramid_against_the_centred_grid_when_told() {
     }
 }
 
-/// `--source` re-renders the pyramid, and the re-render can do neither a
-/// dropped blank nor a centred grid. Both combinations are refused as usage
-/// errors naming the flag, before anything is read, rather than reported as
-/// damaged tiles (and, for `--centre`, rather than reaching the core's debug
-/// assertion on a centred plan, libviprs#1161).
+/// `--source` re-renders the pyramid, and neither `--drop-blanks` nor
+/// `--centre` is refused beside it any more (libviprs-cli#85): the re-render
+/// skips a dropped blank (libviprs#1174) and lays a source out on a centred
+/// grid (libviprs#1163). On this plain tree `--drop-blanks` changes nothing,
+/// so it passes, and the centred re-render does not match, which is exit 1
+/// for the input, not exit 2 for the command line.
 #[test]
-fn verify_source_refuses_centre_and_drop_blanks_as_usage_errors() {
-    if skip_if_no_cli("verify_source_refuses_centre_and_drop_blanks_as_usage_errors") {
+fn verify_source_takes_drop_blanks_and_centre() {
+    if skip_if_no_cli("verify_source_takes_drop_blanks_and_centre") {
         return;
     }
     let tmp = TempDir::new().unwrap();
     let (dir, _) = checksummed_tree(tmp.path());
     let input = tmp.path().join("canonical.png");
-    for flag in ["--centre", "--drop-blanks"] {
-        let err = stderr_of(&exits(2, &["verify", s(&dir), "--source", s(&input), flag]));
-        assert!(
-            !err.contains("unexpected argument"),
-            "{flag} is not a flag this verify knows, so the exit 2 is not the refusal:\n{err}"
-        );
-        assert!(
-            err.contains(flag) && err.contains("--source"),
-            "the refusal must name {flag} and --source:\n{err}"
-        );
-    }
+    ok(&["verify", s(&dir), "--source", s(&input)]);
+    ok(&["verify", s(&dir), "--source", s(&input), "--drop-blanks"]);
+    let err = stderr_of(&exits(
+        1,
+        &["verify", s(&dir), "--source", s(&input), "--centre"],
+    ));
+    assert!(
+        !err.contains("cannot be combined"),
+        "--centre --source must not be refused any more:\n{err}"
+    );
 }
 
 // ---------------------------------------------------------------------------
