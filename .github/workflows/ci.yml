@@ -300,7 +300,7 @@ jobs:
       # back through go-pmtiles, and this is the one job that has it.
       - env:
           VIPRS_REQUIRE_GO_PMTILES: 1
-        run: cargo test --test pmtiles_interop --test phase_pmtiles --test pmtiles_bounded --test pmtiles_ci_wiring --test pmtiles_sweep --test pipeline_e2e
+        run: cargo test --test pmtiles_interop --test phase_pmtiles --test pmtiles_bounded --test pmtiles_ci_wiring --test pmtiles_sweep --test pmtiles_migrate_google --test pipeline_e2e
 
   lint:
     name: Lint

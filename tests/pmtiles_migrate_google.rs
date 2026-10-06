@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 
 #[path = "common/pmtiles.rs"]
 mod pmtiles_support;
-use pmtiles_support::read_checked;
+use pmtiles_support::sha256_hex;
 
 use libviprs::planner::TileCoord;
 use libviprs::pmtiles::Reader;
@@ -54,8 +54,13 @@ const PORTRAIT_PDF: &str = concat!(
 const BLUEPRINT_PDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/blueprint.pdf");
 
 /// The stored output the migration is compared against, under
-/// `tests/fixtures/pmtiles/`, with its provenance in `PROVENANCE.md` beside it.
-const GOLDEN: &str = "migrate-google-blueprint-portrait.pmtiles";
+/// `tests/fixtures/pmtiles_migrate/`, with its provenance in `PROVENANCE.md`
+/// beside it. Not under `tests/fixtures/pmtiles/`, which is for go-pmtiles
+/// oracle answers and is guarded as such.
+const GOLDEN: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/pmtiles_migrate/blueprint-portrait-google-centre.pmtiles"
+);
 const GOLDEN_SHA256: &str = "a21cc6ea0edfcd6ca8e59e7ee41f11b26d47b486b0b0751816e595670b909fd7";
 
 fn portrait_raster() -> Raster {
@@ -313,7 +318,14 @@ fn a_deleted_archive_is_replaced_and_a_fresh_reader_sees_the_new_tiles() {
 /// the golden.
 #[test]
 fn the_migrated_archive_matches_the_stored_golden_tile_for_tile() {
-    let golden_bytes = read_checked(GOLDEN, GOLDEN_SHA256);
+    let golden_bytes = std::fs::read(GOLDEN)
+        .unwrap_or_else(|e| panic!("cannot read the committed golden {GOLDEN}: {e}"));
+    assert_eq!(
+        sha256_hex(&golden_bytes),
+        GOLDEN_SHA256,
+        "{GOLDEN} is not the file this cell was pinned against. Regenerating it needs \
+         PROVENANCE.md and GOLDEN_SHA256 updated with it."
+    );
     let dir = tempfile::tempdir().unwrap();
     let golden_path = dir.path().join("golden.pmtiles");
     std::fs::write(&golden_path, golden_bytes).unwrap();
@@ -344,7 +356,7 @@ fn the_migrated_archive_matches_the_stored_golden_tile_for_tile() {
 /// cargo test --test pmtiles_migrate_google -- --ignored write_the_migrate_golden --nocapture
 /// ```
 #[test]
-#[ignore = "writes tests/fixtures/pmtiles/migrate-google-blueprint-portrait.pmtiles"]
+#[ignore = "writes tests/fixtures/pmtiles_migrate/blueprint-portrait-google-centre.pmtiles"]
 fn write_the_migrate_golden() {
     let dir = tempfile::tempdir().unwrap();
     let src = portrait_raster();
@@ -353,7 +365,7 @@ fn write_the_migrate_golden() {
     let archive = dir.path().join("out.pmtiles");
     generate_tree(&src, &plan, &base);
     migrate(&base, &plan, &archive);
-    let out = pmtiles_support::fixtures_dir().join(GOLDEN);
+    let out = PathBuf::from(GOLDEN);
     std::fs::copy(&archive, &out).expect("write the golden");
     let bytes = std::fs::read(&out).unwrap();
     println!(
