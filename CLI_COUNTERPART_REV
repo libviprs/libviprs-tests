@@ -106,4 +106,17 @@
 # commit, and the fractsurf and extract_area range cells now pin the 2 they
 # only implied before. Refusals the input or the core decides keep their 1.
 # COUNTERPART_REV stays at cc083dd5, which this CLI builds against.
-fe9096dc662607941b7445fcfaf207cdfd39d57d
+#
+# Bumped to f4fb1335, the merge of libviprs-cli#105 (closing libviprs-cli#103)
+# and the SHA `gh api repos/libviprs/libviprs-cli/commits/main` answered when
+# I made this bump. It carries libviprs-cli#89 (closing libviprs-cli#85):
+# `viprs verify` reads centring and dropped blanks from the manifest and the
+# archive metadata, and `--source` takes `--centre` and `--drop-blanks`
+# instead of refusing them. #102 fixed the plan hash the re-render folds the
+# source digest into, and #105 keeps `verify --source` naming the changed tile
+# for a different source file when the manifest records the digest. So the
+# verify cells that pinned the untold failures and the `--source` refusals
+# move in this same push (libviprs/libviprs-tests#256). It needs
+# COUNTERPART_REV at 2162f67f or later; the two pins move together for that
+# reason.
+f4fb1335cbbf0a8aca13d0e07d29a4e6174b5df7

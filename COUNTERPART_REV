@@ -333,4 +333,13 @@
 #
 # Cargo.lock doesn't move. The core is 0.5.0 on both sides, and #1179 moves the
 # core's own hayro-jpeg2000 to 0.4.1, which is what this lock already resolves.
-fe048824f647f5f664c7c0f6a84bd03b5729f24e
+#
+# Bumped to 2162f67f, the merge of libviprs#1189 and libviprs main's tip when
+# I checked with `gh api repos/libviprs/libviprs/commits/main`. It moves
+# because CLI_COUNTERPART_REV moves with it to
+# libviprs-cli f4fb1335 (it includes #89): that CLI calls `libviprs::probe_file` and
+# `probe_bytes` (#1189, through libviprs-cli#100), and its verify hands
+# `skip_blanks` to the re-render (#1187, closing #1174). Neither is in
+# fe048824. The verify cells in cli_pyramid_pipeline.rs move in the same
+# commit (libviprs/libviprs-tests#256).
+2162f67f639af6f539bcf3871060cf8a389db8d4
