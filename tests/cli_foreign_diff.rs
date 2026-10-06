@@ -1802,7 +1802,7 @@ fn ppmload_refuses_a_p6_claiming_100000_square_from_the_header() {
     refused_fast(
         &["ppmload", s(&input), s(&out)],
         &out,
-        &["100000x100000", "allocation ceiling"],
+        &["100000x100000", "pixel ceiling"],
     );
 }
 
