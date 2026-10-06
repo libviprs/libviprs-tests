@@ -28,8 +28,10 @@ jobs:
       - run: cargo test --features "ported_tests tracing" --test phase3_tracing
       # The object-store sink integration tests are gated behind
       # `object-store-sink`, so the default run compiles them out. Exercise the
-      # feature so they actually run (#382).
-      - run: cargo test --features object-store-sink --test phase3_object_store_sink --test phase3_validation_stress --test sink_object_store_stub_contract
+      # feature so they actually run (#382). objectstore_list_trait_default is
+      # gated the same way and was missing from this list, so its three tests
+      # had never run anywhere (tests/feature_cells_ci_and_local.rs, #234).
+      - run: cargo test --features object-store-sink --test phase3_object_store_sink --test phase3_validation_stress --test sink_object_store_stub_contract --test objectstore_list_trait_default
       # Same hole, same shape, for `packfile`: both packfile test files are
       # `#![cfg(feature = "packfile")]`, the feature-cells matrix only lints
       # them, and the default run above compiles them to nothing, so no job on
@@ -76,6 +78,11 @@ jobs:
       # pdfium global mutex per call, so concurrent FPDF access is safe. The
       # wall-clock perf-ratio smoke is `#[ignore]`d and runs in nightly.yml.
       - run: cargo test --features pdfium
+      # Four ported cells need both ported_tests and pdfium, and are ignored
+      # without pdfium. The ported-tests job has no PDFium and the run above
+      # has no ported_tests, so until this step they ran nowhere (#234). They
+      # read committed fixtures only, not the libvips reference suite.
+      - run: cargo test --features "ported_tests pdfium" --test ported_foreign --test core_review_followups -- --exact test_pdf_dpi_scale test_pdf_background test_pdf_password pdf_background_typed_matches_vips
 
   ported-tests:
     name: Ported Cells (green subset)

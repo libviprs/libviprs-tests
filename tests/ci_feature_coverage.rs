@@ -200,10 +200,11 @@ const EXPECTED: &[(&str, Coverage)] = &[
             true,
             None,
             false,
-            "forwards the core's AVIF decoder so the suite can be built with \
-             it (libviprs/libviprs-cli#64). Nothing here is gated on it yet, \
-             so the lint cell is the whole of what it needs; the codec cells \
-             that run under it arrive with #230",
+            "forwards the core's AVIF decoder (libviprs/libviprs-cli#64). The \
+             cells gated on it (codec_e2e, cli_foreign_diff) run in steps this \
+             table's line reader cannot see, a named `run:` and a `- env:` step, \
+             so tests/feature_cells_ci_and_local.rs holds each of them to a cell \
+             that enables it (#234)",
         ),
     ),
     (
@@ -212,9 +213,9 @@ const EXPECTED: &[(&str, Coverage)] = &[
             true,
             None,
             false,
-            "forwards the core's SVG rasteriser, same shape as `avif`: \
-             nothing gated on it yet, so a lint cell and no run cell until \
-             #230's codec cells need one",
+            "forwards the core's SVG rasteriser, same shape as `avif`: its \
+             gated cells are held to a run cell per test by \
+             tests/feature_cells_ci_and_local.rs (#234)",
         ),
     ),
     (
@@ -223,9 +224,9 @@ const EXPECTED: &[(&str, Coverage)] = &[
             true,
             None,
             false,
-            "forwards the core's JPEG 2000 codec, same shape as `avif`: \
-             nothing gated on it yet, so a lint cell and no run cell until \
-             #230's codec cells need one",
+            "forwards the core's JPEG 2000 codec, same shape as `avif`: its \
+             gated cells are held to a run cell per test by \
+             tests/feature_cells_ci_and_local.rs (#234)",
         ),
     ),
     (

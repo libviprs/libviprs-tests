@@ -21,9 +21,32 @@
 # the working tree of the sibling CLI, and this pin only governs CI.
 #
 # Four-repo pin-bump order (CLI_CONTRACT.md §7): core -> cli -> org -> tests.
-# To bump: set this to a libviprs-cli commit SHA, rerun
-# `cargo test --test cli_morphology_diff` against the sibling checkout, and
-# update the label comment below.
+# To bump: set this to a merged libviprs-cli commit on main, run the whole
+# cli-differential job against it with `tools/replay-ci.sh cli-differential`
+# (the CLI laid out at ../libviprs-cli), and add a label paragraph below.
+#
+# Feature cells (libviprs-tests#234). The cli-differential job builds viprs in
+# more than one configuration, because a feature-gated cell only proves
+# something against a binary that has its feature: the shared
+# --no-default-features binary every plain cell runs (tests/common/cli.rs), the
+# default build with pdfium that cli_pdf_geo_plan gets as $VIPRS_BIN, `full`
+# and one build per codec feature (cli_features, cli_foreign_diff), and
+# `--features s3` (cli_pyramid_pipeline). Every one of those steps runs with
+# VIPRS_REQUIRE_CLI=1, so a build that fails or a sibling that is missing is a
+# red job and never a skip. A bump is good only when all of them pass at the
+# new pin, not just the plain cells, so:
+#
+#   * run the whole job, not one suite: `tools/replay-ci.sh cli-differential`;
+#   * if the CLI added, renamed or dropped a cargo feature, move the cells that
+#     name it (cli_features' FULL list and its per-codec rows, the gated cells
+#     of cli_foreign_diff, the `--features` lists on the cli-differential
+#     steps) in the same commit as the bump. viprs_bin_for panics on a feature
+#     the pinned CLI does not declare, and tests/feature_cells_ci_and_local.rs
+#     fails on a feature-gated cell that no step enables;
+#   * a cell that needs a core feature this crate does not forward yet gets its
+#     forwarding line in Cargo.toml in the same commit, or no step can enable it;
+#   * change ci.yml and its copy in tools/replay-ci.sh together (the same test
+#     fails on any difference), so the local gate keeps running what CI runs.
 #
 # libviprs-cli cli/w2-extract @ 0f2f16e — adds the Wave-2 extract op family
 # (extract_area/crop/embed/gravity/replicate/zoom/subsample/insert/smartcrop)
