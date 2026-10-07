@@ -101,22 +101,33 @@ fn pdfium_dep_line(manifest: &str) -> String {
 // dependency is what #149 was.
 // ---------------------------------------------------------------------------
 
-/// Neither manifest declares `pdfium-render` from git.
+/// On the pdfium_latest branch both manifests declare `pdfium-render` from the
+/// libviprs fork's `pdfium_8085` branch and nothing else.
+///
+/// crates.io's 0.9.4 stops at `pdfium_7881`, so bindings that match the
+/// pdfium-8085 library have to come from the fork (libviprs#1197). Both
+/// manifests have to name the same source, or the graph carries two copies of
+/// the crate under one name, which is what #981 was about.
 #[test]
-fn pdfium_comes_from_the_registry_in_both_manifests() {
+fn pdfium_comes_from_the_fork_pdfium_8085_branch_in_both_manifests() {
     for (what, manifest) in [
         ("the core crate", read_core_manifest()),
         ("this crate", read_tests_manifest()),
     ] {
         let dep = pdfium_dep_line(&manifest);
-        for forbidden in ["git =", "rev =", "branch ="] {
+        for wanted in [
+            "git = \"https://github.com/libviprs/pdfium-render\"",
+            "branch = \"pdfium_8085\"",
+        ] {
             assert!(
-                !dep.contains(forbidden),
-                "{what} declares pdfium-render with `{forbidden}`, so a git \
-                 consumer and a crates.io consumer get different code under one \
-                 name (libviprs#981). Found: {dep}"
+                dep.contains(wanted),
+                "{what} does not declare pdfium-render with `{wanted}`: {dep}"
             );
         }
+        assert!(
+            !dep.contains("rev ="),
+            "{what} pins pdfium-render to a rev, not the branch: {dep}"
+        );
     }
 }
 
@@ -168,8 +179,8 @@ fn both_manifests_name_the_same_floor_and_abi() {
     let tests = pdfium_dep_line(&read_tests_manifest());
     for (what, dep) in [("the core crate", &core), ("this crate", &tests)] {
         assert!(
-            dep.contains("0.9.4"),
-            "{what} does not declare a 0.9.4 floor: {dep}"
+            !dep.contains("version ="),
+            "{what} names a registry version beside the git source: {dep}"
         );
         assert!(
             dep.contains("default-features = false"),
@@ -177,7 +188,7 @@ fn both_manifests_name_the_same_floor_and_abi() {
              `pdfium_latest` back on: {dep}"
         );
         assert!(
-            dep.contains("pdfium_7881"),
+            dep.contains("pdfium_8085"),
             "{what} does not name a libpdfium ABI: {dep}"
         );
         assert!(
@@ -268,6 +279,9 @@ fn locked_version(label: &str, version: &str) -> (u64, u64, u64) {
     }
 }
 
+/// The one source a `pdfium-render` entry may have on the pdfium_latest branch.
+const FORK_8085_SOURCE: &str = "git+https://github.com/libviprs/pdfium-render?branch=pdfium_8085#";
+
 /// Panics if any `pdfium-render` entry in `lock` (named `label` in messages)
 /// is off the crates.io registry or below 0.9.4. Split out from the test so the
 /// controls below can run the same assertions over locks that must fail.
@@ -279,9 +293,10 @@ fn assert_lockfile_pins(label: &str, lock: &str) {
     );
     for (version, source) in &entries {
         assert!(
-            source.starts_with("registry+https://github.com/rust-lang/crates.io-index"),
+            source.starts_with(FORK_8085_SOURCE),
             "{label}: pdfium-render {version} is locked from `{source}`, expected the \
-             crates.io registry (#222); run `cargo update -p pdfium-render`"
+             libviprs fork's pdfium_8085 branch (libviprs#1197); run \
+             `cargo update -p pdfium-render`"
         );
         assert!(
             locked_version(label, version) >= (0, 9, 4),
@@ -321,16 +336,27 @@ const CLEAN_LOCK_222: &str = r#"
 [[package]]
 name = "pdfium-render"
 version = "0.9.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8948a803616a9e936b15a6637af2cd48c5fb8ae0fcdeb3c32eac3a540e255a19"
+source = "git+https://github.com/libviprs/pdfium-render?branch=pdfium_8085#d779d76fe95cb5ca2326869ce611c3076c256de3"
 "#;
 
-/// One registry `pdfium-render` entry at `version`.
+/// One fork-branch `pdfium-render` entry at `version`.
 fn registry_lock(version: &str) -> String {
     format!(
         "[[package]]\nname = \"pdfium-render\"\nversion = \"{version}\"\n\
-         source = \"registry+https://github.com/rust-lang/crates.io-index\"\n"
+         source = \"{FORK_8085_SOURCE}d779d76fe95cb5ca2326869ce611c3076c256de3\"\n"
     )
+}
+
+/// A crates.io entry is the wrong source on this branch: 0.9.4 there has no
+/// pdfium_8085, so the lock would be generating 7881 bindings.
+#[test]
+#[should_panic(expected = "expected the libviprs fork's pdfium_8085 branch")]
+fn control_a_registry_lock_fails_the_branch_guard() {
+    assert_lockfile_pins(
+        "registry lock",
+        "[[package]]\nname = \"pdfium-render\"\nversion = \"0.9.4\"\n\
+         source = \"registry+https://github.com/rust-lang/crates.io-index\"\n",
+    );
 }
 
 #[test]
