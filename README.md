@@ -315,11 +315,11 @@ Pre-compiled binaries built from source are available from [libviprs-dep](https:
 ```bash
 # x86_64
 curl -L -o pdfium.tgz \
-  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-8054/pdfium-linux-x64.tgz
+  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-8085/pdfium-linux-x64.tgz
 
 # arm64
 curl -L -o pdfium.tgz \
-  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-8054/pdfium-linux-arm64.tgz
+  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-8085/pdfium-linux-arm64.tgz
 
 # Extract and install
 tar xzf pdfium.tgz
@@ -336,11 +336,11 @@ Pre-compiled binaries built from source are available from [libviprs-dep](https:
 ```bash
 # Apple Silicon
 curl -L -o pdfium.tgz \
-  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-8054/pdfium-mac-arm64.tgz
+  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-8085/pdfium-mac-arm64.tgz
 
 # Intel
 curl -L -o pdfium.tgz \
-  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-8054/pdfium-mac-x64.tgz
+  https://github.com/libviprs/libviprs-dep/releases/download/pdfium-8085/pdfium-mac-x64.tgz
 
 # Extract and install
 tar xzf pdfium.tgz
