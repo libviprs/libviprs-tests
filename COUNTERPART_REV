@@ -342,4 +342,10 @@
 # `skip_blanks` to the re-render (#1187, closing #1174). Neither is in
 # fe048824. The verify cells in cli_pyramid_pipeline.rs move in the same
 # commit (libviprs/libviprs-tests#256).
-2162f67f639af6f539bcf3871060cf8a389db8d4
+#
+# Bumped to 9e049281, libviprs pdfium_latest after #1201 (page size at a DPI
+# matches libvips exactly, PageSizing) and #1202 (MSRV 1.99). The page-size
+# parity cells in this branch need PageSizing, which fe048824..2162f67f lack.
+# That branch also builds against the fork's pdfium_8085 bindings, so the
+# Cargo.lock here carries the fork source for pdfium-render and no registry copy.
+9e049281d685b2397934bf22d5f84ce1aabdc975

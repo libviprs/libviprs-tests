@@ -167,7 +167,7 @@ pub fn build_blank_pdf(spec: &PageSpec) -> Vec<u8> {
         Content::Rich => rich_sheet(&mut content, w, h),
         Content::BorderOnly => border(&mut content, w, h),
     }
-    content.push_str("Q");
+    content.push('Q');
 
     let mut doc = Document::with_version("1.7");
     let pages_id = doc.new_object_id();

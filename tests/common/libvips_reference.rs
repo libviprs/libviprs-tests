@@ -130,7 +130,7 @@ pub fn matrix() -> Vec<Entry> {
         let big_150 = e.dpi == 150 && !e.raster && e.spec.rotate.is_none() && !e.spec.crop_box;
         e.on_demand = !e.raster && (big_sheet_300 || big_150);
     }
-    out.sort_by(|a, b| (a.pdf_name(), a.dpi).cmp(&(b.pdf_name(), b.dpi)));
+    out.sort_by_key(|e| (e.pdf_name(), e.dpi));
     out.dedup_by(|b, a| {
         let same = a.pdf_name() == b.pdf_name() && a.dpi == b.dpi;
         if same {
