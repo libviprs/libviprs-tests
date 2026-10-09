@@ -24,7 +24,10 @@ pub mod cli;
 pub mod dzsave_expected;
 pub mod fixtures;
 pub mod hooks;
+pub mod libvips_reference;
 pub mod manifest;
+pub mod pixel_tolerance;
+pub mod vips_oracle;
 pub mod workflows;
 
 #[cfg(feature = "pdfium")]

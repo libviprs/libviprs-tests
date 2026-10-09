@@ -1,185 +1,96 @@
 //! libviprs sizes a PDF page exactly as libvips does (libviprs#1199).
 //!
-//! Sits beside `rotation_libvips_pdfium_parity.rs`, which compares pixels to
-//! committed goldens a libvips+pdfium build produced. This one asks the live
-//! libvips instead: `vipsheader` on `page.pdf[dpi=N]` gives the width and
-//! height `pdfload` would render, and `PageSizing::Exact` has to say the same
-//! for every page in the size table at every DPI in the sweep. A table of
-//! numbers I typed in myself would only prove I copied the same formula twice.
+//! Sits beside `rotation_libvips_pdfium_parity.rs`. The expected sizes are what
+//! `pdfload[dpi=N]` reports for every fixture sheet at every DPI in the sweep
+//! (and for rotated pages), recorded once in
+//! `tests/fixtures/page_size/libvips/libvips_reference.json`. A normal run
+//! reads that manifest and needs no libvips: `PageSizing::Exact` has to give
+//! the recorded width and height, and the manifest has to be complete for
+//! every fixture and DPI covered here (a missing entry fails with the regen
+//! command). See `common::libvips_reference` for how it is made.
 //!
-//! # The oracle
+//! `VIPRS_VERIFY_LIBVIPS_REFERENCE=1` additionally asks a live `vipsheader`
+//! and requires it to agree with the manifest and with `PageSizing::Exact`.
+//! Without a libvips PDF loader that prints a SKIP; `VIPRS_REQUIRE_VIPS=1`
+//! turns the skip into a failure.
 //!
-//! `vipsheader` from a libvips with a PDF loader (pdfium or poppler, the two
-//! round alike). It is looked up on `$PATH`, or at `$VIPSHEADER`. The image
-//! `tools/Dockerfile.libvips-pdfium` builds has it, and so does a stock
-//! `libvips-tools` package with poppler. The default CI job has neither, so
-//! the test prints a `SKIP` and returns, the same convention the CLI-driven
-//! suites use for a missing sibling. `VIPRS_REQUIRE_VIPS=1` turns that skip
-//! into a failure for a job that is meant to have the oracle.
-//!
-//! # Where it has run
-//!
-//! - libvips 8.18.4 built with the pdfium backend (`tools/Dockerfile.libvips-pdfium`),
-//!   linux/arm64 in a container, 2026-10-09, run against the core's
-//!   `fix/1199-page-size-matches-libvips` working tree with libpdfium
-//!   pdfium-8085 swapped in over the image's 8054 (libvips and the test binary
-//!   load the same `libpdfium.so`): every size and DPI in the table, and the
-//!   rotated pages, equal.
-//! - Native x64 on MARS: see the PR for that run.
+//! Where it has run: libvips 8.18.4 with the pdfium backend
+//! (`tools/Dockerfile.libvips-pdfium`) and pdfium-8085, linux/arm64, in a
+//! container: every entry equal. Native x64 on MARS: see the PR.
 //!
 //! It does not need the `pdfium` feature: sizing is pure arithmetic, and the
-//! rendered rasters are checked against the same table in
-//! `pdfium_page_size_exact.rs`.
+//! rendered rasters are checked in `pdfium_page_size_exact.rs` and
+//! `page_size_libvips_pixel_parity.rs`.
 
 mod common;
 
-use std::path::PathBuf;
-use std::process::Command;
-
-use common::blank_pdf::{DPIS, PageSpec, SIZES, fixture_pdf, libvips_dims};
+use common::blank_pdf::{fixture_pdf, libvips_dims};
+use common::libvips_reference::{self, matrix};
+use common::vips_oracle::{header_field, skip_if_no_vips_pdf};
 use libviprs::PageSizing;
 
-fn vipsheader_bin() -> String {
-    std::env::var("VIPSHEADER").unwrap_or_else(|_| "vipsheader".to_string())
-}
-
-/// `vipsheader -f <field> <file>`, parsed as a number. `Err` carries what
-/// vipsheader said, so the caller can tell "no PDF loader" from a real mismatch.
-fn header_field(file: &str, field: &str) -> Result<u32, String> {
-    let out = Command::new(vipsheader_bin())
-        .args(["-f", field, file])
-        .output()
-        .map_err(|e| format!("cannot run {}: {e}", vipsheader_bin()))?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    String::from_utf8_lossy(&out.stdout)
-        .trim()
-        .parse()
-        .map_err(|e| {
-            format!(
-                "not a number {:?}: {e}",
-                String::from_utf8_lossy(&out.stdout)
-            )
-        })
-}
-
-/// Skip guard: `true` (with a printed reason) when there is no libvips with a
-/// PDF loader to ask. Panics instead under `VIPRS_REQUIRE_VIPS=1`.
-fn skip_if_no_vips_pdf(test: &str, probe_pdf: &str) -> bool {
-    let reason = match header_field(&format!("{probe_pdf}[dpi=72]"), "width") {
-        Ok(_) => return false,
-        Err(e) => e,
-    };
-    if std::env::var("VIPRS_REQUIRE_VIPS").as_deref() == Ok("1") {
-        panic!("{test}: VIPRS_REQUIRE_VIPS=1 but libvips cannot load a PDF: {reason}");
-    }
-    eprintln!(
-        "SKIP {test}: no libvips with a PDF loader ({reason}). Put vipsheader on PATH, \
-         set $VIPSHEADER, or run the image built from tools/Dockerfile.libvips-pdfium."
-    );
-    true
-}
-
-fn vips_version() -> String {
-    Command::new(vipsheader_bin())
-        .arg("--version")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default()
-}
-
-/// The size table as the committed PDFs under `tests/fixtures/page_size/`.
-fn pages() -> Vec<(&'static str, f64, f64, PathBuf)> {
-    SIZES
-        .iter()
-        .map(|&(label, w, h)| (label, w, h, fixture_pdf(&PageSpec::new(w, h))))
-        .collect()
-}
-
 #[test]
-fn exact_sizing_equals_libvips_pdfload_for_the_size_table() {
-    let pages = pages();
-    let probe = pages[0].3.to_str().unwrap();
-    if skip_if_no_vips_pdf(
-        "exact_sizing_equals_libvips_pdfload_for_the_size_table",
-        probe,
-    ) {
-        return;
-    }
-    eprintln!("oracle: {}", vips_version());
-
+fn exact_sizing_equals_the_recorded_libvips_size_for_every_fixture_and_dpi() {
+    let manifest = libvips_reference::load();
     let mut checked = 0;
-    for (label, w, h, path) in &pages {
-        for &dpi in DPIS {
-            let file = format!("{}[dpi={dpi}]", path.to_str().unwrap());
-            let vw =
-                header_field(&file, "width").unwrap_or_else(|e| panic!("{label} @ {dpi}: {e}"));
-            let vh =
-                header_field(&file, "height").unwrap_or_else(|e| panic!("{label} @ {dpi}: {e}"));
-
-            // The longhand oracle first: if this fails the test's own formula
-            // is wrong and the Exact comparison below means nothing.
-            assert_eq!(
-                libvips_dims(*w, *h, dpi),
-                (vw, vh),
-                "{label} @ {dpi} dpi: the test oracle disagrees with libvips pdfload",
-            );
-            let exact = PageSizing::Exact.pixel_dims(*w as f32 as f64, *h as f32 as f64, dpi);
-            assert_eq!(
-                exact,
-                (vw, vh),
-                "{label} @ {dpi} dpi: PageSizing::Exact disagrees with libvips pdfload",
-            );
-            checked += 1;
-        }
+    for e in matrix() {
+        let rec = manifest.recorded(&e);
+        // /Rotate 90 and 270 swap the axes in the page the sizing sees.
+        let (w, h) = if matches!(e.spec.rotate, Some(90 | 270)) {
+            (e.spec.h, e.spec.w)
+        } else {
+            (e.spec.w, e.spec.h)
+        };
+        let label = format!("{} @ {} dpi", e.label, e.dpi);
+        // The longhand oracle first: if this fails the test's own formula is
+        // wrong and the Exact comparison below means nothing.
+        assert_eq!(
+            libvips_dims(w, h, e.dpi),
+            (rec.width, rec.height),
+            "{label}: the test oracle disagrees with the recorded libvips size"
+        );
+        assert_eq!(
+            PageSizing::Exact.pixel_dims(w as f32 as f64, h as f32 as f64, e.dpi),
+            (rec.width, rec.height),
+            "{label}: PageSizing::Exact disagrees with the recorded libvips size",
+        );
+        checked += 1;
     }
-    assert_eq!(checked, SIZES.len() * DPIS.len());
+    assert!(checked >= 170, "only {checked} entries checked");
 }
 
-/// Rotation swaps the axes in libvips too, and `/Rotate` is read from the page
-/// the same way, so the swapped size must agree as well.
+/// Opt-in: the same comparison against a live `vipsheader`, to show the
+/// manifest has not drifted from the libvips it was made with.
 #[test]
-fn exact_sizing_equals_libvips_pdfload_on_rotated_pages() {
-    let pages = pages();
-    // Resolve the fixtures before the skip guard so a regeneration run writes them.
-    let rotated: Vec<_> = [
-        ("Letter", 612.0, 792.0),
-        ("A3", 841.89, 1190.551),
-        ("A4", 595.276, 841.89),
-    ]
-    .into_iter()
-    .flat_map(|(label, w, h)| {
-        [90, 270].map(|rotate| {
-            (
-                label,
-                w,
-                h,
-                rotate,
-                fixture_pdf(&PageSpec::new(w, h).rotate(rotate)),
-            )
-        })
-    })
-    .collect();
-    let probe = pages[0].3.to_str().unwrap();
+fn recorded_sizes_still_match_a_live_vipsheader() {
+    if std::env::var("VIPRS_VERIFY_LIBVIPS_REFERENCE").as_deref() != Ok("1") {
+        eprintln!(
+            "SKIP recorded_sizes_still_match_a_live_vipsheader: set VIPRS_VERIFY_LIBVIPS_REFERENCE=1 to run vipsheader"
+        );
+        return;
+    }
+    let entries = matrix();
+    let probe = fixture_pdf(&entries[0].spec);
     if skip_if_no_vips_pdf(
-        "exact_sizing_equals_libvips_pdfload_on_rotated_pages",
-        probe,
+        "recorded_sizes_still_match_a_live_vipsheader",
+        probe.to_str().unwrap(),
     ) {
         return;
     }
-    for (label, w, h, rotate, path) in rotated {
-        {
-            for &dpi in DPIS {
-                let file = format!("{}[dpi={dpi}]", path.to_str().unwrap());
-                let vw = header_field(&file, "width").unwrap();
-                let vh = header_field(&file, "height").unwrap();
-                assert_eq!(
-                    PageSizing::Exact.pixel_dims(h as f32 as f64, w as f32 as f64, dpi),
-                    (vw, vh),
-                    "{label} /Rotate {rotate} @ {dpi} dpi",
-                );
-            }
-        }
+    let manifest = libvips_reference::load();
+    for e in entries {
+        let rec = manifest.recorded(&e);
+        let file = format!("{}[dpi={}]", fixture_pdf(&e.spec).display(), e.dpi);
+        let live = (
+            header_field(&file, "width").unwrap(),
+            header_field(&file, "height").unwrap(),
+        );
+        assert_eq!(
+            live,
+            (rec.width, rec.height),
+            "{} @ {} dpi: the manifest drifted from vipsheader",
+            e.label,
+            e.dpi
+        );
     }
 }

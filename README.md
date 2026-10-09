@@ -280,7 +280,8 @@ whole of the fix.
 
 | File | Tests | Description |
 |---|---|---|
-| `page_size_libvips_pdfium_parity.rs` | 2 | `vipsheader` on `page.pdf[dpi=N]` for the same size table and DPI sweep (and rotated pages) equals `PageSizing::Exact`. Skips with a printed reason when no libvips with a PDF loader is on `PATH` (`VIPRS_REQUIRE_VIPS=1` makes that a failure). |
+| `page_size_libvips_pdfium_parity.rs` | 2 | `PageSizing::Exact` equals the width and height libvips `pdfload[dpi=N]` reported for every fixture sheet at every DPI (and rotated pages), read from the committed `tests/fixtures/page_size/libvips/libvips_reference.json`. Needs no libvips; `VIPRS_VERIFY_LIBVIPS_REFERENCE=1` also asks a live `vipsheader`. |
+| `page_size_libvips_pixel_parity.rs` | 5 (+1 ignored) | The libviprs raster against the libvips one: size and band count first, then pixels within a `PixelTolerance` (`VIPRS_PIXEL_MAX_DELTA`, `VIPRS_PIXEL_MAX_BAD_FRACTION`, `VIPRS_PIXEL_MAX_MAE`), one-pixel shift and stretch controls that must fall outside it, and landmark positions. Committed references run without libvips. Sheets bigger than Tabloid at 300 dpi are made on demand (see below). |
 | `pdf_ops.rs` | 6 | PDF parsing via lopdf: page count, dimensions, image detection, extraction, error handling. |
 | `pdf_cmyk.rs` | 3 | CMYK FlateDecode path: synthetic CMYK PDFs verify the DeviceCMYK → RGB conversion. |
 
@@ -295,6 +296,15 @@ whole of the fix.
 | File | Tests | Description |
 |---|---|---|
 | `stress.rs` | 3 | 10K×10K image, 4K determinism under high concurrency, 100× rapid-fire small pyramids. |
+
+### libvips references for the page-size tests
+
+libvips does not run in a normal test run. The PDFs under `tests/fixtures/page_size/` and the libvips reference under `tests/fixtures/page_size/libvips/` are generated once and committed; `libvips_reference.json` records, per fixture PDF and DPI, the size and band count libvips reported, the PDF's sha256, the libvips and pdfium versions and the exact invocation, and for each raster the sha256 of its decoded pixels.
+
+- **Committed rasters** (lossless 8-bit RGB PNG, flattened onto white): every sheet at 72 dpi, sheets up to 20M pixels at 150 dpi, Letter, A4 and Tabloid at 300 dpi, and a rotated and a CropBox A3 at 72 and 150.
+- **On-demand rasters** (sheets bigger than Tabloid at 300 dpi, and the 150 dpi rasters over the cap): too big to commit. When the file is missing and libvips is on `PATH`, the suite makes it into `tests/fixtures/page_size/libvips/generated/` (git-ignored, written to a temp name and renamed into place), checks the decoded pixels against the recorded hash, and later runs reuse it. With no libvips and no file the entry is skipped with the regen command; `VIPRS_REQUIRE_VIPS=1` makes that a failure. A hash mismatch fails with "libvips output differs from the recorded reference".
+- **Regenerate** everything (needs libvips with the pdfium backend, see `tools/Dockerfile.libvips-pdfium`): `REGEN_PAGE_SIZE_LIBVIPS=1 VIPRS_REFERENCE_PDFIUM=pdfium-8085 cargo test --features pdfium --test page_size_libvips_pixel_parity -- --ignored --exact regen_libvips_reference`. Output is deterministic.
+- **Verify** that the stored references still match a live libvips: `VIPRS_VERIFY_LIBVIPS_REFERENCE=1` on `page_size_libvips_pixel_parity` and `page_size_libvips_pdfium_parity`.
 
 ### PDFium
 

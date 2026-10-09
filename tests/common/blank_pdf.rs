@@ -234,7 +234,7 @@ pub fn fixture_dir() -> std::path::PathBuf {
 }
 
 /// File name for `spec`, derived from everything that changes its bytes.
-fn fixture_name(spec: &PageSpec) -> String {
+pub fn fixture_name(spec: &PageSpec) -> String {
     format!(
         "{}x{}_o{}_{}_r{}_c{}_u{}_{:?}.pdf",
         spec.w,
