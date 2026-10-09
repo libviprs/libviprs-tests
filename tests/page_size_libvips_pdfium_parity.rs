@@ -36,7 +36,7 @@ mod common;
 use std::path::PathBuf;
 use std::process::Command;
 
-use common::blank_pdf::{DPIS, PageSpec, SIZES, libvips_dims, slug, write_blank_pdf};
+use common::blank_pdf::{DPIS, PageSpec, SIZES, fixture_pdf, libvips_dims};
 use libviprs::PageSizing;
 
 fn vipsheader_bin() -> String {
@@ -89,25 +89,17 @@ fn vips_version() -> String {
         .unwrap_or_default()
 }
 
-fn write_pages() -> (tempfile::TempDir, Vec<(&'static str, f64, f64, PathBuf)>) {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let pages = SIZES
+/// The size table as the committed PDFs under `tests/fixtures/page_size/`.
+fn pages() -> Vec<(&'static str, f64, f64, PathBuf)> {
+    SIZES
         .iter()
-        .map(|&(label, w, h)| {
-            let path = write_blank_pdf(
-                dir.path(),
-                &format!("{}.pdf", slug(label)),
-                &PageSpec::new(w, h),
-            );
-            (label, w, h, path)
-        })
-        .collect();
-    (dir, pages)
+        .map(|&(label, w, h)| (label, w, h, fixture_pdf(&PageSpec::new(w, h))))
+        .collect()
 }
 
 #[test]
 fn exact_sizing_equals_libvips_pdfload_for_the_size_table() {
-    let (_dir, pages) = write_pages();
+    let pages = pages();
     let probe = pages[0].3.to_str().unwrap();
     if skip_if_no_vips_pdf(
         "exact_sizing_equals_libvips_pdfload_for_the_size_table",
@@ -149,7 +141,26 @@ fn exact_sizing_equals_libvips_pdfload_for_the_size_table() {
 /// the same way, so the swapped size must agree as well.
 #[test]
 fn exact_sizing_equals_libvips_pdfload_on_rotated_pages() {
-    let (dir, pages) = write_pages();
+    let pages = pages();
+    // Resolve the fixtures before the skip guard so a regeneration run writes them.
+    let rotated: Vec<_> = [
+        ("Letter", 612.0, 792.0),
+        ("A3", 841.89, 1190.551),
+        ("A4", 595.276, 841.89),
+    ]
+    .into_iter()
+    .flat_map(|(label, w, h)| {
+        [90, 270].map(|rotate| {
+            (
+                label,
+                w,
+                h,
+                rotate,
+                fixture_pdf(&PageSpec::new(w, h).rotate(rotate)),
+            )
+        })
+    })
+    .collect();
     let probe = pages[0].3.to_str().unwrap();
     if skip_if_no_vips_pdf(
         "exact_sizing_equals_libvips_pdfload_on_rotated_pages",
@@ -157,17 +168,8 @@ fn exact_sizing_equals_libvips_pdfload_on_rotated_pages() {
     ) {
         return;
     }
-    for &(label, w, h) in &[
-        ("Letter", 612.0, 792.0),
-        ("A3", 841.89, 1190.551),
-        ("A4", 595.276, 841.89),
-    ] {
-        for rotate in [90, 270] {
-            let path = write_blank_pdf(
-                dir.path(),
-                &format!("rot{rotate}_{}.pdf", slug(label)),
-                &PageSpec::new(w, h).rotate(rotate),
-            );
+    for (label, w, h, rotate, path) in rotated {
+        {
             for &dpi in DPIS {
                 let file = format!("{}[dpi={dpi}]", path.to_str().unwrap());
                 let vw = header_field(&file, "width").unwrap();

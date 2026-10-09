@@ -34,9 +34,7 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use common::blank_pdf::{
-    DPIS, FRAME_PT, PageSpec, SIZES, landmarks, libvips_dims, slug, write_blank_pdf,
-};
+use common::blank_pdf::{DPIS, FRAME_PT, PageSpec, SIZES, fixture_pdf, landmarks, libvips_dims};
 use libviprs::streaming::{BudgetPolicy, StripSource};
 use libviprs::{
     Layout, PageSizing, PdfiumRenderMode, PdfiumStripSource, PyramidPlanner, Raster,
@@ -57,39 +55,20 @@ struct Page {
     path: PathBuf,
 }
 
-/// The size table as PDFs on disk, written once for the whole binary.
+/// The size table as the committed PDFs under `tests/fixtures/page_size/`.
 fn pages() -> &'static [Page] {
-    static PAGES: OnceLock<(tempfile::TempDir, Vec<Page>)> = OnceLock::new();
-    &PAGES
-        .get_or_init(|| {
-            let dir = tempfile::tempdir().expect("tempdir");
-            let pages = SIZES
-                .iter()
-                .map(|&(label, w, h)| Page {
-                    label,
-                    w,
-                    h,
-                    path: write_blank_pdf(
-                        dir.path(),
-                        &format!("{}.pdf", slug(label)),
-                        &PageSpec::new(w, h),
-                    ),
-                })
-                .collect();
-            (dir, pages)
-        })
-        .1
-}
-
-fn scratch_dir() -> &'static Path {
-    static DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
-    DIR.get_or_init(|| tempfile::tempdir().expect("tempdir"))
-        .path()
-}
-
-/// Write a one-off PDF under a unique name.
-fn write_spec(name: &str, spec: &PageSpec) -> PathBuf {
-    write_blank_pdf(scratch_dir(), &format!("{name}.pdf"), spec)
+    static PAGES: OnceLock<Vec<Page>> = OnceLock::new();
+    PAGES.get_or_init(|| {
+        SIZES
+            .iter()
+            .map(|&(label, w, h)| Page {
+                label,
+                w,
+                h,
+                path: fixture_pdf(&PageSpec::new(w, h)),
+            })
+            .collect()
+    })
 }
 
 fn px(dims: (u32, u32)) -> u64 {
@@ -683,10 +662,7 @@ fn check_all_routes(name: &str, path: &Path, want: impl Fn(u32) -> (u32, u32)) {
 fn rotate_90_and_270_swap_the_axes() {
     for &(label, w, h) in GEOMETRY_SIZES {
         for rotate in [90, 270] {
-            let path = write_spec(
-                &format!("rot{rotate}_{}", slug(label)),
-                &PageSpec::new(w, h).rotate(rotate),
-            );
+            let path = fixture_pdf(&PageSpec::new(w, h).rotate(rotate));
             check_all_routes(&format!("{label} /Rotate {rotate}"), &path, |dpi| {
                 libvips_dims(h, w, dpi)
             });
@@ -697,10 +673,7 @@ fn rotate_90_and_270_swap_the_axes() {
 #[test]
 fn rotate_180_keeps_the_axes() {
     for &(label, w, h) in GEOMETRY_SIZES {
-        let path = write_spec(
-            &format!("rot180_{}", slug(label)),
-            &PageSpec::new(w, h).rotate(180),
-        );
+        let path = fixture_pdf(&PageSpec::new(w, h).rotate(180));
         check_all_routes(&format!("{label} /Rotate 180"), &path, |dpi| {
             libvips_dims(w, h, dpi)
         });
@@ -711,10 +684,7 @@ fn rotate_180_keeps_the_axes() {
 fn nonzero_mediabox_origin_does_not_change_the_size() {
     for &(label, w, h) in GEOMETRY_SIZES {
         for (ox, oy) in [(100.0, 50.0), (-36.5, -72.25)] {
-            let path = write_spec(
-                &format!("origin_{}_{ox}_{oy}", slug(label)),
-                &PageSpec::new(w, h).origin(ox, oy),
-            );
+            let path = fixture_pdf(&PageSpec::new(w, h).origin(ox, oy));
             check_all_routes(&format!("{label} origin ({ox},{oy})"), &path, |dpi| {
                 libvips_dims(w, h, dpi)
             });
@@ -727,10 +697,7 @@ fn nonzero_mediabox_origin_does_not_change_the_size() {
 #[test]
 fn cropbox_defines_the_page_size() {
     for &(label, w, h) in GEOMETRY_SIZES {
-        let path = write_spec(
-            &format!("crop_{}", slug(label)),
-            &PageSpec::new(w, h).crop_box(),
-        );
+        let path = fixture_pdf(&PageSpec::new(w, h).crop_box());
         check_all_routes(&format!("{label} CropBox"), &path, |dpi| {
             libvips_dims(w, h, dpi)
         });
@@ -740,10 +707,7 @@ fn cropbox_defines_the_page_size() {
 #[test]
 fn cropbox_with_rotate_and_origin_still_swaps_and_sizes_correctly() {
     let (w, h) = (841.89, 1190.551);
-    let path = write_spec(
-        "crop_rot_origin",
-        &PageSpec::new(w, h).crop_box().rotate(90).origin(40.0, 60.0),
-    );
+    let path = fixture_pdf(&PageSpec::new(w, h).crop_box().rotate(90).origin(40.0, 60.0));
     check_all_routes("A3 CropBox /Rotate 90 origin", &path, |dpi| {
         libvips_dims(h, w, dpi)
     });
@@ -755,10 +719,7 @@ fn cropbox_with_rotate_and_origin_still_swaps_and_sizes_correctly() {
 fn user_unit_is_ignored() {
     for &(label, w, h) in GEOMETRY_SIZES {
         for unit in [2.0, 0.5] {
-            let path = write_spec(
-                &format!("uu_{}_{unit}", slug(label)),
-                &PageSpec::new(w, h).user_unit(unit),
-            );
+            let path = fixture_pdf(&PageSpec::new(w, h).user_unit(unit));
             check_all_routes(&format!("{label} UserUnit {unit}"), &path, |dpi| {
                 libvips_dims(w, h, dpi)
             });
@@ -879,7 +840,7 @@ fn frame_reaches_every_edge_on_rotated_and_cropped_pages() {
         ("A3 CropBox", PageSpec::new(a3.0, a3.1).crop_box()),
     ];
     for (label, spec) in specs {
-        let path = write_spec(&format!("frame_{}", slug(label)), &spec);
+        let path = fixture_pdf(&spec);
         for dpi in [72, 150] {
             let label = format!("{label} @ {dpi}");
             assert_frame_on_every_edge(&label, &render_page_pdfium(&path, 1, dpi).unwrap());
@@ -1054,7 +1015,7 @@ fn landmarks_follow_rotation_origin_and_cropbox() {
             270,
         ));
         for (name, spec, rot) in specs {
-            let path = write_spec(&format!("lm_{}", slug(&name)), &spec);
+            let path = fixture_pdf(&spec);
             for dpi in [72, 150] {
                 let l = format!("{name} @ {dpi}");
                 assert_landmarks(

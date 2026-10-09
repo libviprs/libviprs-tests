@@ -303,7 +303,7 @@ All PDFium tests require `--features pdfium` and a PDFium shared library install
 | File | Tests | Description |
 |---|---|---|
 | `pdfium_integration.rs` | 6 | Library loading, page info, bitmap rendering, `render_page_pdfium` end-to-end, error handling. |
-| `pdfium_page_size_exact.rs` | 27 | A PDF page rasterises at the libvips size (`rint(pt * dpi/72)`, ties to even) on every route: render, budgeted, cached and streaming sources, `render_strip`, both budget policies. Drawing-heavy generated sheets (grid, shapes, text, title block, asymmetric landmarks), size table (Letter to A0, ARCH, ANSI, B4/B3, portrait and landscape) times DPI 72 to 600, rotation, MediaBox origin, CropBox, UserUnit, ink on every edge, landmarks within a pixel, and `PageSizing::LegacyTruncated` keeping the 0.5.x sizes (libviprs#1199). |
+| `pdfium_page_size_exact.rs` | 27 | A PDF page rasterises at the libvips size (`rint(pt * dpi/72)`, ties to even) on every route: render, budgeted, cached and streaming sources, `render_strip`, both budget policies. Drawing-heavy generated sheets (grid, shapes, text, title block, asymmetric landmarks), size table (Letter to A0, ARCH, ANSI, B4/B3, portrait and landscape) times DPI 72 to 600, rotation, MediaBox origin, CropBox, UserUnit, ink on every edge, landmarks within a pixel, and `PageSizing::LegacyTruncated` keeping the 0.5.x sizes (libviprs#1199). The PDFs are generated once and committed under `tests/fixtures/page_size/`; a new spec needs one run with `REGEN_PAGE_SIZE_FIXTURES=1`. |
 | `pdfium_system_check.rs` | 2 | **Manual diagnostic** (`--ignored`). Reports library search paths, verifies ABI compatibility, prints install instructions on failure. |
 
 ## PDFium Setup

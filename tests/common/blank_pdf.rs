@@ -228,10 +228,46 @@ pub fn build_blank_pdf(spec: &PageSpec) -> Vec<u8> {
     out
 }
 
-/// Write `spec` into `dir` under `name` and return the path.
-pub fn write_blank_pdf(dir: &std::path::Path, name: &str, spec: &PageSpec) -> std::path::PathBuf {
-    let path = dir.join(name);
-    std::fs::write(&path, build_blank_pdf(spec)).expect("write blank pdf");
+/// Where the committed PDFs live.
+pub fn fixture_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/page_size")
+}
+
+/// File name for `spec`, derived from everything that changes its bytes.
+fn fixture_name(spec: &PageSpec) -> String {
+    format!(
+        "{}x{}_o{}_{}_r{}_c{}_u{}_{:?}.pdf",
+        spec.w,
+        spec.h,
+        spec.origin.0,
+        spec.origin.1,
+        spec.rotate.map_or("-".to_string(), |r| r.to_string()),
+        u8::from(spec.crop_box),
+        spec.user_unit.map_or("-".to_string(), |u| u.to_string()),
+        spec.content,
+    )
+}
+
+/// Path of the committed PDF for `spec`. The PDFs are generated once and live
+/// in `tests/fixtures/page_size/`; a test run only reads them. Missing means
+/// the spec is new: run the suite once with `REGEN_PAGE_SIZE_FIXTURES=1` to
+/// write it (that also rewrites the rest, byte for byte, since the generator
+/// is deterministic), then commit the file.
+pub fn fixture_pdf(spec: &PageSpec) -> std::path::PathBuf {
+    let path = fixture_dir().join(fixture_name(spec));
+    if std::env::var_os("REGEN_PAGE_SIZE_FIXTURES").is_some() {
+        std::fs::create_dir_all(fixture_dir()).expect("create fixture dir");
+        let bytes = build_blank_pdf(spec);
+        if std::fs::read(&path).ok().as_deref() != Some(&bytes) {
+            std::fs::write(&path, bytes).expect("write fixture");
+        }
+    } else {
+        assert!(
+            path.exists(),
+            "{} is missing: run once with REGEN_PAGE_SIZE_FIXTURES=1 and commit it",
+            path.display()
+        );
+    }
     path
 }
 
