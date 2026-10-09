@@ -280,6 +280,7 @@ whole of the fix.
 
 | File | Tests | Description |
 |---|---|---|
+| `page_size_libvips_pdfium_parity.rs` | 2 | `vipsheader` on `page.pdf[dpi=N]` for the same size table and DPI sweep (and rotated pages) equals `PageSizing::Exact`. Skips with a printed reason when no libvips with a PDF loader is on `PATH` (`VIPRS_REQUIRE_VIPS=1` makes that a failure). |
 | `pdf_ops.rs` | 6 | PDF parsing via lopdf: page count, dimensions, image detection, extraction, error handling. |
 | `pdf_cmyk.rs` | 3 | CMYK FlateDecode path: synthetic CMYK PDFs verify the DeviceCMYK → RGB conversion. |
 
@@ -302,6 +303,7 @@ All PDFium tests require `--features pdfium` and a PDFium shared library install
 | File | Tests | Description |
 |---|---|---|
 | `pdfium_integration.rs` | 6 | Library loading, page info, bitmap rendering, `render_page_pdfium` end-to-end, error handling. |
+| `pdfium_page_size_exact.rs` | 24 | A PDF page rasterises at the libvips size (`rint(pt * dpi/72)`, ties to even) on every route: render, budgeted, cached and streaming sources, `render_strip`, both budget policies. Size table (Letter to A0) times DPI 72 to 600, rotation, MediaBox origin, CropBox, UserUnit, ink on every edge, and `PageSizing::LegacyTruncated` keeping the 0.5.x sizes (libviprs#1199). |
 | `pdfium_system_check.rs` | 2 | **Manual diagnostic** (`--ignored`). Reports library search paths, verifies ABI compatibility, prints install instructions on failure. |
 
 ## PDFium Setup
