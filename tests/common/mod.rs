@@ -19,11 +19,15 @@
 
 #![allow(dead_code)]
 
+pub mod blank_pdf;
 pub mod cli;
 pub mod dzsave_expected;
 pub mod fixtures;
 pub mod hooks;
+pub mod libvips_reference;
 pub mod manifest;
+pub mod pixel_tolerance;
+pub mod vips_oracle;
 pub mod workflows;
 
 #[cfg(feature = "pdfium")]
@@ -79,12 +83,6 @@ mod pdfium_helpers {
     /// 5.59). ±10.0 absorbs that without losing the ability to catch a
     /// wrong-region bug, which produces drift in the tens.
     pub const CROSS_PATH_MEAN_TOLERANCE: f64 = 10.0;
-
-    /// Pixel drift tolerance on dimensions reported by the source. pdfium's
-    /// internal scaler rounds at high DPI; +/- 4 px is observed empirically
-    /// at 150 and 300 DPI between `set_target_width` and `(pts * scale) as u32`
-    /// truncation paths.
-    pub const DIM_DRIFT_TOLERANCE_PX: i64 = 4;
 
     // -----------------------------------------------------------------------
     // Channel-mean helpers
@@ -161,8 +159,8 @@ mod pdfium_helpers {
 
     /// Extract the top-left `(w, h)` rect of an RGBA8 raster as a flat byte
     /// slice, copying row-by-row to honour stride. Used when comparing
-    /// rasters whose reported widths drift by a few pixels
-    /// (DIM_DRIFT_TOLERANCE_PX territory).
+    /// rasters of different sizes (the old dimension-drift cases, before
+    /// libviprs#1199 made every route report the libvips size).
     #[must_use]
     pub fn crop_top_left(r: &Raster, w: u32, h: u32) -> Vec<u8> {
         assert!(

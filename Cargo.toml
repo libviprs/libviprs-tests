@@ -104,6 +104,10 @@ tempfile = "3"
 # `canonical_rotated_{90,180,270}.pdf` fixtures instead. Keep the
 # version in lockstep with the libviprs core dep at libviprs/Cargo.toml.
 lopdf = "0.36"
+# Streams the big on-demand libvips references row by row, so a 400 MB raster is
+# never held whole next to the libviprs one (tests/common/libvips_reference.rs).
+# Already in the tree through `image`.
+png = "0.18"
 
 [dev-dependencies]
 serde_json = "1"

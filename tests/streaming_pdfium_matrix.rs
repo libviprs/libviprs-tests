@@ -57,36 +57,24 @@ const FIXTURES: &[&str] = &[FIXTURE_BLUEPRINT, FIXTURE_PORTRAIT, FIXTURE_MIX];
 // Constructor & metadata
 // ---------------------------------------------------------------------------
 
-/// The constructor is a metadata probe — it must report rotation-aware
-/// dimensions matching the form-data baseline within a few pixels and
-/// preserving orientation (landscape stays landscape, portrait stays
-/// portrait). The form-data path uses `set_target_width` which makes
-/// PDFium's internal aspect-preserving auto-scaler compute the final size
-/// via `round(source_dim * derived_scale)`; our streaming source uses a
-/// straight `(pts * scale) as u32` truncation. At high DPI those differ by
-/// up to a few pixels — that drift is fine as long as orientation is
-/// preserved and the magnitudes are close. The contract that matters for
-/// the streaming engine is determinism *within* the source itself, which
-/// the rest of the suite covers.
+/// The constructor is a metadata probe: it must report rotation-aware
+/// dimensions identical to the form-data baseline and preserve orientation
+/// (landscape stays landscape, portrait stays portrait). Since libviprs#1199
+/// both paths use the libvips size, so there is no tolerance. The contract
+/// that matters for the streaming engine is determinism *within* the source
+/// itself, which the rest of the suite covers.
 #[test]
 fn new_reports_rotation_aware_dimensions() {
-    const DIM_DRIFT_TOLERANCE_PX: i64 = 4;
     for &fixture in FIXTURES {
         for &dpi in &[72u32, 150] {
             let source = PdfiumStripSource::new(fixture, 1, dpi)
                 .unwrap_or_else(|e| panic!("PdfiumStripSource::new({fixture}, 1, {dpi}): {e:?}"));
             let baseline = render_page_pdfium(Path::new(fixture), 1, dpi)
                 .unwrap_or_else(|e| panic!("render_page_pdfium({fixture}, 1, {dpi}): {e:?}"));
-            let dw = (source.width() as i64 - baseline.width() as i64).abs();
-            let dh = (source.height() as i64 - baseline.height() as i64).abs();
-            assert!(
-                dw <= DIM_DRIFT_TOLERANCE_PX && dh <= DIM_DRIFT_TOLERANCE_PX,
-                "dimension drift > {DIM_DRIFT_TOLERANCE_PX}px for {fixture} at {dpi} DPI: \
-                 source={}x{} baseline={}x{}",
-                source.width(),
-                source.height(),
-                baseline.width(),
-                baseline.height(),
+            assert_eq!(
+                (source.width(), source.height()),
+                (baseline.width(), baseline.height()),
+                "dimensions differ for {fixture} at {dpi} DPI",
             );
             let source_landscape = source.width() > source.height();
             let baseline_landscape = baseline.width() > baseline.height();
@@ -434,21 +422,14 @@ fn diag_strip_vs_full_per_row_diff() {
 
 #[test]
 fn matrix_full_structural_match_with_form_data_baseline() {
-    const DIM_DRIFT_TOLERANCE_PX: i64 = 4;
     for &fixture in FIXTURES {
         let dpi = 72;
         let matrix = matrix_full_render(fixture, dpi);
         let baseline = render_page_pdfium(Path::new(fixture), 1, dpi).unwrap();
-        let dw = (matrix.width() as i64 - baseline.width() as i64).abs();
-        let dh = (matrix.height() as i64 - baseline.height() as i64).abs();
-        assert!(
-            dw <= DIM_DRIFT_TOLERANCE_PX && dh <= DIM_DRIFT_TOLERANCE_PX,
-            "{fixture}: matrix vs form-data dimension drift > {DIM_DRIFT_TOLERANCE_PX}px \
-             (matrix={}x{}, baseline={}x{})",
-            matrix.width(),
-            matrix.height(),
-            baseline.width(),
-            baseline.height(),
+        assert_eq!(
+            (matrix.width(), matrix.height()),
+            (baseline.width(), baseline.height()),
+            "{fixture}: matrix and form-data dimensions must be identical",
         );
         assert_eq!(matrix.format(), baseline.format(), "{fixture}");
     }

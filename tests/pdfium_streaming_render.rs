@@ -29,9 +29,7 @@ mod common;
 
 use std::path::Path;
 
-use common::{
-    DIM_DRIFT_TOLERANCE_PX, FIXTURE_BLUEPRINT, FIXTURE_PORTRAIT, FIXTURES, assert_same_region,
-};
+use common::{FIXTURE_BLUEPRINT, FIXTURE_PORTRAIT, FIXTURES, assert_same_region};
 use libviprs::pdf::{PdfError, render_page_pdfium};
 use libviprs::streaming::{BudgetPolicy, StripSource};
 use libviprs::{PdfiumStripSource, PixelFormat};
@@ -48,16 +46,10 @@ fn new_streaming_reports_rotation_aware_dimensions() {
                 .unwrap_or_else(|e| panic!("new_streaming({fixture}, 1, {dpi}): {e:?}"));
             let baseline = render_page_pdfium(Path::new(fixture), 1, dpi)
                 .unwrap_or_else(|e| panic!("baseline form-data render: {e:?}"));
-            let dw = (source.width() as i64 - baseline.width() as i64).abs();
-            let dh = (source.height() as i64 - baseline.height() as i64).abs();
-            assert!(
-                dw <= DIM_DRIFT_TOLERANCE_PX && dh <= DIM_DRIFT_TOLERANCE_PX,
-                "{fixture} {dpi}DPI: drift exceeds tolerance \
-                 (source={}x{} baseline={}x{})",
-                source.width(),
-                source.height(),
-                baseline.width(),
-                baseline.height(),
+            assert_eq!(
+                (source.width(), source.height()),
+                (baseline.width(), baseline.height()),
+                "{fixture} {dpi}DPI: source and form-data baseline must agree exactly",
             );
             let source_landscape = source.width() > source.height();
             let baseline_landscape = baseline.width() > baseline.height();
@@ -93,25 +85,18 @@ fn new_streaming_page_zero_errors_typed() {
     }
 }
 
-/// Streaming-mode and cached-mode constructors must report dims within the
-/// same drift tolerance. Callers swapping between them should not see
-/// dimension changes.
+/// Streaming-mode and cached-mode constructors must report identical dims.
+/// Callers swapping between them should not see dimension changes.
 #[test]
 fn new_streaming_dims_match_cached_mode() {
     for &fixture in FIXTURES {
         for &dpi in &[72u32, 150] {
             let cached = PdfiumStripSource::new(fixture, 1, dpi).unwrap();
             let streaming = PdfiumStripSource::new_streaming(fixture, 1, dpi).unwrap();
-            let dw = (cached.width() as i64 - streaming.width() as i64).abs();
-            let dh = (cached.height() as i64 - streaming.height() as i64).abs();
-            assert!(
-                dw <= DIM_DRIFT_TOLERANCE_PX && dh <= DIM_DRIFT_TOLERANCE_PX,
-                "{fixture} {dpi}DPI: cached vs streaming dim drift > {DIM_DRIFT_TOLERANCE_PX}px \
-                 (cached={}x{} streaming={}x{})",
-                cached.width(),
-                cached.height(),
-                streaming.width(),
-                streaming.height(),
+            assert_eq!(
+                (cached.width(), cached.height()),
+                (streaming.width(), streaming.height()),
+                "{fixture} {dpi}DPI: cached and streaming dims must be identical",
             );
         }
     }
