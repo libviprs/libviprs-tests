@@ -81,9 +81,9 @@ libviprs = { path = "../libviprs" }
 # it "once the fork is upstreamed and released". Upstream released 0.9.4, the
 # core crate retired the fork, and the patch is gone. It was also the reason
 # this suite tested pdfium-render code the core crate did not ship.
-pdfium-render = { version = "0.9.4", default-features = false, features = [
+pdfium-render = { git = "https://github.com/libviprs/pdfium-render", branch = "pdfium_8085", default-features = false, features = [
     "thread_safe",
-    "pdfium_7881",
+    "pdfium_8085",
     "image_025",
 ], optional = true }
 # Feature unification across the workspace means the decode features enabled
