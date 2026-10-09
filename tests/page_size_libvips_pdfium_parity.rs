@@ -19,9 +19,12 @@
 //!
 //! # Where it has run
 //!
-//! - libvips 8.18.4 built with the pdfium backend (`tools/Dockerfile.libvips-pdfium`,
-//!   pdfium-8054 from libviprs-dep), linux/arm64 in a container, 2026-10-09:
-//!   all 85 size/DPI combinations equal.
+//! - libvips 8.18.4 built with the pdfium backend (`tools/Dockerfile.libvips-pdfium`),
+//!   linux/arm64 in a container, 2026-10-09, run against the core's
+//!   `fix/1199-page-size-matches-libvips` working tree with libpdfium
+//!   pdfium-8085 swapped in over the image's 8054 (libvips and the test binary
+//!   load the same `libpdfium.so`): every size and DPI in the table, and the
+//!   rotated pages, equal.
 //! - Native x64 on MARS: see the PR for that run.
 //!
 //! It does not need the `pdfium` feature: sizing is pure arithmetic, and the
