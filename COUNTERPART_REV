@@ -342,4 +342,10 @@
 # `skip_blanks` to the re-render (#1187, closing #1174). Neither is in
 # fe048824. The verify cells in cli_pyramid_pipeline.rs move in the same
 # commit (libviprs/libviprs-tests#256).
-2162f67f639af6f539bcf3871060cf8a389db8d4
+#
+# Bumped to a5851b6f, the libviprs v0.6.0 tag (on crates.io). The page-size
+# parity cells (libviprs-tests#269, from #268) need PageSizing from #1201, which
+# fe048824..2162f67f lack. libviprs 0.6.0 uses the registry pdfium-render 0.9.4
+# with the pdfium_7881 bindings, and this repo's lock carries that same single
+# copy. The installed libpdfium is 8085, as in libviprs tools/Dockerfile.ci.
+a5851b6fff0274a6659fc32b7d21579253836309

@@ -234,7 +234,7 @@ cargo test --features "jxl avif svg jp2k" --test codec_e2e
 STEP
 
 job test-pdfium
-step PDFIUM_RELEASE=pdfium-8054 PDFIUM_SHA256=b42d1731f07fb73edea38cbd294afe9be4bdcf8e4ed8523de51cd5d12fc8d271 <<'STEP'
+step PDFIUM_RELEASE=pdfium-8085 PDFIUM_SHA256=ec671f549717c8c3e1642680cd834a9dbc580fb3c239bc3a426e9475166aaa63 <<'STEP'
 curl -fsSL -o pdfium.tgz "https://github.com/libviprs/libviprs-dep/releases/download/${PDFIUM_RELEASE}/pdfium-linux-x64.tgz"
 echo "${PDFIUM_SHA256}  pdfium.tgz" | sha256sum -c -
 mkdir -p pdfium
@@ -268,7 +268,7 @@ STEP
 step VIPRS_REQUIRE_CLI=1 <<'STEP'
 cargo test --features "jxl jp2k avif svg" --test cli_foreign_diff
 STEP
-step PDFIUM_RELEASE=pdfium-8054 PDFIUM_SHA256=b42d1731f07fb73edea38cbd294afe9be4bdcf8e4ed8523de51cd5d12fc8d271 <<'STEP'
+step PDFIUM_RELEASE=pdfium-8085 PDFIUM_SHA256=ec671f549717c8c3e1642680cd834a9dbc580fb3c239bc3a426e9475166aaa63 <<'STEP'
 curl -fsSL -o pdfium.tgz "https://github.com/libviprs/libviprs-dep/releases/download/${PDFIUM_RELEASE}/pdfium-linux-x64.tgz"
 echo "${PDFIUM_SHA256}  pdfium.tgz" | sha256sum -c -
 mkdir -p "$RUNNER_TEMP/pdfium"
@@ -280,7 +280,7 @@ cargo build --release --bin viprs --manifest-path ../libviprs-cli/Cargo.toml --t
 echo "VIPRS_BIN=$RUNNER_TEMP/viprs-pdfium/release/viprs" >> "$GITHUB_ENV"
 STEP
 step VIPRS_REQUIRE_CLI=1 VIPRS_REQUIRE_PDFIUM=1 <<'STEP'
-cargo test --test cli_pdf_geo_plan
+cargo test --test cli_pdf_geo_plan --test cli_page_size_parity
 STEP
 step VIPRS_REQUIRE_CLI=1 <<'STEP'
 cargo test --features s3 --test cli_pyramid_pipeline -- the_object_store_sink retries_then_fail

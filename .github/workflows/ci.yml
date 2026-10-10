@@ -64,8 +64,8 @@ jobs:
         # single source shared with the Dockerfile. Keep PDFIUM_RELEASE and the
         # SHA-256 digest in lockstep with the Dockerfile.
         env:
-          PDFIUM_RELEASE: pdfium-8054
-          PDFIUM_SHA256: b42d1731f07fb73edea38cbd294afe9be4bdcf8e4ed8523de51cd5d12fc8d271
+          PDFIUM_RELEASE: pdfium-8085
+          PDFIUM_SHA256: ec671f549717c8c3e1642680cd834a9dbc580fb3c239bc3a426e9475166aaa63
         run: |
           curl -fsSL -o pdfium.tgz "https://github.com/libviprs/libviprs-dep/releases/download/${PDFIUM_RELEASE}/pdfium-linux-x64.tgz"
           echo "${PDFIUM_SHA256}  pdfium.tgz" | sha256sum -c -
@@ -192,8 +192,8 @@ jobs:
       # this step cannot go green by not running them.
       - name: Install PDFium for cli_pdf_geo_plan
         env:
-          PDFIUM_RELEASE: pdfium-8054
-          PDFIUM_SHA256: b42d1731f07fb73edea38cbd294afe9be4bdcf8e4ed8523de51cd5d12fc8d271
+          PDFIUM_RELEASE: pdfium-8085
+          PDFIUM_SHA256: ec671f549717c8c3e1642680cd834a9dbc580fb3c239bc3a426e9475166aaa63
         run: |
           curl -fsSL -o pdfium.tgz "https://github.com/libviprs/libviprs-dep/releases/download/${PDFIUM_RELEASE}/pdfium-linux-x64.tgz"
           echo "${PDFIUM_SHA256}  pdfium.tgz" | sha256sum -c -
@@ -207,7 +207,12 @@ jobs:
       - env:
           VIPRS_REQUIRE_CLI: 1
           VIPRS_REQUIRE_PDFIUM: 1
-        run: cargo test --test cli_pdf_geo_plan
+        # cli_page_size_parity is the CLI half of the page-size suite
+        # (libviprs-tests#269): the library suite's fixtures and libvips
+        # references through the same pdfium-enabled viprs. No libvips here, so
+        # the committed references run and the big sheets skip; the library
+        # test-pdfium job and the local Docker gate make those.
+        run: cargo test --test cli_pdf_geo_plan --test cli_page_size_parity
       # The object-store and failure-flag cells of cli_pyramid_pipeline need
       # this crate's `s3` feature, and build their own `viprs --features s3`
       # into a target dir of their own, so they do not touch the binary the

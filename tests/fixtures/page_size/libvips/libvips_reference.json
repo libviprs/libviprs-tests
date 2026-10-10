@@ -1,0 +1,1949 @@
+{
+  "about": "libvips pdfload references for the page-size tests; see tests/common/libvips_reference.rs",
+  "entries": [
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1417,
+      "label": "B3",
+      "pdf": "1000.63x1417.323_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "5a05b764e2765e64fb4d922f04a331bea16c1178bd2a464b189467b1e8efab6d",
+      "raster": {
+        "file": "1000.63x1417.323_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "69697570e5b12085c0d6aebfc6bfa376054137006c3717311ac4701d0cf3e181",
+        "raster_sha256": "07fd65ea54ff05babd6f1bd9874bca4984e891e03ef65a8cb6699a3f1890df2b"
+      },
+      "width": 1001
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1890,
+      "label": "B3",
+      "pdf": "1000.63x1417.323_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "5a05b764e2765e64fb4d922f04a331bea16c1178bd2a464b189467b1e8efab6d",
+      "width": 1334
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 2953,
+      "label": "B3",
+      "pdf": "1000.63x1417.323_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "5a05b764e2765e64fb4d922f04a331bea16c1178bd2a464b189467b1e8efab6d",
+      "raster": {
+        "file": "1000.63x1417.323_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "59afa4d62c84e102928fe1100703be957ae7891e61370917480606e2c3de2cc9",
+        "raster_sha256": "3dea70d4fca10a7e7c6b6ac805d8f0630d0910fcd3518cd3dbddc4505dc07d27"
+      },
+      "width": 2085
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 5906,
+      "label": "B3",
+      "pdf": "1000.63x1417.323_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "5a05b764e2765e64fb4d922f04a331bea16c1178bd2a464b189467b1e8efab6d",
+      "raster": {
+        "file": "generated/1000.63x1417.323_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "6b1f1751cbc94072f9734281614bd0e7f37b0dd4793c7c5c19f8a88b583e1b4b"
+      },
+      "width": 4169
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 11811,
+      "label": "B3",
+      "pdf": "1000.63x1417.323_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "5a05b764e2765e64fb4d922f04a331bea16c1178bd2a464b189467b1e8efab6d",
+      "width": 8339
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 612,
+      "label": "Legal landscape",
+      "pdf": "1008x612_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "0d0efb439d7e9749a111dc7d09eeeacbef0865bec5f1b63c9725194397c5c9e1",
+      "raster": {
+        "file": "1008x612_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "c4590de70d1f15fe3aeb5be20a69317fa4e62571d6867e7f2b5a8b6044e185e3",
+        "raster_sha256": "b04d44e1b7e61e67a169c1788c22c76c1e3f5a7192b601e5bd9f95f11b8257b2"
+      },
+      "width": 1008
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 816,
+      "label": "Legal landscape",
+      "pdf": "1008x612_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "0d0efb439d7e9749a111dc7d09eeeacbef0865bec5f1b63c9725194397c5c9e1",
+      "width": 1344
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1275,
+      "label": "Legal landscape",
+      "pdf": "1008x612_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "0d0efb439d7e9749a111dc7d09eeeacbef0865bec5f1b63c9725194397c5c9e1",
+      "raster": {
+        "file": "1008x612_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "fbd367610217b43b305b1c076d39ac4681e75941b229133f637684efcfb495c4",
+        "raster_sha256": "e94630afdf97e12832785ed93e9b29dce4c0693b1b59f60cb37a41ffb0f62eec"
+      },
+      "width": 2100
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 2550,
+      "label": "Legal landscape",
+      "pdf": "1008x612_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "0d0efb439d7e9749a111dc7d09eeeacbef0865bec5f1b63c9725194397c5c9e1",
+      "width": 4200
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 5100,
+      "label": "Legal landscape",
+      "pdf": "1008x612_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "0d0efb439d7e9749a111dc7d09eeeacbef0865bec5f1b63c9725194397c5c9e1",
+      "width": 8400
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1684,
+      "label": "A2",
+      "pdf": "1190.551x1683.78_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "106145b501d62b0e5a89f49612236f5a1304950affad9f0d57a460bf4663622f",
+      "raster": {
+        "file": "1190.551x1683.78_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "02ca831c9af776822a293aa49bbd0ebe102b342444c1c9417fbdc6271503ecb1",
+        "raster_sha256": "0b82437ab4431f3b8d7a2e98737efc78c03cd2810da6278abb07c273cc1a4cbe"
+      },
+      "width": 1191
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 2245,
+      "label": "A2",
+      "pdf": "1190.551x1683.78_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "106145b501d62b0e5a89f49612236f5a1304950affad9f0d57a460bf4663622f",
+      "width": 1587
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 3508,
+      "label": "A2",
+      "pdf": "1190.551x1683.78_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "106145b501d62b0e5a89f49612236f5a1304950affad9f0d57a460bf4663622f",
+      "raster": {
+        "file": "1190.551x1683.78_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "33af927f2f53cd9166cdebc7ad46f8ecb4cde5531065c1ccb7962c9c0d43ee55",
+        "raster_sha256": "6763515dbc17d5b059cb2cb4583763136eafb9f7a8d44a8ff9c86c476ba246b2"
+      },
+      "width": 2480
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 7016,
+      "label": "A2",
+      "pdf": "1190.551x1683.78_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "106145b501d62b0e5a89f49612236f5a1304950affad9f0d57a460bf4663622f",
+      "raster": {
+        "file": "generated/1190.551x1683.78_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "3ba2a650ba4edd13b401f077af615b62b26f30ae857c04ce179e9faaac4d9cff"
+      },
+      "width": 4961
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 14032,
+      "label": "A2",
+      "pdf": "1190.551x1683.78_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "106145b501d62b0e5a89f49612236f5a1304950affad9f0d57a460bf4663622f",
+      "width": 9921
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 842,
+      "label": "A3 landscape",
+      "pdf": "1190.551x841.89_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "e0e8d55c789c61011029bf5e9e84985332901cdc62fcd70b93f3096a874520ff",
+      "raster": {
+        "file": "1190.551x841.89_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "dd02e5218748f6343e7aae49807f97598394c34744dfca8d3b7f7d7e0e3411b9",
+        "raster_sha256": "e86ec91442ed542dcb4e53dc21efbfc46a578f1b496b87e4fdc2489ec8840e1e"
+      },
+      "width": 1191
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1123,
+      "label": "A3 landscape",
+      "pdf": "1190.551x841.89_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "e0e8d55c789c61011029bf5e9e84985332901cdc62fcd70b93f3096a874520ff",
+      "width": 1587
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1754,
+      "label": "A3 landscape",
+      "pdf": "1190.551x841.89_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "e0e8d55c789c61011029bf5e9e84985332901cdc62fcd70b93f3096a874520ff",
+      "raster": {
+        "file": "1190.551x841.89_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "056305b4bf3df68e138fdb9e1b3ce265290d68024b6a9fea751ae871464e9f89",
+        "raster_sha256": "5a708b211fb83d38d6156958697e538f97aa63133875b7d5defac07479fc7986"
+      },
+      "width": 2480
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 3508,
+      "label": "A3 landscape",
+      "pdf": "1190.551x841.89_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "e0e8d55c789c61011029bf5e9e84985332901cdc62fcd70b93f3096a874520ff",
+      "raster": {
+        "file": "generated/1190.551x841.89_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "1d5172d53f0b73507092c5ed49ab7cd2bc2fbd72b45b6da2046a987cf2cb8da5"
+      },
+      "width": 4961
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 7016,
+      "label": "A3 landscape",
+      "pdf": "1190.551x841.89_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "e0e8d55c789c61011029bf5e9e84985332901cdc62fcd70b93f3096a874520ff",
+      "width": 9921
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1584,
+      "label": "ANSI C",
+      "pdf": "1224x1584_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "91520d6b38b425b27f773bfbe8b3bc9160d02ed3e10d98bcbaec89c3591763dd",
+      "raster": {
+        "file": "1224x1584_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "b548853186a30751b7d40f52c64fa8b55f040b2343100e1bc9f8a5ed44ee1ef3",
+        "raster_sha256": "04ff9bb9a048169a89e56042e2d52cf00aaa5026323bd3c9369e1e442dd34844"
+      },
+      "width": 1224
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 2112,
+      "label": "ANSI C",
+      "pdf": "1224x1584_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "91520d6b38b425b27f773bfbe8b3bc9160d02ed3e10d98bcbaec89c3591763dd",
+      "width": 1632
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 3300,
+      "label": "ANSI C",
+      "pdf": "1224x1584_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "91520d6b38b425b27f773bfbe8b3bc9160d02ed3e10d98bcbaec89c3591763dd",
+      "raster": {
+        "file": "1224x1584_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "4230003314a0faffe41fc279c99ca8245a171ab70a95b03d4f113c4e0b4aca91",
+        "raster_sha256": "06155c72b854eb94030f4ea66981f5d7ef9e61a696d4cde455110b24e0e90e28"
+      },
+      "width": 2550
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 6600,
+      "label": "ANSI C",
+      "pdf": "1224x1584_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "91520d6b38b425b27f773bfbe8b3bc9160d02ed3e10d98bcbaec89c3591763dd",
+      "raster": {
+        "file": "generated/1224x1584_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "9a6b9c75c178efda3433118478f37a33a817c8fdee9dcb595dd393e4db6907ae"
+      },
+      "width": 5100
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 13200,
+      "label": "ANSI C",
+      "pdf": "1224x1584_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "91520d6b38b425b27f773bfbe8b3bc9160d02ed3e10d98bcbaec89c3591763dd",
+      "width": 10200
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 792,
+      "label": "Tabloid landscape",
+      "pdf": "1224x792_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "804f33df31e57e1e758f30c047c49561b5f1a1f2aaee6b9cda18e1aa75c7b410",
+      "raster": {
+        "file": "1224x792_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "5bca21d4c48534a3358985f701ad69d1a8959b15ae975c5071edbb4ae97b1c4c",
+        "raster_sha256": "b5f2abdcad6c88e81d9ca41431c51072c1b2e4a5e9c529ffbaa8a945bde86afa"
+      },
+      "width": 1224
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1056,
+      "label": "Tabloid landscape",
+      "pdf": "1224x792_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "804f33df31e57e1e758f30c047c49561b5f1a1f2aaee6b9cda18e1aa75c7b410",
+      "width": 1632
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1650,
+      "label": "Tabloid landscape",
+      "pdf": "1224x792_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "804f33df31e57e1e758f30c047c49561b5f1a1f2aaee6b9cda18e1aa75c7b410",
+      "raster": {
+        "file": "1224x792_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "a2bcc72e5c012bfa9b70d6b1808d18871fafc75afe7c940e5695f3fea9a704ef",
+        "raster_sha256": "1af4686f60aabec320451eef70ae158780b3cdc1d0f0f220786666b9c17a9f69"
+      },
+      "width": 2550
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 3300,
+      "label": "Tabloid landscape",
+      "pdf": "1224x792_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "804f33df31e57e1e758f30c047c49561b5f1a1f2aaee6b9cda18e1aa75c7b410",
+      "width": 5100
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 6600,
+      "label": "Tabloid landscape",
+      "pdf": "1224x792_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "804f33df31e57e1e758f30c047c49561b5f1a1f2aaee6b9cda18e1aa75c7b410",
+      "width": 10200
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1728,
+      "label": "ARCH C",
+      "pdf": "1296x1728_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "2b807be68529c4be4f2fd0dbd97377c2d643e3fbea451d0aac94193c49e6ddf8",
+      "raster": {
+        "file": "1296x1728_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "18c22fb3b884336bc9a64e29e8f5e1d4a6f9e591fc0694e3772026cec6fc8d04",
+        "raster_sha256": "53f57bda3a3073109465a9a36cd5d3a2582d9286c531b56111257151dca89135"
+      },
+      "width": 1296
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 2304,
+      "label": "ARCH C",
+      "pdf": "1296x1728_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "2b807be68529c4be4f2fd0dbd97377c2d643e3fbea451d0aac94193c49e6ddf8",
+      "width": 1728
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 3600,
+      "label": "ARCH C",
+      "pdf": "1296x1728_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "2b807be68529c4be4f2fd0dbd97377c2d643e3fbea451d0aac94193c49e6ddf8",
+      "raster": {
+        "file": "1296x1728_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "a36c2e0f937df9c9dc5d621341ccbee29773c974ba1cd37abe6110404f69b2e9",
+        "raster_sha256": "0aad021cd04e0f177371582e0cbae0669b6dc6a5875d84291f92df81505cc49a"
+      },
+      "width": 2700
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 7200,
+      "label": "ARCH C",
+      "pdf": "1296x1728_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "2b807be68529c4be4f2fd0dbd97377c2d643e3fbea451d0aac94193c49e6ddf8",
+      "raster": {
+        "file": "generated/1296x1728_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "5066c142d8984dbcd2ef848f8d00ad4875e65d54881cb4bea1ceec84a1518852"
+      },
+      "width": 5400
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 14400,
+      "label": "ARCH C",
+      "pdf": "1296x1728_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "2b807be68529c4be4f2fd0dbd97377c2d643e3fbea451d0aac94193c49e6ddf8",
+      "width": 10800
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1224,
+      "label": "ANSI C landscape",
+      "pdf": "1584x1224_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "873c8b478098a32e3ca2dde50de2e9e4f98572b20035426f11e1e6a9667355f2",
+      "raster": {
+        "file": "1584x1224_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "da973cc826441d02d2306c0ddee9c54d3ab459338f150e312715db56d32287f4",
+        "raster_sha256": "589553d750723d36d611c690c5d65a87401d8308f5bdd012c7502d6e0a7f7b21"
+      },
+      "width": 1584
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1632,
+      "label": "ANSI C landscape",
+      "pdf": "1584x1224_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "873c8b478098a32e3ca2dde50de2e9e4f98572b20035426f11e1e6a9667355f2",
+      "width": 2112
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 2550,
+      "label": "ANSI C landscape",
+      "pdf": "1584x1224_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "873c8b478098a32e3ca2dde50de2e9e4f98572b20035426f11e1e6a9667355f2",
+      "raster": {
+        "file": "1584x1224_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "0d1e7c18dedabbdb3bab3f648939e81842cd547415dbaa14955217d785ffad59",
+        "raster_sha256": "bcf9284502029b41845f98076cacb8e8520104dca83820d6efbed67dfe9e5b45"
+      },
+      "width": 3300
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 5100,
+      "label": "ANSI C landscape",
+      "pdf": "1584x1224_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "873c8b478098a32e3ca2dde50de2e9e4f98572b20035426f11e1e6a9667355f2",
+      "raster": {
+        "file": "generated/1584x1224_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "0a20990248d58e7897fe0d72ed5dea347a370c265cd0e0e81859b02b03577771"
+      },
+      "width": 6600
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 10200,
+      "label": "ANSI C landscape",
+      "pdf": "1584x1224_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "873c8b478098a32e3ca2dde50de2e9e4f98572b20035426f11e1e6a9667355f2",
+      "width": 13200
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 2448,
+      "label": "ANSI D",
+      "pdf": "1584x2448_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "1730a0564810749adf07a7af816e5d86228d50baf9fe1f3f7af3d76813dfaeb7",
+      "raster": {
+        "file": "1584x2448_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "1254f3b834690a07bda413cd50c6a0c493f36f79105f67cd77f14b1a160d271c",
+        "raster_sha256": "61a22ef04c7a31951058d0df82d53fe3b06810fd8f31bb11872d223535477d0d"
+      },
+      "width": 1584
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 3264,
+      "label": "ANSI D",
+      "pdf": "1584x2448_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "1730a0564810749adf07a7af816e5d86228d50baf9fe1f3f7af3d76813dfaeb7",
+      "width": 2112
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 5100,
+      "label": "ANSI D",
+      "pdf": "1584x2448_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "1730a0564810749adf07a7af816e5d86228d50baf9fe1f3f7af3d76813dfaeb7",
+      "raster": {
+        "file": "1584x2448_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "524879b468b53d660ba96240fc39dd1bf61375c9625087f1a939125a02759ddc",
+        "raster_sha256": "c97b42a03839c4ac720cd11cbe7ece0af3e7fff14597ef024b869beadd6948d8"
+      },
+      "width": 3300
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 10200,
+      "label": "ANSI D",
+      "pdf": "1584x2448_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "1730a0564810749adf07a7af816e5d86228d50baf9fe1f3f7af3d76813dfaeb7",
+      "raster": {
+        "file": "generated/1584x2448_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "942ab969212bff914c6ccd94357b1e96134babbf0e957c7938aba1dcee4ff9e6"
+      },
+      "width": 6600
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 20400,
+      "label": "ANSI D",
+      "pdf": "1584x2448_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "1730a0564810749adf07a7af816e5d86228d50baf9fe1f3f7af3d76813dfaeb7",
+      "width": 13200
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 2384,
+      "label": "A1",
+      "pdf": "1683.78x2383.937_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "6445108e2ea968861af3904a81782cd1b4f8a23a5181e3f3f3c1566090d3bda9",
+      "raster": {
+        "file": "1683.78x2383.937_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "3e047ebf1f30e1cced8d088fecff3d2e7516c73b1318ef07408d494c6de36470",
+        "raster_sha256": "ea779539260fbe0649eeed7a82d93621f96cdb7ede4cf8ed6e8ea6531beb067f"
+      },
+      "width": 1684
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 3179,
+      "label": "A1",
+      "pdf": "1683.78x2383.937_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "6445108e2ea968861af3904a81782cd1b4f8a23a5181e3f3f3c1566090d3bda9",
+      "width": 2245
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 4967,
+      "label": "A1",
+      "pdf": "1683.78x2383.937_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "6445108e2ea968861af3904a81782cd1b4f8a23a5181e3f3f3c1566090d3bda9",
+      "raster": {
+        "file": "1683.78x2383.937_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "0df8851d23a8eb5b02a60a63c29a7312902677df34d2069beb1cd5e66acf673b",
+        "raster_sha256": "2d4fd7cd667cc69ded0c6d01bbc6fa4eea0f160f79add9d3f93be589854a0f10"
+      },
+      "width": 3508
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 9933,
+      "label": "A1",
+      "pdf": "1683.78x2383.937_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "6445108e2ea968861af3904a81782cd1b4f8a23a5181e3f3f3c1566090d3bda9",
+      "raster": {
+        "file": "generated/1683.78x2383.937_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "4f4952ca6465da5b21b745399ed0974d779979508bea59c97f522f4316f13ae1"
+      },
+      "width": 7016
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 19866,
+      "label": "A1",
+      "pdf": "1683.78x2383.937_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "6445108e2ea968861af3904a81782cd1b4f8a23a5181e3f3f3c1566090d3bda9",
+      "width": 14032
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 2592,
+      "label": "ARCH D",
+      "pdf": "1728x2592_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "b5eef3c4f83e1c5fafabbac9a338c4a8f1fe17a339d877bf5e71f45317823481",
+      "raster": {
+        "file": "1728x2592_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "8016f742a9b52b327d47036145d73373cef7d1bf56a1064ce6c5bff0ed431c4b",
+        "raster_sha256": "e069d8bdc33b6ab98c136c0a5688b6edf9714472323f470fd4282fabce0357e8"
+      },
+      "width": 1728
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 3456,
+      "label": "ARCH D",
+      "pdf": "1728x2592_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "b5eef3c4f83e1c5fafabbac9a338c4a8f1fe17a339d877bf5e71f45317823481",
+      "width": 2304
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 5400,
+      "label": "ARCH D",
+      "pdf": "1728x2592_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "b5eef3c4f83e1c5fafabbac9a338c4a8f1fe17a339d877bf5e71f45317823481",
+      "raster": {
+        "file": "1728x2592_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "764c2ca498a8505c45369f8d53e35c707506a00831d76cfe1a02baa1fa7d83ac",
+        "raster_sha256": "45b009d6d05b1e60ba8d886ca26d83de50205d6c4fde1260046a54762c03a58d"
+      },
+      "width": 3600
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 10800,
+      "label": "ARCH D",
+      "pdf": "1728x2592_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "b5eef3c4f83e1c5fafabbac9a338c4a8f1fe17a339d877bf5e71f45317823481",
+      "raster": {
+        "file": "generated/1728x2592_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "52fd99ca6829b7a49634922adff446a6ca6801d7009186453aeb1fe8261b3401"
+      },
+      "width": 7200
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 21600,
+      "label": "ARCH D",
+      "pdf": "1728x2592_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "b5eef3c4f83e1c5fafabbac9a338c4a8f1fe17a339d877bf5e71f45317823481",
+      "width": 14400
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 3024,
+      "label": "ARCH E1",
+      "pdf": "2160x3024_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "3a1f3b99fa91c266407d64e1c6ddd633790afbca4baddba06b937aec8e3a0fab",
+      "raster": {
+        "file": "2160x3024_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "d9d772627843be32d858472a073cddbbc98c88d63f6cee24e85e877dc4adaf6e",
+        "raster_sha256": "3d2f9e96675559932cecd7b9f654ae9a48bd93d9c78ac74b029db3974f266e0e"
+      },
+      "width": 2160
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 4032,
+      "label": "ARCH E1",
+      "pdf": "2160x3024_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "3a1f3b99fa91c266407d64e1c6ddd633790afbca4baddba06b937aec8e3a0fab",
+      "width": 2880
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 6300,
+      "label": "ARCH E1",
+      "pdf": "2160x3024_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "3a1f3b99fa91c266407d64e1c6ddd633790afbca4baddba06b937aec8e3a0fab",
+      "raster": {
+        "file": "generated/2160x3024_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "on_demand": true,
+        "raster_sha256": "91ce4cd92357d310cb99d74c62d5fe3f0376854cca7cc9b8101b8cf91c3721a2"
+      },
+      "width": 4500
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 12600,
+      "label": "ARCH E1",
+      "pdf": "2160x3024_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "3a1f3b99fa91c266407d64e1c6ddd633790afbca4baddba06b937aec8e3a0fab",
+      "raster": {
+        "file": "generated/2160x3024_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "e8e981abf24b83a80101ab58c36745bbbc7b78129d22544144a52e8362c12a40"
+      },
+      "width": 9000
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 25200,
+      "label": "ARCH E1",
+      "pdf": "2160x3024_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "3a1f3b99fa91c266407d64e1c6ddd633790afbca4baddba06b937aec8e3a0fab",
+      "width": 18000
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 3370,
+      "label": "A0",
+      "pdf": "2383.937x3370.394_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "90fa146b8fdb13ace86ffa0c42e3ddc348780f7c80001ec2a94284c48437e3ae",
+      "raster": {
+        "file": "2383.937x3370.394_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "1c9a77eeb2d09c959c1fbf2c0e91bc39a317045dee507709fa563d33c560bc26",
+        "raster_sha256": "7e159dd7fc7739031a4e3829b1de93e9dee1c147ea7e0c706a69bd490cb8b35a"
+      },
+      "width": 2384
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 4494,
+      "label": "A0",
+      "pdf": "2383.937x3370.394_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "90fa146b8fdb13ace86ffa0c42e3ddc348780f7c80001ec2a94284c48437e3ae",
+      "width": 3179
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 7022,
+      "label": "A0",
+      "pdf": "2383.937x3370.394_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "90fa146b8fdb13ace86ffa0c42e3ddc348780f7c80001ec2a94284c48437e3ae",
+      "raster": {
+        "file": "generated/2383.937x3370.394_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "on_demand": true,
+        "raster_sha256": "35d7cebfcdf0a1def74810cdd055084e53c77142d33044679ad852685d764070"
+      },
+      "width": 4967
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 14043,
+      "label": "A0",
+      "pdf": "2383.937x3370.394_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "90fa146b8fdb13ace86ffa0c42e3ddc348780f7c80001ec2a94284c48437e3ae",
+      "raster": {
+        "file": "generated/2383.937x3370.394_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "b04bf1af61f442d78f759cea89bd7c0bc5a7803e7e20b3f2510ff0daf4af4d05"
+      },
+      "width": 9933
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 28087,
+      "label": "A0",
+      "pdf": "2383.937x3370.394_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "90fa146b8fdb13ace86ffa0c42e3ddc348780f7c80001ec2a94284c48437e3ae",
+      "width": 19866
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 3168,
+      "label": "ANSI E",
+      "pdf": "2448x3168_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "5d2ec5ef1f61d8201f4817beeeb4be0445d3fee7e98d9308967777a46bd49722",
+      "raster": {
+        "file": "2448x3168_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "b714a4d5c6e207e23c44add3d7487b0fd6984e33e0d89a74869669809f205ad6",
+        "raster_sha256": "6b3ffcfb0a03c0a14abaa5f93d694d7d4278b5bad44f25e8938dc2f44cbeea1d"
+      },
+      "width": 2448
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 4224,
+      "label": "ANSI E",
+      "pdf": "2448x3168_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "5d2ec5ef1f61d8201f4817beeeb4be0445d3fee7e98d9308967777a46bd49722",
+      "width": 3264
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 6600,
+      "label": "ANSI E",
+      "pdf": "2448x3168_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "5d2ec5ef1f61d8201f4817beeeb4be0445d3fee7e98d9308967777a46bd49722",
+      "raster": {
+        "file": "generated/2448x3168_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "on_demand": true,
+        "raster_sha256": "cc157b336e8afb5052a3f049f5fc94cea7870cf8ca0fc70207deff0c32d54f18"
+      },
+      "width": 5100
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 13200,
+      "label": "ANSI E",
+      "pdf": "2448x3168_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "5d2ec5ef1f61d8201f4817beeeb4be0445d3fee7e98d9308967777a46bd49722",
+      "raster": {
+        "file": "generated/2448x3168_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "4801d29d0629103b8d36e5806056d03ae5e73f58f70afb2f75236869eae8767b"
+      },
+      "width": 10200
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 26400,
+      "label": "ANSI E",
+      "pdf": "2448x3168_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "5d2ec5ef1f61d8201f4817beeeb4be0445d3fee7e98d9308967777a46bd49722",
+      "width": 20400
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1728,
+      "label": "ARCH D landscape",
+      "pdf": "2592x1728_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "26114532d9523b138ae24c85033a0085766f7478f2a831a8b2621c1ae8a23bfc",
+      "raster": {
+        "file": "2592x1728_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "bf43ee3c9bf769e0e2d4660c2c8c8c762f94848b49c6ceb3ac83ad31d41c6b19",
+        "raster_sha256": "da5429cd46170677f3bcec9c23b6c3bc6a73128d7f39562ff874419a4d160094"
+      },
+      "width": 2592
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 2304,
+      "label": "ARCH D landscape",
+      "pdf": "2592x1728_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "26114532d9523b138ae24c85033a0085766f7478f2a831a8b2621c1ae8a23bfc",
+      "width": 3456
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 3600,
+      "label": "ARCH D landscape",
+      "pdf": "2592x1728_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "26114532d9523b138ae24c85033a0085766f7478f2a831a8b2621c1ae8a23bfc",
+      "raster": {
+        "file": "2592x1728_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "ade1e8378be84ff388beb02bdf197df6a7f470dc4d08e310387533f590f566f7",
+        "raster_sha256": "3505c9c5c75300d33030a5e9eccfbbe599b7c66826f5dae12ab178a95e14280c"
+      },
+      "width": 5400
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 7200,
+      "label": "ARCH D landscape",
+      "pdf": "2592x1728_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "26114532d9523b138ae24c85033a0085766f7478f2a831a8b2621c1ae8a23bfc",
+      "raster": {
+        "file": "generated/2592x1728_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "520fe725b6052e2a8e40f14a04f4d150ed5d240ed4f68ff0a7ed35875e6b5832"
+      },
+      "width": 10800
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 14400,
+      "label": "ARCH D landscape",
+      "pdf": "2592x1728_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "26114532d9523b138ae24c85033a0085766f7478f2a831a8b2621c1ae8a23bfc",
+      "width": 21600
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 3456,
+      "label": "ARCH E",
+      "pdf": "2592x3456_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "eac7fa7b3afdd776026973790d12bc59bf1411a6e3c81e1026f25d4978d27e1b",
+      "raster": {
+        "file": "2592x3456_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "efcc1ca25ae95983335f101084a0d8b5480a6d70acbc59bdf731295d048b86d1",
+        "raster_sha256": "63b11618b6be5a9dfbf0d414d4b1e32fa0af0940d6fa1108cc6168dcee249e43"
+      },
+      "width": 2592
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 4608,
+      "label": "ARCH E",
+      "pdf": "2592x3456_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "eac7fa7b3afdd776026973790d12bc59bf1411a6e3c81e1026f25d4978d27e1b",
+      "width": 3456
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 7200,
+      "label": "ARCH E",
+      "pdf": "2592x3456_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "eac7fa7b3afdd776026973790d12bc59bf1411a6e3c81e1026f25d4978d27e1b",
+      "raster": {
+        "file": "generated/2592x3456_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "on_demand": true,
+        "raster_sha256": "2625213bf4feee1912bb58aab2b7c77deb18cc69cf35eaf4b4b639d63a12c922"
+      },
+      "width": 5400
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 14400,
+      "label": "ARCH E",
+      "pdf": "2592x3456_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "eac7fa7b3afdd776026973790d12bc59bf1411a6e3c81e1026f25d4978d27e1b",
+      "raster": {
+        "file": "generated/2592x3456_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "ba224911365534b69fe3395c6b2dbb135a4ddd9fc25f67f327afd537e7e6cf69"
+      },
+      "width": 10800
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 28800,
+      "label": "ARCH E",
+      "pdf": "2592x3456_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "eac7fa7b3afdd776026973790d12bc59bf1411a6e3c81e1026f25d4978d27e1b",
+      "width": 21600
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 842,
+      "label": "A4",
+      "pdf": "595.276x841.89_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "9b1a2ab62e5e80ff606c1d5c6aca02299fb85855ed78ac9c875bb7e42ef74021",
+      "raster": {
+        "file": "595.276x841.89_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "b5e3bf78ac18d6636914021a52a894fce31d29293071ddc54123f80aa0aaa696",
+        "raster_sha256": "6671c817e51dcf03c7f442684d284aa4d462465085cc509514886bc667de5927"
+      },
+      "width": 595
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1123,
+      "label": "A4",
+      "pdf": "595.276x841.89_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "9b1a2ab62e5e80ff606c1d5c6aca02299fb85855ed78ac9c875bb7e42ef74021",
+      "width": 794
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1754,
+      "label": "A4",
+      "pdf": "595.276x841.89_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "9b1a2ab62e5e80ff606c1d5c6aca02299fb85855ed78ac9c875bb7e42ef74021",
+      "raster": {
+        "file": "595.276x841.89_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "b6ae4240f49e20bd5154f50b47fcddf652e9833fbc7a5562a99cbfc1fd9648b4",
+        "raster_sha256": "cc8a275d6b9999b6f8d6ac55c77afadd77cbaf2812554120ba29e04e3c7e283f"
+      },
+      "width": 1240
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 3508,
+      "label": "A4",
+      "pdf": "595.276x841.89_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "9b1a2ab62e5e80ff606c1d5c6aca02299fb85855ed78ac9c875bb7e42ef74021",
+      "raster": {
+        "file": "595.276x841.89_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "file_sha256": "e327981a2f680b25ab7d3b7b25f94c1423d05c33f1b9df8864a4244dc2332094",
+        "raster_sha256": "afdb2f7905b5b05867cfce609ab15858c531cd75e0bfff0426a623f3699ae2fa"
+      },
+      "width": 2480
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 7016,
+      "label": "A4",
+      "pdf": "595.276x841.89_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "9b1a2ab62e5e80ff606c1d5c6aca02299fb85855ed78ac9c875bb7e42ef74021",
+      "width": 4961
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 595,
+      "label": "A4 /Rotate 270",
+      "pdf": "595.276x841.89_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "f0ab1187ab0c4ee981cd4794a941ae29de98056efa78d038574e82443e1d5f6f",
+      "width": 842
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 794,
+      "label": "A4 /Rotate 270",
+      "pdf": "595.276x841.89_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "f0ab1187ab0c4ee981cd4794a941ae29de98056efa78d038574e82443e1d5f6f",
+      "width": 1123
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1240,
+      "label": "A4 /Rotate 270",
+      "pdf": "595.276x841.89_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "f0ab1187ab0c4ee981cd4794a941ae29de98056efa78d038574e82443e1d5f6f",
+      "width": 1754
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 2480,
+      "label": "A4 /Rotate 270",
+      "pdf": "595.276x841.89_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "f0ab1187ab0c4ee981cd4794a941ae29de98056efa78d038574e82443e1d5f6f",
+      "width": 3508
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 4961,
+      "label": "A4 /Rotate 270",
+      "pdf": "595.276x841.89_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "f0ab1187ab0c4ee981cd4794a941ae29de98056efa78d038574e82443e1d5f6f",
+      "width": 7016
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 595,
+      "label": "A4 /Rotate 90",
+      "pdf": "595.276x841.89_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "ce2dff59a2016bad02c4f1a1647ab71a7fd256e59725a5ca4befd443e7eb19cf",
+      "width": 842
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 794,
+      "label": "A4 /Rotate 90",
+      "pdf": "595.276x841.89_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "ce2dff59a2016bad02c4f1a1647ab71a7fd256e59725a5ca4befd443e7eb19cf",
+      "width": 1123
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1240,
+      "label": "A4 /Rotate 90",
+      "pdf": "595.276x841.89_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "ce2dff59a2016bad02c4f1a1647ab71a7fd256e59725a5ca4befd443e7eb19cf",
+      "width": 1754
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 2480,
+      "label": "A4 /Rotate 90",
+      "pdf": "595.276x841.89_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "ce2dff59a2016bad02c4f1a1647ab71a7fd256e59725a5ca4befd443e7eb19cf",
+      "width": 3508
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 4961,
+      "label": "A4 /Rotate 90",
+      "pdf": "595.276x841.89_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "ce2dff59a2016bad02c4f1a1647ab71a7fd256e59725a5ca4befd443e7eb19cf",
+      "width": 7016
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 800,
+      "label": "600x800",
+      "pdf": "600x800_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "eb44282eccf40902102b0ce2adbce795d2d5f5a637dffff6747ccd473b1f2350",
+      "raster": {
+        "file": "600x800_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "06916f776f18be517b31cd760046c801b49d67bcd4ede44d4255b98a4b0080b2",
+        "raster_sha256": "5f5e916dbd83138d4c7800f3c0e66daa5046d50f7ae098d29d9094ee22d2372b"
+      },
+      "width": 600
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1067,
+      "label": "600x800",
+      "pdf": "600x800_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "eb44282eccf40902102b0ce2adbce795d2d5f5a637dffff6747ccd473b1f2350",
+      "width": 800
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1667,
+      "label": "600x800",
+      "pdf": "600x800_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "eb44282eccf40902102b0ce2adbce795d2d5f5a637dffff6747ccd473b1f2350",
+      "raster": {
+        "file": "600x800_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "bdce0677c21cac4ce58eb5af85a7b21071af162a6b1333c8c094df7af5d6ee86",
+        "raster_sha256": "8b7f0ef2c2c2ebe4b0b8cb31af80b8e1fba9cdbbb4f5fb7d945a795d478c34da"
+      },
+      "width": 1250
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 3333,
+      "label": "600x800",
+      "pdf": "600x800_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "eb44282eccf40902102b0ce2adbce795d2d5f5a637dffff6747ccd473b1f2350",
+      "width": 2500
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 6667,
+      "label": "600x800",
+      "pdf": "600x800_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "eb44282eccf40902102b0ce2adbce795d2d5f5a637dffff6747ccd473b1f2350",
+      "width": 5000
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1008,
+      "label": "Legal",
+      "pdf": "612x1008_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "4cbac7a20c037df09a71fa257260b0a298d94e9b30740434ee0be8a17a321a6b",
+      "raster": {
+        "file": "612x1008_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "cce24c37d760c8c774d4e28a36aba017794b42eeebb1b29971ba3de2405acae7",
+        "raster_sha256": "d3eca5f78f38a7370035f8671bd29c7baa5b7994ac0336746bfae891c00c5ffa"
+      },
+      "width": 612
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1344,
+      "label": "Legal",
+      "pdf": "612x1008_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "4cbac7a20c037df09a71fa257260b0a298d94e9b30740434ee0be8a17a321a6b",
+      "width": 816
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 2100,
+      "label": "Legal",
+      "pdf": "612x1008_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "4cbac7a20c037df09a71fa257260b0a298d94e9b30740434ee0be8a17a321a6b",
+      "raster": {
+        "file": "612x1008_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "82b98c58b8c3218e11c1893939c01503b1c3025e6603ecb0d3c1ae09b2c24806",
+        "raster_sha256": "495c9d79ce678656f6246e398a966ccb098144a11f57bed48df8648304959927"
+      },
+      "width": 1275
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 4200,
+      "label": "Legal",
+      "pdf": "612x1008_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "4cbac7a20c037df09a71fa257260b0a298d94e9b30740434ee0be8a17a321a6b",
+      "width": 2550
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 8400,
+      "label": "Legal",
+      "pdf": "612x1008_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "4cbac7a20c037df09a71fa257260b0a298d94e9b30740434ee0be8a17a321a6b",
+      "width": 5100
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 792,
+      "label": "Letter",
+      "pdf": "612x792_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "ceadbd4c2eebde8f14ffc1b118a20a2bf1743580abf262d3ccd1e4ffc48ae90b",
+      "raster": {
+        "file": "612x792_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "8fc6983ff0cca41f1acfda709f4bb2dfaa3394165696531a6594007c343a16e0",
+        "raster_sha256": "04da863fc79b9de32d7984f61f574f8bd59035266d0a5b031d200ba3f82109f5"
+      },
+      "width": 612
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1056,
+      "label": "Letter",
+      "pdf": "612x792_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "ceadbd4c2eebde8f14ffc1b118a20a2bf1743580abf262d3ccd1e4ffc48ae90b",
+      "width": 816
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1650,
+      "label": "Letter",
+      "pdf": "612x792_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "ceadbd4c2eebde8f14ffc1b118a20a2bf1743580abf262d3ccd1e4ffc48ae90b",
+      "raster": {
+        "file": "612x792_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "685bec14b91136d8fe40022d24d33255553879223706dab6da202bc207d0e55e",
+        "raster_sha256": "6f2457fbcb7bae3955378665aa1a2fd4f21559f4395dfb1d26f2ea0b1c6348a8"
+      },
+      "width": 1275
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 3300,
+      "label": "Letter",
+      "pdf": "612x792_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "ceadbd4c2eebde8f14ffc1b118a20a2bf1743580abf262d3ccd1e4ffc48ae90b",
+      "raster": {
+        "file": "612x792_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "file_sha256": "a639f86acbc53ed1621ac32907ca589fd78b2445010ac61b65bbbd2cdd581c49",
+        "raster_sha256": "de23df0bd4f743ab7dc170c6631ec5f8cb882f634ba76f7dda6e166a06570435"
+      },
+      "width": 2550
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 6600,
+      "label": "Letter",
+      "pdf": "612x792_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "ceadbd4c2eebde8f14ffc1b118a20a2bf1743580abf262d3ccd1e4ffc48ae90b",
+      "width": 5100
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 612,
+      "label": "Letter /Rotate 270",
+      "pdf": "612x792_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "19c54c5608e3a4d4aac8db44945ecd5d82eede70671fee7bf16b9818e8a3f00d",
+      "width": 792
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 816,
+      "label": "Letter /Rotate 270",
+      "pdf": "612x792_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "19c54c5608e3a4d4aac8db44945ecd5d82eede70671fee7bf16b9818e8a3f00d",
+      "width": 1056
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1275,
+      "label": "Letter /Rotate 270",
+      "pdf": "612x792_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "19c54c5608e3a4d4aac8db44945ecd5d82eede70671fee7bf16b9818e8a3f00d",
+      "width": 1650
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 2550,
+      "label": "Letter /Rotate 270",
+      "pdf": "612x792_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "19c54c5608e3a4d4aac8db44945ecd5d82eede70671fee7bf16b9818e8a3f00d",
+      "width": 3300
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 5100,
+      "label": "Letter /Rotate 270",
+      "pdf": "612x792_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "19c54c5608e3a4d4aac8db44945ecd5d82eede70671fee7bf16b9818e8a3f00d",
+      "width": 6600
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 612,
+      "label": "Letter /Rotate 90",
+      "pdf": "612x792_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "e00964c7b705a60874f492bade704408f987e924a5de18d519b3cfc91477893f",
+      "width": 792
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 816,
+      "label": "Letter /Rotate 90",
+      "pdf": "612x792_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "e00964c7b705a60874f492bade704408f987e924a5de18d519b3cfc91477893f",
+      "width": 1056
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1275,
+      "label": "Letter /Rotate 90",
+      "pdf": "612x792_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "e00964c7b705a60874f492bade704408f987e924a5de18d519b3cfc91477893f",
+      "width": 1650
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 2550,
+      "label": "Letter /Rotate 90",
+      "pdf": "612x792_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "e00964c7b705a60874f492bade704408f987e924a5de18d519b3cfc91477893f",
+      "width": 3300
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 5100,
+      "label": "Letter /Rotate 90",
+      "pdf": "612x792_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "e00964c7b705a60874f492bade704408f987e924a5de18d519b3cfc91477893f",
+      "width": 6600
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 864,
+      "label": "ARCH A",
+      "pdf": "648x864_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "505207632582167e4633bf6434c81696775f12d7d05097be3e176da32411ed21",
+      "raster": {
+        "file": "648x864_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "fdd50cfaf587b37f02a237a1457f83eb00e48d310fb3c3d95422e0ae9900de4d",
+        "raster_sha256": "70f84badd5237edef47bec9e0b07738129271f7a441a460ac8ae19dbd707b96e"
+      },
+      "width": 648
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1152,
+      "label": "ARCH A",
+      "pdf": "648x864_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "505207632582167e4633bf6434c81696775f12d7d05097be3e176da32411ed21",
+      "width": 864
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1800,
+      "label": "ARCH A",
+      "pdf": "648x864_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "505207632582167e4633bf6434c81696775f12d7d05097be3e176da32411ed21",
+      "raster": {
+        "file": "648x864_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "51e2ff532fd7e9829a925d7941c9fe577f1e464945e70985a41d02ef2393039a",
+        "raster_sha256": "d2b9d106e85ee9eb1d487c7c1eab0cd00542f73257ee10fb461e0f60c6e7ac6c"
+      },
+      "width": 1350
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 3600,
+      "label": "ARCH A",
+      "pdf": "648x864_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "505207632582167e4633bf6434c81696775f12d7d05097be3e176da32411ed21",
+      "width": 2700
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 7200,
+      "label": "ARCH A",
+      "pdf": "648x864_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "505207632582167e4633bf6434c81696775f12d7d05097be3e176da32411ed21",
+      "width": 5400
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1000,
+      "label": "700x1000",
+      "pdf": "700x1000_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "2050e290e836ea30074cec3cccbc55b543e86b1a9ac3bd6d8724d4f8b180789f",
+      "raster": {
+        "file": "700x1000_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "6ebdddc036dbfb4054a260237c48d78e30f660e0d46a0379a86048b422bdb7ae",
+        "raster_sha256": "68547ad532542709c88479bb6e7a99bce3015931df3655018402b8fa8991b17f"
+      },
+      "width": 700
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1333,
+      "label": "700x1000",
+      "pdf": "700x1000_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "2050e290e836ea30074cec3cccbc55b543e86b1a9ac3bd6d8724d4f8b180789f",
+      "width": 933
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 2083,
+      "label": "700x1000",
+      "pdf": "700x1000_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "2050e290e836ea30074cec3cccbc55b543e86b1a9ac3bd6d8724d4f8b180789f",
+      "raster": {
+        "file": "700x1000_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "32b9cd702a69932242c1fd2299d5968add6bf2ecb22a3b08761b9c5702ac8c54",
+        "raster_sha256": "ec058a328fceafa7a02362ba4b731463d9dd5c5f993c0be293b68b0b09651989"
+      },
+      "width": 1458
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 4167,
+      "label": "700x1000",
+      "pdf": "700x1000_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "2050e290e836ea30074cec3cccbc55b543e86b1a9ac3bd6d8724d4f8b180789f",
+      "width": 2917
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 8333,
+      "label": "700x1000",
+      "pdf": "700x1000_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "2050e290e836ea30074cec3cccbc55b543e86b1a9ac3bd6d8724d4f8b180789f",
+      "width": 5833
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1001,
+      "label": "B4",
+      "pdf": "708.661x1000.63_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "4c2d0e6eb72f11258861c2107ace734944ae98b85f432a2d015334ddc4d558e8",
+      "raster": {
+        "file": "708.661x1000.63_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "cc4cb4cf15aaf05642996e5c8a090533f8f7eee65bda20d94b211eb2ce4170f0",
+        "raster_sha256": "dea769e5919b0b37d24214cfae745d74694d3737ab023d47918d43d9be7c3b2f"
+      },
+      "width": 709
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1334,
+      "label": "B4",
+      "pdf": "708.661x1000.63_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "4c2d0e6eb72f11258861c2107ace734944ae98b85f432a2d015334ddc4d558e8",
+      "width": 945
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 2085,
+      "label": "B4",
+      "pdf": "708.661x1000.63_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "4c2d0e6eb72f11258861c2107ace734944ae98b85f432a2d015334ddc4d558e8",
+      "raster": {
+        "file": "708.661x1000.63_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "5ce00b3adf8a61d74c95c4a75e495b0fe1819c6a1ddb8f2ad1caceabce8cbd04",
+        "raster_sha256": "cbf421528429dfd1f58ec11f38c8efcf1d7f94fdf874268aac8562551a55293a"
+      },
+      "width": 1476
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 4169,
+      "label": "B4",
+      "pdf": "708.661x1000.63_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "4c2d0e6eb72f11258861c2107ace734944ae98b85f432a2d015334ddc4d558e8",
+      "width": 2953
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 8339,
+      "label": "B4",
+      "pdf": "708.661x1000.63_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "4c2d0e6eb72f11258861c2107ace734944ae98b85f432a2d015334ddc4d558e8",
+      "width": 5906
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1224,
+      "label": "Tabloid",
+      "pdf": "792x1224_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "7de4a61c7f965644ff733f76c8ee444e8db11584b0a1921af7a8229272ab591d",
+      "raster": {
+        "file": "792x1224_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "e2feb434c743bb4bda2b07f0e8b1cc0fc12299e06bef9a78320da4ca28d21e44",
+        "raster_sha256": "61211a6685c12b9139f24f5cece23fdfaa62c0238dd58d775c9a99b82595a3f3"
+      },
+      "width": 792
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1632,
+      "label": "Tabloid",
+      "pdf": "792x1224_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "7de4a61c7f965644ff733f76c8ee444e8db11584b0a1921af7a8229272ab591d",
+      "width": 1056
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 2550,
+      "label": "Tabloid",
+      "pdf": "792x1224_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "7de4a61c7f965644ff733f76c8ee444e8db11584b0a1921af7a8229272ab591d",
+      "raster": {
+        "file": "792x1224_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "9881a065c8ae8af7868957ad5827b2b0354ebc4ddc65913b5f1df6ee572ab4f5",
+        "raster_sha256": "1329397cc3d6d080cd88046aaede7217012a78c3b4898ace34fbf5db712bb320"
+      },
+      "width": 1650
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 5100,
+      "label": "Tabloid",
+      "pdf": "792x1224_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "7de4a61c7f965644ff733f76c8ee444e8db11584b0a1921af7a8229272ab591d",
+      "raster": {
+        "file": "792x1224_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "file_sha256": "ad4b0205bb34d72c2982a4f8234172e8dfaaf7d0003084d9f1487fb1be37b027",
+        "raster_sha256": "af8af76a3c3318fc281c0c348b1618cfc969ac54fd7de9b17e59290453b079d4"
+      },
+      "width": 3300
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 10200,
+      "label": "Tabloid",
+      "pdf": "792x1224_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "7de4a61c7f965644ff733f76c8ee444e8db11584b0a1921af7a8229272ab591d",
+      "width": 6600
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 612,
+      "label": "Letter landscape",
+      "pdf": "792x612_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "1f7ff9aa114209f0aa5265095c4b120023f53aa11086da089c0ec8e10d549cff",
+      "raster": {
+        "file": "792x612_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "a5637200cbc23799fa8026ab5a09552910612eb3ea098062cc5fe47ae372ec68",
+        "raster_sha256": "cdd5c5003c782c74a9b38b2c0ebf3e10a5bb0d605380169c35b8b74b1d321b2f"
+      },
+      "width": 792
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 816,
+      "label": "Letter landscape",
+      "pdf": "792x612_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "1f7ff9aa114209f0aa5265095c4b120023f53aa11086da089c0ec8e10d549cff",
+      "width": 1056
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1275,
+      "label": "Letter landscape",
+      "pdf": "792x612_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "1f7ff9aa114209f0aa5265095c4b120023f53aa11086da089c0ec8e10d549cff",
+      "raster": {
+        "file": "792x612_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "83c1cd5c4a84fb857ac0ae4ce848faddf36509010f6373460fe48a14feec043e",
+        "raster_sha256": "8de15da9b1c5a6e71fcc688c51252268ba0cb485ca4199474153c0bd8ee637d2"
+      },
+      "width": 1650
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 2550,
+      "label": "Letter landscape",
+      "pdf": "792x612_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "1f7ff9aa114209f0aa5265095c4b120023f53aa11086da089c0ec8e10d549cff",
+      "width": 3300
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 5100,
+      "label": "Letter landscape",
+      "pdf": "792x612_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "1f7ff9aa114209f0aa5265095c4b120023f53aa11086da089c0ec8e10d549cff",
+      "width": 6600
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1191,
+      "label": "A3",
+      "pdf": "841.89x1190.551_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "c54fd1c222c4ca2c439f56e50a74c2665f61dd8676cf9734e505660622dd1a34",
+      "raster": {
+        "file": "841.89x1190.551_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "b09804a61715f5cfa5f7cc2c2c6751d656562739be7ff6b58771f0645729989a",
+        "raster_sha256": "9e31d189023a0788b164e7140818ccf9468601333bff0e1957825d5045b88525"
+      },
+      "width": 842
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1587,
+      "label": "A3",
+      "pdf": "841.89x1190.551_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "c54fd1c222c4ca2c439f56e50a74c2665f61dd8676cf9734e505660622dd1a34",
+      "width": 1123
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 2480,
+      "label": "A3",
+      "pdf": "841.89x1190.551_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "c54fd1c222c4ca2c439f56e50a74c2665f61dd8676cf9734e505660622dd1a34",
+      "raster": {
+        "file": "841.89x1190.551_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "9c3fc44e3ce926244a60b221f6592727b4358ee1389ebca03ea81b0f82d31904",
+        "raster_sha256": "94649f8c33eeaeaadc4446ab8a0d64a39f42c79a02373d1b6e662156edb6bc28"
+      },
+      "width": 1754
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 4961,
+      "label": "A3",
+      "pdf": "841.89x1190.551_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "c54fd1c222c4ca2c439f56e50a74c2665f61dd8676cf9734e505660622dd1a34",
+      "raster": {
+        "file": "generated/841.89x1190.551_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "7a5b0634e9b3d3d324a8b28505810ab8ea01815eb1f41c47bb839823b32f5c88"
+      },
+      "width": 3508
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 9921,
+      "label": "A3",
+      "pdf": "841.89x1190.551_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "c54fd1c222c4ca2c439f56e50a74c2665f61dd8676cf9734e505660622dd1a34",
+      "width": 7016
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1191,
+      "label": "A3 CropBox",
+      "pdf": "841.89x1190.551_o0_0_r-_c1_u-_Rich.pdf",
+      "pdf_sha256": "60487c616f40ccaffafbb811c4ee8dfda59a14d74ba862f5c073f2a00ce4e910",
+      "raster": {
+        "file": "841.89x1190.551_o0_0_r-_c1_u-_Rich@72dpi.png",
+        "file_sha256": "b09804a61715f5cfa5f7cc2c2c6751d656562739be7ff6b58771f0645729989a",
+        "raster_sha256": "9e31d189023a0788b164e7140818ccf9468601333bff0e1957825d5045b88525"
+      },
+      "width": 842
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1587,
+      "label": "A3 CropBox",
+      "pdf": "841.89x1190.551_o0_0_r-_c1_u-_Rich.pdf",
+      "pdf_sha256": "60487c616f40ccaffafbb811c4ee8dfda59a14d74ba862f5c073f2a00ce4e910",
+      "raster": {
+        "file": "841.89x1190.551_o0_0_r-_c1_u-_Rich@96dpi.png",
+        "file_sha256": "14a291faa415d7e61f1807d330d7bf09d35294df1b4547c6baf4d350b429ee08",
+        "raster_sha256": "98412f58abd908695fbc0785a76f78733e73209f20e3b57ded91f91180709619"
+      },
+      "width": 1123
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 2480,
+      "label": "A3 CropBox",
+      "pdf": "841.89x1190.551_o0_0_r-_c1_u-_Rich.pdf",
+      "pdf_sha256": "60487c616f40ccaffafbb811c4ee8dfda59a14d74ba862f5c073f2a00ce4e910",
+      "raster": {
+        "file": "841.89x1190.551_o0_0_r-_c1_u-_Rich@150dpi.png",
+        "file_sha256": "9c3fc44e3ce926244a60b221f6592727b4358ee1389ebca03ea81b0f82d31904",
+        "raster_sha256": "94649f8c33eeaeaadc4446ab8a0d64a39f42c79a02373d1b6e662156edb6bc28"
+      },
+      "width": 1754
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 4961,
+      "label": "A3 CropBox",
+      "pdf": "841.89x1190.551_o0_0_r-_c1_u-_Rich.pdf",
+      "pdf_sha256": "60487c616f40ccaffafbb811c4ee8dfda59a14d74ba862f5c073f2a00ce4e910",
+      "raster": {
+        "file": "generated/841.89x1190.551_o0_0_r-_c1_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "7a5b0634e9b3d3d324a8b28505810ab8ea01815eb1f41c47bb839823b32f5c88"
+      },
+      "width": 3508
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 9921,
+      "label": "A3 CropBox",
+      "pdf": "841.89x1190.551_o0_0_r-_c1_u-_Rich.pdf",
+      "pdf_sha256": "60487c616f40ccaffafbb811c4ee8dfda59a14d74ba862f5c073f2a00ce4e910",
+      "width": 7016
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 842,
+      "label": "A3 /Rotate 270",
+      "pdf": "841.89x1190.551_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "6bb4378cf0b3a5b8b04a0c7f3c13ca51cbe42a1ca0bb02471ab35e097012abba",
+      "width": 1191
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1123,
+      "label": "A3 /Rotate 270",
+      "pdf": "841.89x1190.551_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "6bb4378cf0b3a5b8b04a0c7f3c13ca51cbe42a1ca0bb02471ab35e097012abba",
+      "width": 1587
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1754,
+      "label": "A3 /Rotate 270",
+      "pdf": "841.89x1190.551_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "6bb4378cf0b3a5b8b04a0c7f3c13ca51cbe42a1ca0bb02471ab35e097012abba",
+      "width": 2480
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 3508,
+      "label": "A3 /Rotate 270",
+      "pdf": "841.89x1190.551_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "6bb4378cf0b3a5b8b04a0c7f3c13ca51cbe42a1ca0bb02471ab35e097012abba",
+      "raster": {
+        "file": "generated/841.89x1190.551_o0_0_r270_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "597d6f9f1adee84bdac1acbbdd6b5f01077071c6e8e604fe1b6f9662c048b7dc"
+      },
+      "width": 4961
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 7016,
+      "label": "A3 /Rotate 270",
+      "pdf": "841.89x1190.551_o0_0_r270_c0_u-_Rich.pdf",
+      "pdf_sha256": "6bb4378cf0b3a5b8b04a0c7f3c13ca51cbe42a1ca0bb02471ab35e097012abba",
+      "width": 9921
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 842,
+      "label": "A3 /Rotate 90",
+      "pdf": "841.89x1190.551_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "6f50729b50fd5b77cc025faca83efb6847fe8a74aade5a864acd394bc5fa6ac2",
+      "raster": {
+        "file": "841.89x1190.551_o0_0_r90_c0_u-_Rich@72dpi.png",
+        "file_sha256": "8c0cacf101f65fa35465808c23c9821c43180d74362fe8117dde3833c3af84e5",
+        "raster_sha256": "7e1a3ea25a98e0c3d791995cee2e8cda183477d8ec4bddc49ebb61073896ae9e"
+      },
+      "width": 1191
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1123,
+      "label": "A3 /Rotate 90",
+      "pdf": "841.89x1190.551_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "6f50729b50fd5b77cc025faca83efb6847fe8a74aade5a864acd394bc5fa6ac2",
+      "raster": {
+        "file": "841.89x1190.551_o0_0_r90_c0_u-_Rich@96dpi.png",
+        "file_sha256": "cdbf2c0083f3ec93a4794c7953f32713e4098e4bc7590c22c268742c59d1c2bd",
+        "raster_sha256": "0249cf04a6378394e94d561af6c01749fefb18c5ab19058506adfab95f3baa0b"
+      },
+      "width": 1587
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 1754,
+      "label": "A3 /Rotate 90",
+      "pdf": "841.89x1190.551_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "6f50729b50fd5b77cc025faca83efb6847fe8a74aade5a864acd394bc5fa6ac2",
+      "raster": {
+        "file": "841.89x1190.551_o0_0_r90_c0_u-_Rich@150dpi.png",
+        "file_sha256": "2b08b7fbf6a5e093455c91e04052937f90c4928a1329ffeec86642f0b45be012",
+        "raster_sha256": "20788c9dab5ccab56998fcf4f85064570835ef90cd41bff8f923a44cdf0bd613"
+      },
+      "width": 2480
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 3508,
+      "label": "A3 /Rotate 90",
+      "pdf": "841.89x1190.551_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "6f50729b50fd5b77cc025faca83efb6847fe8a74aade5a864acd394bc5fa6ac2",
+      "raster": {
+        "file": "generated/841.89x1190.551_o0_0_r90_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "18846f5cf5b12ea27ac58944c5501f23e8549f08ddf24f3b1e82cb7e5cde9716"
+      },
+      "width": 4961
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 7016,
+      "label": "A3 /Rotate 90",
+      "pdf": "841.89x1190.551_o0_0_r90_c0_u-_Rich.pdf",
+      "pdf_sha256": "6f50729b50fd5b77cc025faca83efb6847fe8a74aade5a864acd394bc5fa6ac2",
+      "width": 9921
+    },
+    {
+      "bands": 4,
+      "dpi": 72,
+      "height": 1296,
+      "label": "ARCH B",
+      "pdf": "864x1296_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "82242c512a54b5b8bb33226c29fb8f5c5bf0773ae69d8f852f7900f5cddb0fa1",
+      "raster": {
+        "file": "864x1296_o0_0_r-_c0_u-_Rich@72dpi.png",
+        "file_sha256": "25016553fa0cc54c41e399a268a61f33238815bf43bdd678c25feecbd22b7351",
+        "raster_sha256": "ac786e62b188cc410c77c0b4af1c622b55c197290bcba0d8ec6c974f25510bc4"
+      },
+      "width": 864
+    },
+    {
+      "bands": 4,
+      "dpi": 96,
+      "height": 1728,
+      "label": "ARCH B",
+      "pdf": "864x1296_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "82242c512a54b5b8bb33226c29fb8f5c5bf0773ae69d8f852f7900f5cddb0fa1",
+      "width": 1152
+    },
+    {
+      "bands": 4,
+      "dpi": 150,
+      "height": 2700,
+      "label": "ARCH B",
+      "pdf": "864x1296_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "82242c512a54b5b8bb33226c29fb8f5c5bf0773ae69d8f852f7900f5cddb0fa1",
+      "raster": {
+        "file": "864x1296_o0_0_r-_c0_u-_Rich@150dpi.png",
+        "file_sha256": "44cb151ff98712e6f70a2e36ef3234466d91becbb53e1ddea3900e260b56e0cd",
+        "raster_sha256": "526e138fce25c50504734be3870a1296ca93c13ca8e924882c0ce08ff6f98d22"
+      },
+      "width": 1800
+    },
+    {
+      "bands": 4,
+      "dpi": 300,
+      "height": 5400,
+      "label": "ARCH B",
+      "pdf": "864x1296_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "82242c512a54b5b8bb33226c29fb8f5c5bf0773ae69d8f852f7900f5cddb0fa1",
+      "raster": {
+        "file": "generated/864x1296_o0_0_r-_c0_u-_Rich@300dpi.png",
+        "on_demand": true,
+        "raster_sha256": "e866aaa17ba39c7bc1de483dfac9eeb4d946bd1120c06cefa87fc05f9eee9535"
+      },
+      "width": 3600
+    },
+    {
+      "bands": 4,
+      "dpi": 600,
+      "height": 10800,
+      "label": "ARCH B",
+      "pdf": "864x1296_o0_0_r-_c0_u-_Rich.pdf",
+      "pdf_sha256": "82242c512a54b5b8bb33226c29fb8f5c5bf0773ae69d8f852f7900f5cddb0fa1",
+      "width": 7200
+    }
+  ],
+  "invocation": "vipsheader -f width|height|bands '<pdf>[dpi=N]'; committed rasters: vips flatten '<pdf>[dpi=N]' tmp.v --background 255 (only when pdfload gives 4 bands), vips rawsave tmp.v tmp.raw, raw RGB PNG-encoded by the test crate (image crate, Best, Adaptive); on-demand rasters: vips flatten '<pdf>[dpi=N]' 'out.png[strip,compression=3]' --background 255",
+  "libvips_version": "vips-8.18.4",
+  "on_demand_note": "entries with raster.on_demand are not committed; the tests generate them with libvips when missing and check raster_sha256 (the hash of the decoded RGB bytes)",
+  "pdfium": "pdfium-8085"
+}

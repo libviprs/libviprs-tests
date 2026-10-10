@@ -142,4 +142,10 @@
 # move in this same push (libviprs/libviprs-tests#256). It needs
 # COUNTERPART_REV at 2162f67f or later; the two pins move together for that
 # reason.
-f4fb1335cbbf0a8aca13d0e07d29a4e6174b5df7
+#
+# Bumped to 2912642b, libviprs-cli main after #107 (`--page-sizing` on
+# `pyramid`, `plan`, `pdf info` and `pdf extract`, libviprs 0.6 from crates.io).
+# tests/cli_page_size_parity.rs drives those flags over the page-size fixtures
+# (libviprs-tests#269) and needs them. It needs COUNTERPART_REV a5851b6f (the
+# libviprs 0.6.0 tag) or later for the same sizes.
+2912642b529450f27eaea8a35e99c8574cd5f59b
