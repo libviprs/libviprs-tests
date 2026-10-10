@@ -33,3 +33,6 @@ Thumbs.db
 *.tmp
 *.bak
 *.log
+
+# On-demand libvips references for the big sheets (see tests/common/libvips_reference.rs)
+/tests/fixtures/page_size/libvips/generated/
