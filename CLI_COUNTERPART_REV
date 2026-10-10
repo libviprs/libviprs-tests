@@ -148,4 +148,11 @@
 # tests/cli_page_size_parity.rs drives those flags over the page-size fixtures
 # (libviprs-tests#269) and needs them. It needs COUNTERPART_REV a5851b6f (the
 # libviprs 0.6.0 tag) or later for the same sizes.
-2912642b529450f27eaea8a35e99c8574cd5f59b
+#
+# Bumped to 55d22e91, the commit the libviprs-cli v0.6.1 tag points at (the
+# merge of libviprs-cli#115, closing #114). It asks for libviprs 0.6.1, so the
+# `viprs` the cli-differential job builds has the CropBox fix in `pdf info` and
+# `plan` (libviprs#1209) and the un-ignored CropBox cell in
+# tests/cli_page_size_parity.rs passes against it. It needs COUNTERPART_REV at
+# 46991fe5 (the libviprs 0.6.1 tag) or later.
+55d22e917c789e77b3f850314a28f9680f718854

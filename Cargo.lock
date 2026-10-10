@@ -1243,7 +1243,7 @@ dependencies = [
 
 [[package]]
 name = "libviprs"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ab_glyph",
  "blake3",
