@@ -348,4 +348,11 @@
 # fe048824..2162f67f lack. libviprs 0.6.0 uses the registry pdfium-render 0.9.4
 # with the pdfium_7881 bindings, and this repo's lock carries that same single
 # copy. The installed libpdfium is 8085, as in libviprs tools/Dockerfile.ci.
-a5851b6fff0274a6659fc32b7d21579253836309
+#
+# DRAFT PIN, REPIN AFTER THE CORE MERGE: 17e527a1 is the head of libviprs PR
+# #1210 (fix/1209-pdf-info-cropbox, pdf_info sizes a page by its CropBox like
+# the render, libviprs#1209). The un-ignored CropBox cells in
+# tests/cli_page_size_parity.rs need it. That branch is not on main, so this
+# commit can vanish with a squash merge: once #1210 lands, move this line to
+# the merge commit before libviprs-tests#271's PR leaves draft.
+17e527a1d70afcb8520a998fb35c9ffcd72be811

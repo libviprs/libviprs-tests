@@ -229,11 +229,6 @@ fn cli_reports_the_libvips_size_for_every_sheet_and_dpi() {
     let (mut checked, mut legacy_differs) = (0, 0);
     let mut failures = Vec::new();
     for e in matrix() {
-        // `pdf info` and `plan` size from the MediaBox, so a CropBox page is
-        // covered by the ignored test below (libviprs/libviprs#1209).
-        if e.spec.crop_box {
-            continue;
-        }
         let rec = manifest.recorded(&e);
         let want = (rec.width, rec.height);
         let (pw, ph) = page_pts(&e);
@@ -288,10 +283,10 @@ fn cli_reports_the_libvips_size_for_every_sheet_and_dpi() {
 }
 
 /// `pdf info --dpi` and `plan` for the CropBox sheet say what the render
-/// produces and libvips reports. They do not yet: `pdf_info` reads the
-/// MediaBox (libviprs/libviprs#1209). Un-ignore with the fix.
+/// produces and libvips reports. They used to size the MediaBox
+/// (libviprs/libviprs#1209), so this one is checked on its own as well as in
+/// the matrix above, with the sheet named in the failure.
 #[test]
-#[ignore = "libviprs/libviprs#1209: pdf_info ignores the CropBox"]
 fn cli_info_and_plan_follow_the_cropbox_like_render() {
     let Some(bin) = viprs("cli_info_and_plan_follow_the_cropbox_like_render") else {
         return;
@@ -597,7 +592,7 @@ fn cli_sizes_still_match_a_live_vipsheader() {
         return;
     }
     eprintln!("live: {}", vips_oracle::version());
-    for e in entries.into_iter().filter(|e| !e.spec.crop_box) {
+    for e in entries {
         let pdf = fixture_pdf(&e.spec);
         let src = format!("{}[dpi={}]", pdf.display(), e.dpi);
         let live = (
