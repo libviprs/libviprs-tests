@@ -280,7 +280,7 @@ cargo build --release --bin viprs --manifest-path ../libviprs-cli/Cargo.toml --t
 echo "VIPRS_BIN=$RUNNER_TEMP/viprs-pdfium/release/viprs" >> "$GITHUB_ENV"
 STEP
 step VIPRS_REQUIRE_CLI=1 VIPRS_REQUIRE_PDFIUM=1 <<'STEP'
-cargo test --test cli_pdf_geo_plan
+cargo test --test cli_pdf_geo_plan --test cli_page_size_parity
 STEP
 step VIPRS_REQUIRE_CLI=1 <<'STEP'
 cargo test --features s3 --test cli_pyramid_pipeline -- the_object_store_sink retries_then_fail

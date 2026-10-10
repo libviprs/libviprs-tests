@@ -207,7 +207,12 @@ jobs:
       - env:
           VIPRS_REQUIRE_CLI: 1
           VIPRS_REQUIRE_PDFIUM: 1
-        run: cargo test --test cli_pdf_geo_plan
+        # cli_page_size_parity is the CLI half of the page-size suite
+        # (libviprs-tests#269): the library suite's fixtures and libvips
+        # references through the same pdfium-enabled viprs. No libvips here, so
+        # the committed references run and the big sheets skip; the library
+        # test-pdfium job and the local Docker gate make those.
+        run: cargo test --test cli_pdf_geo_plan --test cli_page_size_parity
       # The object-store and failure-flag cells of cli_pyramid_pipeline need
       # this crate's `s3` feature, and build their own `viprs --features s3`
       # into a target dir of their own, so they do not touch the binary the
