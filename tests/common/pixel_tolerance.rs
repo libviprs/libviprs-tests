@@ -114,7 +114,11 @@ impl StatsAcc {
             b.len() / 3,
             "chunks differ in pixel count"
         );
-        for (i, (pa, pb)) in a.chunks_exact(a_stride).zip(b.chunks_exact(3)).enumerate() {
+        for (i, (pa, pb)) in a
+            .chunks_exact(a_stride)
+            .zip(b.as_chunks::<3>().0.iter())
+            .enumerate()
+        {
             let mut worst = 0u8;
             for c in 0..3 {
                 let d = pa[c].abs_diff(pb[c]);

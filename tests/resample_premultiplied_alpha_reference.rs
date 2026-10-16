@@ -99,7 +99,13 @@ fn assert_matches_reference(actual: &Raster, expected_file: &str, label: &str) {
     let mut worst_color = 0u8;
     let mut worst_alpha = 0u8;
     let mut worst_at = (0usize, 0u8, 0u8);
-    for (i, (a, e)) in act.chunks_exact(4).zip(exp.chunks_exact(4)).enumerate() {
+    for (i, (a, e)) in act
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(exp.as_chunks::<4>().0.iter())
+        .enumerate()
+    {
         // Colour is undefined at fully-transparent pixels (both libviprs and vips
         // zero or leave stray premultiplied residue there), so only the covered
         // pixels — exactly where a transparent-colour bleed would show — constrain
@@ -232,7 +238,7 @@ fn rgba16_low_alpha_reduce_preserves_colour() {
     let out = src.reduce(2.0, 2.0, "lanczos3");
     assert_eq!(out.format(), PixelFormat::Rgba16);
     assert_eq!((out.width(), out.height()), (8, 8));
-    for px in out.data().chunks_exact(8) {
+    for px in out.data().as_chunks::<8>().0 {
         let s = |i: usize| u16::from_ne_bytes([px[2 * i], px[2 * i + 1]]);
         let (r, g, b, a) = (s(0), s(1), s(2), s(3));
         assert!(
@@ -293,9 +299,9 @@ mod downscale_half_alpha_rounds_half_up {
     fn alpha_box_path_rounds_half_up() {
         let out = downscale_half(&opaque_source()).expect("downscale_half RGBA");
         assert_eq!((out.width(), out.height()), (2, 2));
-        for px in out.data().chunks_exact(4) {
+        for px in out.data().as_chunks::<4>().0 {
             assert_eq!(
-                px,
+                *px,
                 [1, 3, 11, 255],
                 "downscale_half_alpha must round half-up (got {px:?}); truncation would give \
                  [0, 2, 10, 255] — the -0.5 LSB bias the panel flagged"
@@ -313,7 +319,7 @@ mod downscale_half_alpha_rounds_half_up {
 
         // RGB twin: same colour bands, no alpha channel -> no-alpha box path.
         let mut rgb = Vec::with_capacity(4 * 4 * 3);
-        for px in src.data().chunks_exact(4) {
+        for px in src.data().as_chunks::<4>().0 {
             rgb.extend_from_slice(&px[..3]);
         }
         let rgb_src = Raster::new(4, 4, PixelFormat::Rgb8, rgb).expect("4x4 RGB8 twin");
@@ -321,8 +327,10 @@ mod downscale_half_alpha_rounds_half_up {
 
         for (rgba, rgb) in rgba_out
             .data()
-            .chunks_exact(4)
-            .zip(rgb_out.data().chunks_exact(3))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(rgb_out.data().as_chunks::<3>().0.iter())
         {
             assert_eq!(
                 &rgba[..3],

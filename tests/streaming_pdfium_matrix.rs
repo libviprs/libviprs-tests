@@ -151,12 +151,12 @@ fn page_zero_errors_typed() {
 /// per-channel sums precise across million-pixel buffers.
 fn channel_means(data: &[u8]) -> [f64; 4] {
     assert!(
-        data.len() % 4 == 0,
+        data.len().is_multiple_of(4),
         "RGBA8 byte length must be a multiple of 4"
     );
     let mut sums = [0u64; 4];
     let pixels = data.len() / 4;
-    for chunk in data.chunks_exact(4) {
+    for chunk in data.as_chunks::<4>().0 {
         for i in 0..4 {
             sums[i] += chunk[i] as u64;
         }
@@ -380,8 +380,10 @@ fn diag_strip_vs_full_per_row_diff() {
                         let full_row =
                             &reference.data()[full_row_start..full_row_start + row_bytes];
                         let diff_pixels = strip_row
-                            .chunks_exact(4)
-                            .zip(full_row.chunks_exact(4))
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
+                            .zip(full_row.as_chunks::<4>().0.iter())
                             .filter(|(a, b)| a != b)
                             .count();
                         if diff_pixels > 0 {

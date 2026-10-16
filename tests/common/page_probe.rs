@@ -186,7 +186,7 @@ pub fn compare_big(
             y0 + n
         );
         if ours_stride == 4 {
-            opaque &= buf.chunks_exact(4).all(|p| p[3] == 255);
+            opaque &= buf.as_chunks::<4>().0.iter().all(|p| p[3] == 255);
         }
         acc.add(&buf, ours_stride, chunk, w, y0, tol);
         capture(&mut ours, y0, n, &buf, ours_stride);

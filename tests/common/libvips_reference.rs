@@ -430,7 +430,7 @@ impl PngRows {
             if self.bands == 3 {
                 self.buf.extend_from_slice(row.data());
             } else {
-                for p in row.data().chunks_exact(4) {
+                for p in row.data().as_chunks::<4>().0 {
                     self.opaque &= p[3] == 255;
                     self.buf.extend_from_slice(&p[..3]);
                 }

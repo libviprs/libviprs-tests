@@ -94,13 +94,13 @@ mod pdfium_helpers {
     #[must_use]
     pub fn channel_means(data: &[u8]) -> [f64; 4] {
         assert!(
-            data.len() % 4 == 0,
+            data.len().is_multiple_of(4),
             "RGBA8 byte length must be a multiple of 4 (got {})",
             data.len()
         );
         let mut sums = [0u64; 4];
         let pixels = data.len() / 4;
-        for chunk in data.chunks_exact(4) {
+        for chunk in data.as_chunks::<4>().0 {
             for i in 0..4 {
                 sums[i] += u64::from(chunk[i]);
             }

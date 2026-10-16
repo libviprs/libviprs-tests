@@ -209,10 +209,10 @@ fn cli_sources_newer_than(bin: &Path, cli: &Path) -> bool {
     };
     let mut newer = false;
     let mut newer_than = |p: &Path| {
-        if let Ok(t) = fs::metadata(p).and_then(|m| m.modified()) {
-            if t > bin_mtime {
-                newer = true;
-            }
+        if let Ok(t) = fs::metadata(p).and_then(|m| m.modified())
+            && t > bin_mtime
+        {
+            newer = true;
         }
     };
     newer_than(&cli.join("Cargo.toml"));

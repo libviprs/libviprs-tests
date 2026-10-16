@@ -106,7 +106,9 @@ fn expected_samples() -> (u32, u32, Vec<u16>) {
 fn raster_samples_u16(r: &Raster) -> Vec<u16> {
     assert_eq!(r.format(), PixelFormat::Rgba16, "expected an Rgba16 result");
     r.data()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|b| u16::from_ne_bytes([b[0], b[1]]))
         .collect()
 }
@@ -220,7 +222,7 @@ fn add_const_promoted_opaque_overlay_stays_visible_over_8bit_base() {
     // 65535 alpha — both far outside this tolerance.
     let s = raster_samples_u16(&out);
     let expected = [200u16, 100, 50, 255];
-    for (px, chunk) in s.chunks_exact(4).enumerate() {
+    for (px, chunk) in s.as_chunks::<4>().0.iter().enumerate() {
         for (ch, (&a, &e)) in chunk.iter().zip(expected.iter()).enumerate() {
             assert!(
                 a.abs_diff(e) <= TOLERANCE,

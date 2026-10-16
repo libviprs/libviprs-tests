@@ -1046,7 +1046,7 @@ fn generated_pages_carry_real_content_and_stay_small() {
         assert!(bytes < 120_000, "{}: {bytes} bytes on disk", page.label);
         let r = render_page_pdfium(&page.path, 1, 72).unwrap();
         let (mut dark, mut grey, mut colour) = (0u64, 0u64, 0u64);
-        for p in r.data().chunks_exact(4) {
+        for p in r.data().as_chunks::<4>().0 {
             let (a, b, c) = (p[0] as i32, p[1] as i32, p[2] as i32);
             if a < 64 && b < 64 && c < 64 {
                 dark += 1;

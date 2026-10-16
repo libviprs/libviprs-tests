@@ -1291,38 +1291,38 @@ fn replayed_jobs(script: &str) -> Vec<(String, Vec<ReplayStep>)> {
         let t = lines[i].trim();
         if let Some(id) = t.strip_prefix("job ") {
             jobs.push((id.trim().to_string(), Vec::new()));
-        } else if let Some(rest) = t.strip_prefix("step") {
-            if let Some(args) = rest.strip_suffix("<<'STEP'") {
-                let mut env: Vec<(String, String)> = tokens(args)
-                    .iter()
-                    .map(|kv| {
-                        let (k, v) = kv.split_once('=').unwrap_or_else(|| {
-                            panic!(
-                                "tools/replay-ci.sh line {}: `{kv}` is not NAME=VALUE",
-                                i + 1
-                            )
-                        });
-                        (k.to_string(), v.to_string())
-                    })
-                    .collect();
-                env.sort();
-                let end = lines[i + 1..]
-                    .iter()
-                    .position(|l| *l == "STEP")
-                    .map(|p| i + 1 + p)
-                    .unwrap_or_else(|| {
+        } else if let Some(rest) = t.strip_prefix("step")
+            && let Some(args) = rest.strip_suffix("<<'STEP'")
+        {
+            let mut env: Vec<(String, String)> = tokens(args)
+                .iter()
+                .map(|kv| {
+                    let (k, v) = kv.split_once('=').unwrap_or_else(|| {
                         panic!(
-                            "tools/replay-ci.sh line {}: a step with no closing STEP",
+                            "tools/replay-ci.sh line {}: `{kv}` is not NAME=VALUE",
                             i + 1
                         )
                     });
-                let code = code_lines(&lines[i + 1..end].join("\n"));
-                let (_, steps) = jobs.last_mut().unwrap_or_else(|| {
-                    panic!("tools/replay-ci.sh line {}: a step before any `job`", i + 1)
+                    (k.to_string(), v.to_string())
+                })
+                .collect();
+            env.sort();
+            let end = lines[i + 1..]
+                .iter()
+                .position(|l| *l == "STEP")
+                .map(|p| i + 1 + p)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "tools/replay-ci.sh line {}: a step with no closing STEP",
+                        i + 1
+                    )
                 });
-                steps.push(ReplayStep { env, code });
-                i = end;
-            }
+            let code = code_lines(&lines[i + 1..end].join("\n"));
+            let (_, steps) = jobs.last_mut().unwrap_or_else(|| {
+                panic!("tools/replay-ci.sh line {}: a step before any `job`", i + 1)
+            });
+            steps.push(ReplayStep { env, code });
+            i = end;
         }
         i += 1;
     }
