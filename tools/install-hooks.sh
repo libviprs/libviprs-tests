@@ -113,14 +113,14 @@ deferred_jobs() {
     case "$1" in
         libviprs)
             printf '%s\t%s\n' \
-                msrv 'pinned to a 1.97 toolchain, and checking with the toolchain you happen to have installed answers a different question' \
+                msrv 'pinned to a 1.99 toolchain, and checking with the toolchain you happen to have installed answers a different question' \
                 docs 'rustdoc over every feature; it cannot fail on anything the clippy cells pass' \
                 test 'the test half' \
                 integration-test 'the test half, and it lays this harness down beside the core'
             ;;
         libviprs-cli)
             printf '%s\t%s\n' \
-                msrv 'pinned to a 1.97 toolchain, so a local run answers a different question' \
+                msrv 'pinned to a 1.99 toolchain, so a local run answers a different question' \
                 test 'the test half'
             ;;
         libviprs-tests)

@@ -1265,8 +1265,8 @@ impl FlakySink {
     /// Spend one of the failures still owed, if any are left.
     ///
     /// A compare-and-swap loop rather than `fetch_update`, which Rust 1.99
-    /// deprecates, or its replacement `try_update`, which is newer than this
-    /// crate's MSRV.
+    /// deprecates, or its replacement `try_update`, which was newer than this
+    /// crate's MSRV when this was written (1.85 at the time).
     fn take_a_failure(&self) -> bool {
         let mut left = self.failures_left.load(Ordering::SeqCst);
         while left > 0 {

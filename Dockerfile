@@ -20,7 +20,7 @@
 # tests/dockerfile_pins_rust_toolchain_222.rs keeps this a concrete
 # `major.minor.patch`, used through ${RUST_VERSION}, and never below the core's
 # MSRV.
-ARG RUST_VERSION=1.99.0
+ARG RUST_VERSION=1.99.1
 
 # Stage 1: Download PDFium shared library for the target architecture
 FROM debian:bookworm-slim AS pdfium
