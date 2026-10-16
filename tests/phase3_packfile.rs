@@ -310,7 +310,7 @@ fn zip_sink_produces_valid_archive() {
     let mut names: Vec<String> = Vec::with_capacity(archive.len());
     for i in 0..archive.len() {
         let entry = archive.by_index(i).expect("read entry");
-        names.push(entry.name().to_string());
+        names.push(entry.name().expect("entry name is valid").to_string());
     }
 
     let expected = expected_dzi_tile_paths(&plan, "output", "png");

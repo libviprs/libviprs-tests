@@ -355,4 +355,9 @@
 # tests/cli_page_size_parity.rs need it. It replaces the draft pin on the PR
 # head 17e527a1, which was not on main. The registry pdfium-render stays 0.9.4
 # and the installed libpdfium is still 8085.
-46991fe5db33256237e21fb6139b5296bb756c09
+#
+# Bumped to e5524c82, libviprs main's tip when I checked with
+# `gh api repos/libviprs/libviprs/commits/main`. It carries libviprs#1213 (the
+# core moves to zip 9.0.3, the 7.x line it was on is yanked). This repo's own
+# zip dev-dependency moves to 9 in the same commit (libviprs-tests#279).
+e5524c82992a0904c8894469d062f1ebd8873aca
