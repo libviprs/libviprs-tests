@@ -602,13 +602,12 @@ fn checkpoint_written_periodically() {
     let watcher = std::thread::spawn(move || {
         let mut last: Option<std::time::SystemTime> = None;
         while !stop_for_thread.load(Ordering::SeqCst) {
-            if let Ok(md) = std::fs::metadata(base_for_thread.join(JOB_FILE)) {
-                if let Ok(mt) = md.modified() {
-                    if last != Some(mt) {
-                        last = Some(mt);
-                        updates_for_thread.fetch_add(1, Ordering::SeqCst);
-                    }
-                }
+            if let Ok(md) = std::fs::metadata(base_for_thread.join(JOB_FILE))
+                && let Ok(mt) = md.modified()
+                && last != Some(mt)
+            {
+                last = Some(mt);
+                updates_for_thread.fetch_add(1, Ordering::SeqCst);
             }
             std::thread::sleep(std::time::Duration::from_millis(1));
         }

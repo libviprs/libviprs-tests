@@ -112,23 +112,33 @@ impl Img {
             (1, PixelFormat::Int8(_)) => d.iter().map(|&b| f64::from(b as i8)).collect(),
             (1, _) => d.iter().map(|&b| f64::from(b)).collect(),
             (2, PixelFormat::Int16(_)) => d
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|c| f64::from(i16::from_ne_bytes([c[0], c[1]])))
                 .collect(),
             (2, _) => d
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|c| f64::from(u16::from_ne_bytes([c[0], c[1]])))
                 .collect(),
             (4, PixelFormat::RgbaF32 | PixelFormat::FloatF32(_)) => d
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|c| f64::from(f32::from_ne_bytes([c[0], c[1], c[2], c[3]])))
                 .collect(),
             (4, PixelFormat::Int32(_)) => d
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|c| f64::from(i32::from_ne_bytes([c[0], c[1], c[2], c[3]])))
                 .collect(),
             (4, _) => d
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|c| f64::from(u32::from_ne_bytes([c[0], c[1], c[2], c[3]])))
                 .collect(),
             (n, f) => panic!("no sample reader for {n}-byte {f:?}"),
@@ -187,11 +197,15 @@ impl Img {
         let s: Vec<f64> = match fmt {
             0 => px[..n].iter().map(|&v| f64::from(v)).collect(),
             2 => px[..n * 2]
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|c| f64::from(u16::from_le_bytes([c[0], c[1]])))
                 .collect(),
             6 => px[..n * 4]
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|c| f64::from(f32::from_le_bytes([c[0], c[1], c[2], c[3]])))
                 .collect(),
             other => panic!("{name}: .v band format {other} not handled"),

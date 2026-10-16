@@ -73,8 +73,10 @@ fn load_gray8(name: &str) -> Raster {
 /// is still the right comparison for a fixture whose sums fit: they are
 /// widened rather than re-captured.
 fn samples_u32(data: &[u8]) -> Vec<u32> {
-    data.chunks_exact(4)
-        .map(|c| u32::from_ne_bytes(c.try_into().expect("chunks_exact(4) yields 4 bytes")))
+    data.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_ne_bytes(*c))
         .collect()
 }
 

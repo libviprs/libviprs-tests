@@ -2422,7 +2422,9 @@ fn test_gifsave() {
     );
     let rgb: Vec<u8> = spare
         .data()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|p| &p[..3])
         .copied()
         .collect();

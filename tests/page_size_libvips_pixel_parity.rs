@@ -90,12 +90,14 @@ fn for_each_pair(mut f: impl FnMut(&Pair)) {
             "{label}: libvips (width, height, bands) vs libviprs RGBA8",
         );
         assert!(
-            ours.data().chunks_exact(4).all(|p| p[3] == 255),
+            ours.data().as_chunks::<4>().0.iter().all(|p| p[3] == 255),
             "{label}: libviprs raster is not opaque, so comparing RGB would hide it"
         );
         let rgb: Vec<u8> = ours
             .data()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[1], p[2]])
             .collect();
         f(&Pair {

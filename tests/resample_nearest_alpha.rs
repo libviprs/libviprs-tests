@@ -59,7 +59,7 @@ fn assert_exact_pick(out: &Raster, label: &str) {
     let data = out.data();
     assert_eq!(out.format(), PixelFormat::Rgba8, "{label}: format changed");
     assert_eq!(data.len() % 4, 0, "{label}: not whole RGBA pixels");
-    for (i, px) in data.chunks_exact(4).enumerate() {
+    for (i, px) in data.as_chunks::<4>().0.iter().enumerate() {
         let pixel = [px[0], px[1], px[2], px[3]];
         assert!(
             PALETTE.contains(&pixel),

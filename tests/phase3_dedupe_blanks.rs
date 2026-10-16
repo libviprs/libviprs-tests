@@ -56,10 +56,10 @@ const TILE_SIZE: u32 = 128;
 fn total_output_bytes(dir: &Path) -> u64 {
     let mut total: u64 = 0;
     walk(dir, &mut |p| {
-        if let Ok(md) = std::fs::metadata(p) {
-            if md.is_file() {
-                total += md.len();
-            }
+        if let Ok(md) = std::fs::metadata(p)
+            && md.is_file()
+        {
+            total += md.len();
         }
     });
     total

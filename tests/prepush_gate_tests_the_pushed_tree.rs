@@ -312,12 +312,11 @@ fn run_tests_does_not_report_the_pushing_repo_as_another_tree() {
         .arg(repo_root())
         .args(["rev-parse", "--absolute-git-dir"])
         .output()
+        && out.status.success()
     {
-        if out.status.success() {
-            let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !dir.is_empty() {
-                cmd.env("GIT_DIR", dir);
-            }
+        let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !dir.is_empty() {
+            cmd.env("GIT_DIR", dir);
         }
     }
 

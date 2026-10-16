@@ -266,7 +266,9 @@ fn load_rgb8(name: &str) -> Raster {
 
 /// Read a native-endian `u16` sample stream out of a raster buffer.
 fn samples_u16(data: &[u8]) -> Vec<u16> {
-    data.chunks_exact(2)
+    data.as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| u16::from_ne_bytes([c[0], c[1]]))
         .collect()
 }

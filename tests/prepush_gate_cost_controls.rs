@@ -138,14 +138,13 @@ fn candidate_paths(root: &Path) -> Vec<String> {
         .arg(root)
         .args(["ls-files", "-z"])
         .output()
+        && out.status.success()
     {
-        if out.status.success() {
-            return String::from_utf8_lossy(&out.stdout)
-                .split('\0')
-                .filter(|p| !p.is_empty())
-                .map(str::to_string)
-                .collect();
-        }
+        return String::from_utf8_lossy(&out.stdout)
+            .split('\0')
+            .filter(|p| !p.is_empty())
+            .map(str::to_string)
+            .collect();
     }
     let mut found = Vec::new();
     walk(root, root, &mut found);
