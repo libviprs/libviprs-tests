@@ -197,6 +197,36 @@ fn landmarks_sit_on_the_same_pixels_as_in_libvips() {
 // Big sheets: references made on demand
 // ---------------------------------------------------------------------------
 
+/// Where the page geometry puts the landmarks, against where the render has
+/// them: the title-block square's midpoint along x and y within a pixel of
+/// `(pt.px, pt.py)` (the same bound `pdfium_page_size_exact::assert_landmarks`
+/// uses; `px`/`py` are the floored centre, so the pixel's own centre is half a
+/// pixel on), and a dark run at `(pt.tx, pt.ty)`, since a run of 0 means the
+/// corner triangle is not where the geometry says.
+fn landmarks_off_the_formula(
+    label: &str,
+    pt: LandmarkPoints,
+    ((x0, x1), (y0, y1), run): ((u32, u32), (u32, u32), u32),
+) -> Vec<String> {
+    let mut off = Vec::new();
+    for (axis, lo, hi, want) in [("x", x0, x1, pt.px), ("y", y0, y1, pt.py)] {
+        let mid = (lo + hi + 1) as f64 / 2.0;
+        if (mid - (want as f64 + 0.5)).abs() > 1.0 {
+            off.push(format!(
+                "{label}: square midpoint {mid} along {axis}, the formula says {}",
+                want as f64 + 0.5
+            ));
+        }
+    }
+    if run == 0 {
+        off.push(format!(
+            "{label}: no dark run at ({}, {}), the corner triangle is not where the geometry puts it",
+            pt.tx, pt.ty
+        ));
+    }
+    off
+}
+
 /// Sheets bigger than Tabloid at 300 dpi (and the 150 dpi rasters over the size
 /// cap) are too big to commit. The first run with libvips on PATH makes them
 /// into the git-ignored `generated/` folder, checked against the recorded hash
@@ -261,6 +291,21 @@ fn big_sheets_match_the_on_demand_libvips_reference() {
         if ours_lm != ref_lm {
             failures.push(format!("{label}: landmarks {ours_lm:?} vs {ref_lm:?}"));
         }
+        // Agreement with libvips does not cover both rasters sitting a pixel
+        // off together, and these sheets are above the render cap of
+        // `pdfium_page_size_exact`, so this is the only place the formula is
+        // checked for them.
+        let off = landmarks_off_the_formula(&label, pt, ours_lm);
+        for miss in off {
+            failures.push(miss);
+        }
+        eprintln!(
+            "BIG {label:<24} {w}x{h}  {}  landmarks {} ({:.1}s, peak {} MB)",
+            s.summary(),
+            if ours_lm == ref_lm { "same" } else { "MOVED" },
+            t.elapsed().as_secs_f64(),
+            peak_rss_mb()
+        );
         compared += 1;
     }
     eprintln!(
