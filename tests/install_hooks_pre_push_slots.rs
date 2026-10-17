@@ -180,6 +180,21 @@ fn a_pre_push_hook_only_lands_where_the_suite_has_a_slot() {
             "run-tests.sh builds this harness, so the gate can fail on a harness change",
         ),
         (
+            "acadsharp-rs-tests",
+            true,
+            "the suite's own gate, tools/run-tests.sh, runs on the pushed tree",
+        ),
+        (
+            "acadsharp-rs",
+            true,
+            "the suite's gate takes this tree in its acadsharp-rs slot",
+        ),
+        (
+            "acadrust",
+            true,
+            "the suite's gate takes this tree in its acadrust slot",
+        ),
+        (
             "libviprs-cli",
             false,
             "the suite has no slot for the cli, so the gate would report a verdict \

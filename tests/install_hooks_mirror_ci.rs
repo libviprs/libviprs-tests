@@ -822,6 +822,9 @@ const CHECKED_REPOS: &[&str] = &[
     "libviprs-org",
     "libviprs-dep",
     "pdfium-render",
+    "acadsharp-rs-tests",
+    "acadsharp-rs",
+    "acadrust",
 ];
 
 #[test]
@@ -909,6 +912,28 @@ fn the_hook_mirrors_the_org_site_ci() {
 #[test]
 fn the_hook_mirrors_the_dep_ci() {
     check_repo("libviprs-dep");
+}
+
+/// The parity suite. Its `check` job is the lint half; `test` is the gate
+/// `tools/run-tests.sh` runs on push. Skips where the sibling is absent, and
+/// `VIPRS_REQUIRE_SIBLINGS=1` (the `hook-mirror` job) turns that into a panic.
+#[test]
+fn the_hook_mirrors_the_acadsharp_rs_tests_ci() {
+    check_repo("acadsharp-rs-tests");
+}
+
+/// The safe decoder crate. Same split as the suite: `check` on commit, and the
+/// suite's gate with this tree in its slot on push.
+#[test]
+fn the_hook_mirrors_the_acadsharp_rs_ci() {
+    check_repo("acadsharp-rs");
+}
+
+/// The acadrust fork. Its CI runs no lint at all, so everything is deferred
+/// with a reason and the guard still catches a job that appears unaccounted.
+#[test]
+fn the_hook_mirrors_the_acadrust_ci() {
+    check_repo("acadrust");
 }
 
 /// pdfium-render is the one repo whose pre-commit hook is not a CI mirror, and
