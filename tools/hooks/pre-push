@@ -68,6 +68,10 @@ MAIN_CHECKOUT="$(cd "$TREE" && cd "$(dirname "$(git rev-parse --git-common-dir)"
 REPO_NAME="$(basename "$MAIN_CHECKOUT")"
 WORKSPACE_ROOT="$(cd "$MAIN_CHECKOUT/.." && pwd)"
 RUN_TESTS="$WORKSPACE_ROOT/libviprs-tests/tools/run-tests.sh"
+# Arguments for the script. Empty for the core and the harness, which pass
+# their trees in the environment; the acadsharp-rs-tests suite takes its trees
+# as flags (acadsharp-rs-tests#26).
+RUN_ARGS=()
 
 # Hand the pushed tree to the suite in whichever slot it belongs. Without
 # this run-tests.sh falls back to the sibling checkouts, which is the whole
@@ -90,6 +94,25 @@ case "$REPO_NAME" in
         if [ -x "$TREE/tools/run-tests.sh" ]; then
             RUN_TESTS="$TREE/tools/run-tests.sh"
         fi
+        ;;
+    # The parity suite has a gate of its own, in its own repo. It takes the
+    # other two trees as flags and defaults them to its own siblings, which for
+    # a worktree push are other lanes, so both are named on every push.
+    acadsharp-rs-tests)
+        if [ -x "$TREE/tools/run-tests.sh" ]; then
+            RUN_TESTS="$TREE/tools/run-tests.sh"
+        else
+            RUN_TESTS="$WORKSPACE_ROOT/acadsharp-rs-tests/tools/run-tests.sh"
+        fi
+        RUN_ARGS=(--acadsharp-rs "$WORKSPACE_ROOT/acadsharp-rs" --acadrust "$WORKSPACE_ROOT/acadrust")
+        ;;
+    acadsharp-rs)
+        RUN_TESTS="$WORKSPACE_ROOT/acadsharp-rs-tests/tools/run-tests.sh"
+        RUN_ARGS=(--acadsharp-rs "$TREE" --acadrust "$WORKSPACE_ROOT/acadrust")
+        ;;
+    acadrust)
+        RUN_TESTS="$WORKSPACE_ROOT/acadsharp-rs-tests/tools/run-tests.sh"
+        RUN_ARGS=(--acadsharp-rs "$WORKSPACE_ROOT/acadsharp-rs" --acadrust "$TREE")
         ;;
 esac
 
@@ -380,7 +403,7 @@ fi
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_QUARANTINE_PATH
 
 echo "Running pre-push test suite on $TREE..."
-if ! "$RUN_TESTS"; then
+if ! "$RUN_TESTS" ${RUN_ARGS[@]+"${RUN_ARGS[@]}"}; then
     echo ""
     echo "Pre-push tests failed. Push aborted."
     echo "Fix the failures or use: git push --no-verify"

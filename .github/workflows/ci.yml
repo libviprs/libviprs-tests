@@ -240,13 +240,13 @@ jobs:
       - uses: ./.github/actions/clone-counterpart
       - uses: ./.github/actions/clone-cli-counterpart
       - name: Clone the siblings that carry no pin
-        # These four are read for their workflow files only, so the default
+        # These seven are read for their workflow files only, so the default
         # branch at whatever it is now is the right thing to compare against:
         # a hook that has drifted from the CI running today is exactly what
         # this job is for. The two that do carry a pin are cloned at it above.
         run: |
           set -euo pipefail
-          for repo in libviprs-bench libviprs-org libviprs-dep pdfium-render; do
+          for repo in libviprs-bench libviprs-org libviprs-dep pdfium-render acadsharp-rs-tests acadsharp-rs acadrust; do
             git clone --depth 1 --single-branch \
               "https://github.com/${{ github.repository_owner }}/$repo.git" \
               "${GITHUB_WORKSPACE}/../$repo"
