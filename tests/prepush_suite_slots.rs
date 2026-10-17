@@ -119,10 +119,7 @@ fn a_suite_push_hands_the_gate_the_remote_commit_as_the_verdicts_base() {
     let tree = ws.repo("acadsharp-rs-tests");
     let before = git(&tree, &["rev-parse", "HEAD"]).trim().to_string();
     let after = ws.commit_in(&tree, "a change", &[("src/lib.rs", "// y\n")]);
-    let out = ws
-        .push("acadsharp-rs-tests")
-        .range(&before, &after)
-        .run();
+    let out = ws.push("acadsharp-rs-tests").range(&before, &after).run();
     let args = reported(&out, "ARGS");
     assert!(
         args.contains(&format!("--verdicts-base {before}")),
