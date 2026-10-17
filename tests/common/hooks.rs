@@ -28,6 +28,9 @@ pub const STANDIN_REPOS: &[&str] = &[
     "libviprs-org",
     "libviprs-dep",
     "pdfium-render",
+    "acadsharp-rs-tests",
+    "acadsharp-rs",
+    "acadrust",
 ];
 
 /// This crate's root, which is also the repo root for the harness checkout.
@@ -74,6 +77,7 @@ echo "STUB-GIT_WORK_TREE=${GIT_WORK_TREE-unset}"
 echo "STUB-GIT_INDEX_FILE=${GIT_INDEX_FILE-unset}"
 echo "STUB-GIT_PREFIX=${GIT_PREFIX-unset}"
 echo "STUB-GIT_QUARANTINE_PATH=${GIT_QUARANTINE_PATH-unset}"
+echo "STUB-ARGS=$*"
 "#;
 
 /// One `STUB-<name>=` line out of what a push printed.
@@ -139,7 +143,19 @@ impl Workspace {
         std::fs::write(&stub, STUB_RUN_TESTS).expect("write the stub run-tests.sh");
         make_executable(&stub);
 
+        // The acadsharp-rs-tests suite has its own gate script, and a push from
+        // acadsharp-rs or acadrust runs it with the pushed tree in its slot.
+        // The stub reports its arguments, which is how the slot is read back.
+        let suite_stub = root.join("acadsharp-rs-tests/tools/run-tests.sh");
+        std::fs::create_dir_all(suite_stub.parent().expect("suite tools dir"))
+            .expect("create the stand-in suite tools directory");
+        std::fs::write(&suite_stub, STUB_RUN_TESTS).expect("write the stub suite gate");
+        make_executable(&suite_stub);
+
         let ws = Workspace { _dir: dir, root };
+        ws.commit("acadsharp-rs-tests", "suite gate", &[]);
+        ws.commit("acadsharp-rs", "stand-in crate", &[]);
+        ws.commit("acadrust", "stand-in fork", &[]);
         ws.commit("libviprs-tests", "harness tooling", &[]);
         ws.commit(
             "libviprs",

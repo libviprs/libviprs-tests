@@ -13,8 +13,11 @@ set -euo pipefail
 #               step in those jobs, except the ones `exempt_steps` names with a
 #               reason. So a clean pre-commit means those jobs will be clean.
 #
-#   pre-push    the TEST HALF: tools/run-tests.sh, in the two repos that suite
-#               actually holds (`has_suite_slot`, libviprs/libviprs#691).
+#   pre-push    the TEST HALF: tools/run-tests.sh, in the repos that suite
+#               actually holds (`has_suite_slot`, libviprs/libviprs#691). The
+#               acadsharp-rs-tests suite has a gate of its own, and the
+#               acadsharp-rs and acadrust pushes run it with their tree in
+#               their slot (acadsharp-rs-tests#26).
 #
 #   deferred_jobs names every CI job that is in neither half, and why. Between
 #               the two lists every job in a repo's workflow is accounted for,
@@ -65,6 +68,9 @@ REPOS=(
     "$WORKSPACE_ROOT/libviprs-org"
     "$WORKSPACE_ROOT/libviprs-dep"
     "$WORKSPACE_ROOT/pdfium-render"
+    "$WORKSPACE_ROOT/acadsharp-rs-tests"
+    "$WORKSPACE_ROOT/acadsharp-rs"
+    "$WORKSPACE_ROOT/acadrust"
 )
 
 # ---------------------------------------------------------------------------
@@ -104,6 +110,13 @@ mirror_jobs() {
         # Nothing. The fork's CI runs no lint at all, so there is nothing here
         # to mirror; see the note above write_pdfium_pre_commit.
         pdfium-render)  : ;;
+        # The suite and the crate it tests: the `check` job is the lint half
+        # (fmt, clippy and a script lint). `test` is the test half, run by the
+        # suite's gate.
+        acadsharp-rs-tests) printf '%s\n' check ;;
+        acadsharp-rs)       printf '%s\n' check ;;
+        # Nothing. The fork's CI runs no lint at all.
+        acadrust)       : ;;
         *)              : ;;
     esac
 }
@@ -129,7 +142,7 @@ deferred_jobs() {
                 test-pdfium 'the test half, and it needs libpdfium.so installed' \
                 cli-differential 'the test half; 18 vips-differential binaries plus the CLI-driven PMTiles cell, against the cli at CLI_COUNTERPART_REV' \
                 pmtiles-interop 'the test half, and it downloads a pinned go-pmtiles release and runs the real binary against an archive libviprs generated' \
-                hook-mirror 'the job that holds these hooks to every repo'"'"'s CI, which needs all seven laid down side by side'
+                hook-mirror 'the job that holds these hooks to every repo'"'"'s CI, which needs every repo laid down side by side'
             ;;
         libviprs-bench)
             printf '%s\t%s\n' \
@@ -143,6 +156,24 @@ deferred_jobs() {
         pdfium-render)
             printf '%s\t%s\n' \
                 build 'upstream'"'"'s file: one job of 205 compatibility cells plus a wasm-pack build, and it runs no lint at all'
+            ;;
+        acadsharp-rs-tests)
+            printf '%s\t%s\n' \
+                msrv 'pinned to a 1.99 toolchain, so a local run answers a different question' \
+                docs 'rustdoc over every feature; it cannot fail on anything the clippy cells pass' \
+                test 'the test half; tools/run-tests.sh is the pre-push gate and runs the same cargo lines in a stock rust container'
+            ;;
+        acadsharp-rs)
+            printf '%s\t%s\n' \
+                msrv 'pinned to a 1.99 toolchain, so a local run answers a different question' \
+                docs 'rustdoc over every feature; it cannot fail on anything the clippy cells pass' \
+                test 'the test half, and it fetches the native archive' \
+                suite 'the test half: the pre-push gate is the suite'"'"'s tools/run-tests.sh with this tree in its slot'
+            ;;
+        acadrust)
+            printf '%s\t%s\n' \
+                test 'the test half' \
+                conformance 'the test half, and it fetches a corpus over the network; it is also on its way out in favour of the suite gate (acadrust#18)'
             ;;
         *) : ;;
     esac
@@ -326,6 +357,22 @@ LIBVIPRS_DEP_STEPS=(
     "pytest -v"
 )
 
+# The suite. Its `check` job also runs `cargo clippy` over the `acadrust`
+# feature, because feature-gated code is invisible to the default pass.
+ACADSHARP_RS_TESTS_STEPS=(
+    "cargo fmt -- --check"
+    "cargo clippy --locked --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --locked --all-targets --features acadrust -- -D warnings"
+    "shellcheck tools/counterpart.sh"
+)
+
+# The crate: fmt and two clippy cells, the default one and `link-static`.
+ACADSHARP_RS_STEPS=(
+    "cargo fmt -- --check"
+    "cargo clippy --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features link-static -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+)
+
 steps_for_repo() {
     case "$1" in
         libviprs)       printf '%s\n' "${LIBVIPRS_STEPS[@]}" ;;
@@ -334,6 +381,8 @@ steps_for_repo() {
         libviprs-bench) printf '%s\n' "${LIBVIPRS_BENCH_STEPS[@]}" ;;
         libviprs-org)   printf '%s\n' "${LIBVIPRS_ORG_STEPS[@]}" ;;
         libviprs-dep)   printf '%s\n' "${LIBVIPRS_DEP_STEPS[@]}" ;;
+        acadsharp-rs-tests) printf '%s\n' "${ACADSHARP_RS_TESTS_STEPS[@]}" ;;
+        acadsharp-rs)   printf '%s\n' "${ACADSHARP_RS_STEPS[@]}" ;;
         *)              : ;;
     esac
 }
@@ -362,6 +411,10 @@ steps_for_repo() {
 has_suite_slot() {
     case "$1" in
         libviprs|libviprs-tests) return 0 ;;
+        # The suite's gate is tools/run-tests.sh in acadsharp-rs-tests. A push
+        # from the suite runs the pushed tree's copy, and a push from either
+        # engine runs it with that tree in the engine's slot.
+        acadsharp-rs-tests|acadsharp-rs|acadrust) return 0 ;;
         *)                       return 1 ;;
     esac
 }
@@ -534,6 +587,9 @@ HOOK
             fi
         done < <(steps_for_repo "$repo_name")
 
+        if [ -z "$(steps_for_repo "$repo_name")" ]; then
+            echo 'echo "  (this repo'"'"'s CI runs no lint, so there is nothing to mirror here)"'
+        fi
         echo 'echo "Pre-commit checks passed. Tests run on push."'
     } > "$pre_commit"
     chmod +x "$pre_commit"
