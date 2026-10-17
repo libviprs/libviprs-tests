@@ -110,8 +110,9 @@ mirror_jobs() {
         # Nothing. The fork's CI runs no lint at all, so there is nothing here
         # to mirror; see the note above write_pdfium_pre_commit.
         pdfium-render)  : ;;
-        # The suite and the crate it tests: the `check` job is fmt, clippy and
-        # shellcheck. `test` is the test half, run by the suite's gate.
+        # The suite and the crate it tests: the `check` job is the lint half
+        # (fmt, clippy and a script lint). `test` is the test half, run by the
+        # suite's gate.
         acadsharp-rs-tests) printf '%s\n' check ;;
         acadsharp-rs)       printf '%s\n' check ;;
         # Nothing. The fork's CI runs no lint at all.

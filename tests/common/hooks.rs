@@ -154,6 +154,8 @@ impl Workspace {
 
         let ws = Workspace { _dir: dir, root };
         ws.commit("acadsharp-rs-tests", "suite gate", &[]);
+        ws.commit("acadsharp-rs", "stand-in crate", &[]);
+        ws.commit("acadrust", "stand-in fork", &[]);
         ws.commit("libviprs-tests", "harness tooling", &[]);
         ws.commit(
             "libviprs",
