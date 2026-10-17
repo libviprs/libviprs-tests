@@ -402,6 +402,32 @@ fi
 # at. The paths above are already resolved, so drop it here.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_QUARANTINE_PATH
 
+# The suite holds the parity run a second time against the verdicts the remote
+# already has, so a push that moves a verdict and re-records it in the same
+# change is red at push time (acadsharp-rs-tests#25). It needs the remote's
+# commit, which only this hook is handed, and only a push from the suite itself
+# carries a parity/VERDICTS.toml worth comparing. A new branch has no remote
+# commit, so it gets no flag.
+if [ "$REPO_NAME" = acadsharp-rs-tests ] && [ -n "$REF_UPDATES" ]; then
+    while read -r _l_ref l_oid _r_ref r_oid; do
+        case "${l_oid:-}" in
+            ""|*[!0]*) : ;;
+            *) continue ;;
+        esac
+        [ -n "${l_oid:-}" ] || continue
+        case "${r_oid:-}" in
+            ""|*[!0]*)
+                if [ -n "${r_oid:-}" ] && git cat-file -e "${r_oid}^{commit}" 2>/dev/null; then
+                    RUN_ARGS+=(--verdicts-base "$r_oid")
+                    break
+                fi
+                ;;
+        esac
+    done <<REFS_FOR_BASE
+$REF_UPDATES
+REFS_FOR_BASE
+fi
+
 echo "Running pre-push test suite on $TREE..."
 if ! "$RUN_TESTS" ${RUN_ARGS[@]+"${RUN_ARGS[@]}"}; then
     echo ""

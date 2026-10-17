@@ -112,3 +112,42 @@ fn a_failing_suite_gate_refuses_the_push() {
         "the gate's output must reach the pusher:\n{text}"
     );
 }
+
+#[test]
+fn a_suite_push_hands_the_gate_the_remote_commit_as_the_verdicts_base() {
+    let ws = Workspace::new();
+    let tree = ws.repo("acadsharp-rs-tests");
+    let before = git(&tree, &["rev-parse", "HEAD"]).trim().to_string();
+    let after = ws.commit_in(&tree, "a change", &[("src/lib.rs", "// y\n")]);
+    let out = ws
+        .push("acadsharp-rs-tests")
+        .range(&before, &after)
+        .run();
+    let args = reported(&out, "ARGS");
+    assert!(
+        args.contains(&format!("--verdicts-base {before}")),
+        "the remote commit must reach the gate as --verdicts-base: `{args}`\n{out}"
+    );
+}
+
+#[test]
+fn a_new_branch_gets_no_verdicts_base_and_engines_never_do() {
+    let ws = Workspace::new();
+    let tree = ws.repo("acadsharp-rs-tests");
+    let after = ws.commit_in(&tree, "a change", &[("src/lib.rs", "// z\n")]);
+    let zero = "0".repeat(40);
+    let out = ws.push("acadsharp-rs-tests").range(&zero, &after).run();
+    assert!(
+        !reported(&out, "ARGS").contains("--verdicts-base"),
+        "a new branch has no remote commit:\n{out}"
+    );
+
+    let engine = ws.repo("acadrust");
+    let before = git(&engine, &["rev-parse", "HEAD"]).trim().to_string();
+    let after = ws.commit_in(&engine, "a change", &[("src/lib.rs", "// w\n")]);
+    let out = ws.push("acadrust").range(&before, &after).run();
+    assert!(
+        !reported(&out, "ARGS").contains("--verdicts-base"),
+        "only a suite push carries a verdicts base:\n{out}"
+    );
+}
