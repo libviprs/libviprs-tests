@@ -114,7 +114,13 @@ serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 tar = "0.4"
-zip = { version = "9", default-features = false, features = ["deflate"] }
+# `deflate-flate2` and not `deflate`: in zip 9 `deflate` is `deflate-flate2-zlib-rs`, and
+# cargo unions features across the graph, so it switched flate2 from the miniz_oxide backend
+# the core uses to zlib-rs. The core's PNG and TIFF encoders deflate through flate2, so that
+# changed their bytes (1033 to 1046 and 2542 to 2403) and failed the encode cells in
+# `tests/codec_e2e.rs` against fixtures made with the core's own backend. A test-only
+# dependency should not pick the compressor under the encoders being tested (#286).
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 # Used by `tests/phase3_checksum.rs` to verify checksum hex digests
 # independently of the core crate's implementation.
 blake3 = "1"
