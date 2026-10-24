@@ -155,4 +155,8 @@
 # `plan` (libviprs#1209) and the un-ignored CropBox cell in
 # tests/cli_page_size_parity.rs passes against it. It needs COUNTERPART_REV at
 # 46991fe5 (the libviprs 0.6.1 tag) or later.
-55d22e917c789e77b3f850314a28f9680f718854
+5a689b85ece9c561388aa587ed18798bbbec93d7
+#
+# Bumped to 5a689b85, libviprs-cli main after #119 (`viprs vector`). The `vector` row in
+# cli_surface_coverage names that command now (libviprs-tests#295). It needs
+# COUNTERPART_REV at 341ef14d or later, which has vector::convert.
