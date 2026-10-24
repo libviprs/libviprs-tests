@@ -642,6 +642,14 @@ const CORE_FEATURES_NOT_FORWARDED_HERE: &[(&str, &str)] = &[
          real to run. The core's own CI lints it and runs cad_1030_acadsharp_decoder \
          under the feature, and the DWG decode path is exercised by acadsharp-rs-tests",
     ),
+    (
+        "dwg-acadrust",
+        "enables the first provider behind the core's DwgProvider traits, over the \
+         acadrust crate, a git-only dependency pinned by revision. Nothing in this \
+         suite drives the provider, so forwarding it would add that git revision to \
+         every cell and leave the cell nothing to run. The core's own CI lints it and \
+         runs its provider tests under the feature",
+    ),
 ];
 
 fn core_manifest() -> String {

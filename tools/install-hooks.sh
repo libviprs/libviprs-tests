@@ -238,7 +238,7 @@ exempt_steps() {
 # libviprs-org needs one, and it mirrors a step-level `if:` in the workflow.
 # ---------------------------------------------------------------------------
 
-# The core lints the default cell and ten feature-gated ones. Each of the
+# The core lints the default cell and eleven feature-gated ones. Each of the
 # latter is in CI because the default pass compiles none of that code, and the
 # list sat at two of them for as long as a comment was the only thing asking
 # anyone to keep it in step (libviprs/libviprs#715).
@@ -255,6 +255,7 @@ LIBVIPRS_STEPS=(
     "cargo clippy --all-targets --features serde -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features tracing -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features dwg-acadsharp -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features dwg-acadrust -- -D warnings -W clippy::incompatible_msrv -W deprecated"
 )
 
 # The cli lints twelve configurations (libviprs-cli#48, #64). The bare pass IS
