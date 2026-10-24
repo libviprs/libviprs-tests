@@ -233,6 +233,16 @@ const INERT_IN_LIBVIPRS: &[&str] = &[
     // has no such guard, so its numbers can go stale silently. Pinning it
     // here records that as a deliberate gap rather than closing it.
     "docs/tile-codec-benchmarks.md",
+    // Added with the bump to core 48bdb1f1 (#291). These are the PVec spike and
+    // inventory notes: design write-ups and a recorded spike run, and no test
+    // pulls any of them in with `include_str!` or reads them off disk, so a push
+    // that changes only these runs nothing that could fail.
+    "docs/adr/pvec-streaming-strategy.md",
+    "docs/pvec-decode-inventory.md",
+    "docs/spikes/bounded-memory.md",
+    "docs/spikes/bounded-memory/results-x64.txt",
+    "docs/spikes/bounded-memory/run.sh",
+    "docs/spikes/bounded-memory/spool_spike.rs",
 ];
 
 /// The skip list may only hold paths nothing reads, and the only way to know

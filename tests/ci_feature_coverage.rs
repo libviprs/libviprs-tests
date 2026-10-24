@@ -627,11 +627,22 @@ fn the_s3_alias_still_resolves_to_object_store_sink() {
 /// question; this half lives here because this file already reads this
 /// crate's `[features]` table. A feature here has no `x = ["libviprs/x"]`
 /// line in `Cargo.toml`, so nothing in this suite can be built with it.
-const CORE_FEATURES_NOT_FORWARDED_HERE: &[(&str, &str)] = &[(
-    "serde",
-    "adds Serialize/Deserialize derives to the core's plan and config types and \
-     no code path, so there is nothing here for a cell to run under it",
-)];
+const CORE_FEATURES_NOT_FORWARDED_HERE: &[(&str, &str)] = &[
+    (
+        "serde",
+        "adds Serialize/Deserialize derives to the core's plan and config types and \
+         no code path, so there is nothing here for a cell to run under it",
+    ),
+    (
+        "dwg-acadsharp",
+        "enables the acadsharp-rs DWG provider, a git-only dependency (not on \
+         crates.io yet) that links a NativeAOT archive from libviprs-dep. Forwarding \
+         it would make every cell here fetch and pin that git revision, and without \
+         the archive the provider only reports Unlinked, so a cell would have nothing \
+         real to run. The core's own CI lints it and runs cad_1030_acadsharp_decoder \
+         under the feature, and the DWG decode path is exercised by acadsharp-rs-tests",
+    ),
+];
 
 fn core_manifest() -> String {
     read("../libviprs/Cargo.toml")
