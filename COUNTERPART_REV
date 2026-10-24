@@ -379,3 +379,9 @@
 # Bumped to 341ef14d, libviprs main after libviprs#1244, #1258 and #1245 merged (libviprs-tests#295).
 # The pin used to be the head of #1244, which predates vector::convert, and the
 # CLI pinned in CLI_COUNTERPART_REV calls it.
+#
+# Bumped to 6206f5c0, libviprs main after libviprs#1267 added `pvec-normalized`
+# (libviprs-tests#297). The old pin predates the feature, so the row for it here
+# is red against that core, the same shape as #291 and #293, and the hook mirror
+# wants the core's clippy cell for it.
+6206f5c0e6e7d68f74662b23465e729b7e43e2e8
