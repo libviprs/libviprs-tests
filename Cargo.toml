@@ -128,10 +128,3 @@ sha2 = "0.10"
 # Used by `tests/builder_composition_invariants.rs` for property-based
 # invariants over the `EngineBuilder` composition surface.
 proptest = "1"
-
-# Resolve every pdfium-render in the graph, the core crate's included, to the fork tag that carries
-# the page index cache fix (ajrcarey/pdfium-render#268) and the bitmap buffer length fix (#273).
-# The fork keeps version 0.9.4, so the existing requirement still matches. Drop this once a
-# released pdfium-render carries both (libviprs/pdfium-render#15).
-[patch.crates-io]
-pdfium-render = { git = "https://github.com/libviprs/pdfium-render", tag = "v0.9.4-viprs.1" }
