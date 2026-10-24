@@ -360,4 +360,13 @@
 # `gh api repos/libviprs/libviprs/commits/main`. It carries libviprs#1213 (the
 # core moves to zip 9.0.3, the 7.x line it was on is yanked). This repo's own
 # zip dev-dependency moves to 9 in the same commit (libviprs-tests#279).
-e5524c82992a0904c8894469d062f1ebd8873aca
+48bdb1f11869976d01105d9bd787fb34d6af6a87
+#
+# Bumped to 48bdb1f1, libviprs main's tip when I checked with `git ls-remote
+# https://github.com/libviprs/libviprs.git refs/heads/main`. It moves because
+# of libviprs-tests#291: the core declares `dwg-acadsharp` (libviprs#1030),
+# which e5524c82 predates. The core's own Integration Tests job runs this suite
+# against core main, so it needs a row for the feature, and
+# every_core_feature_is_forwarded_here_or_says_why_not holds a row for a feature
+# the pinned core does not declare to be red. A row that is right against main
+# and stale against the old pin cannot be satisfied by both, so the pin moves.
