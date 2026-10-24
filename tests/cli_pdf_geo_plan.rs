@@ -402,8 +402,9 @@ fn assert_unlocked_page(png: &Path) {
     let raster = decode_file(png).expect("the unlocked extract decodes as a PNG");
     assert_eq!(
         (raster.width(), raster.height()),
-        (595, 841),
-        "a page that needs a user password is rendered at 72 DPI"
+        (595, 842),
+        "a page that needs a user password is rendered at 72 DPI, A4 (595.28 x 841.89 pt) \
+         sized the libvips way: rint, so 842 high and not the truncated 841"
     );
     let bpp = raster.format().bytes_per_pixel();
     assert!(
