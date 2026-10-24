@@ -221,6 +221,11 @@ first, because `--no-verify` is how the gate stopped protecting anything.
 
 ### Changing `ci.yml` anywhere in the org: the pairing rule
 
+Note (2026-10-24): hosted CI is disabled org-wide, so no required check reports any more and a PR
+shows BLOCKED until I merge it with `--admin` after posting the local gate evidence
+(`tools/gate-fleet.sh local-ci libviprs-tests REF` in the workspace). What follows describes what the
+checks do when Actions is on, and the same pairing rule applies to the local gate's replay of `ci.yml`.
+
 `Hook Mirror (every repo in the org)` is a required check on `main` here. That
 job lays the seven repos in `REPOS` down beside this one and compares each
 repo's installed pre-commit hook against that repo's own CI, so it is the one
