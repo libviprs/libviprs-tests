@@ -346,6 +346,13 @@ const MODULES: &[ModuleRow] = &[
          nothing for a row to name until that lands",
     ),
     row(
+        "pvec",
+        Reach::NotApplicable,
+        "the replaceable DWG provider traits (DwgProvider, EntityCursor, RawEntity) and \
+         the acadrust provider behind them; the analytic path has no viprs command yet, \
+         so there is nothing for a row to name",
+    ),
+    row(
         "foreign_stubs",
         Reach::NotApplicable,
         "refusal stubs: every function returns a typed Unsupported, and OP_MAP.md's \
@@ -476,6 +483,12 @@ const CORE_FEATURES_NOT_IN_CLI: &[(&str, &str)] = &[
         "enables the acadsharp-rs DWG provider, a git-only dependency that links a \
          NativeAOT archive; the CLI ships no DWG command and the core's own CI covers \
          the provider under the feature",
+    ),
+    (
+        "dwg-acadrust",
+        "enables the acadrust provider behind the core's DwgProvider traits, a git-only \
+         dependency pinned by revision; the CLI ships no DWG analytic command and the \
+         core's own CI covers the provider under the feature",
     ),
     (
         "test-util",
