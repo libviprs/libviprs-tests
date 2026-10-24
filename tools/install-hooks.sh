@@ -161,7 +161,15 @@ deferred_jobs() {
             printf '%s\t%s\n' \
                 msrv 'pinned to a 1.99 toolchain, so a local run answers a different question' \
                 docs 'rustdoc over every feature; it cannot fail on anything the clippy cells pass' \
-                test 'the test half; tools/run-tests.sh is the pre-push gate and runs the same cargo lines in a stock rust container'
+                test 'the test half; tools/run-tests.sh is the pre-push gate and runs the same cargo lines in a stock rust container' \
+                native-linux-x64 'the test half: the native lane on a stock runner, which fetches the native archive by hash and clones the core and the fork' \
+                native-mac-arm64 'the test half, on a macOS runner that a local commit cannot stand in for, and it fetches the native archive' \
+                native-linux-x64-lsan 'the test half: a nightly toolchain with the leak sanitizer over the native boundary, far too slow for a commit' \
+                parity 'the test half: it runs tools/run-tests.sh --in-ci, which is the pre-push gate itself' \
+                native-plan 'plans the native matrix from NATIVE_ARTIFACT.toml and runs nothing a hook could mirror; it only feeds native-matrix' \
+                native-matrix 'the test half: every published native target, shared and static, on the runner each one needs' \
+                native-compare 'the test half: compares the cell results the native jobs upload, so it has nothing to run without them' \
+                miri 'the test half: a nightly toolchain with miri over the pure-Rust parsers, which is minutes per run'
             ;;
         acadsharp-rs)
             printf '%s\t%s\n' \
@@ -173,7 +181,7 @@ deferred_jobs() {
         acadrust)
             printf '%s\t%s\n' \
                 test 'the test half' \
-                conformance 'the test half, and it fetches a corpus over the network; it is also on its way out in favour of the suite gate (acadrust#18)'
+                suite 'the test half: the pre-push gate is the suite'"'"'s tools/run-tests.sh with the fork'"'"'s tree in its slot; it replaced conformance (acadrust#18)'
             ;;
         *) : ;;
     esac
