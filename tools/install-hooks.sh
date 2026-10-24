@@ -371,7 +371,7 @@ ACADSHARP_RS_TESTS_STEPS=(
     "cargo fmt -- --check"
     "cargo clippy --locked --all-targets -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --locked --all-targets --features acadrust -- -D warnings"
-    "shellcheck tools/counterpart.sh"
+    "shellcheck tools/counterpart.sh tools/no_dotnet_proof.sh tools/lsan_cell.sh"
 )
 
 # The crate: fmt and two clippy cells, the default one and `link-static`.
