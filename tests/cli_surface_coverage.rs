@@ -485,6 +485,18 @@ const CORE_FEATURES_NOT_IN_CLI: &[(&str, &str)] = &[
          core's own CI covers the provider under the feature",
     ),
     (
+        "pvec-normalized",
+        "enables Normalized2DGeometry, the adapter over PVec's curve model, whose two \
+         PVec crates are git-only dependencies pinned by revision; the CLI ships no \
+         analytic DWG command and the core's own CI covers the adapter under the feature",
+    ),
+    (
+        "pvec-spline",
+        "enables exact B-spline extraction from a provider's RawGeometry::Spline, whose \
+         one extra crate is a git-only dependency pinned by revision; the CLI ships no \
+         analytic DWG command and the core's own CI covers it under the feature",
+    ),
+    (
         "test-util",
         "exposes the test-only sink doubles (SlowSink) to the libviprs-tests stress \
          suite; a shipped binary has no use for a sink that sleeps",

@@ -650,6 +650,22 @@ const CORE_FEATURES_NOT_FORWARDED_HERE: &[(&str, &str)] = &[
          every cell and leave the cell nothing to run. The core's own CI lints it and \
          runs its provider tests under the feature",
     ),
+    (
+        "pvec-normalized",
+        "enables Normalized2DGeometry, the thin adapter over PVec's curve model, whose \
+         two PVec crates are git-only dependencies pinned by revision. Nothing in this \
+         suite drives the adapter, so forwarding it would add those revisions to every \
+         cell and leave the cell nothing to run. The core's own CI lints it and runs \
+         tests/pvec_1095_normalized_geometry.rs under the feature",
+    ),
+    (
+        "pvec-spline",
+        "enables exact B-spline extraction from a provider's RawGeometry::Spline, whose one \
+         extra crate (pvec-numeric) is a git-only dependency pinned by revision. Nothing in \
+         this suite drives it, so forwarding it would add that revision to every cell and \
+         leave the cell nothing to run. The core's own CI lints it and runs \
+         tests/pvec_dwg_spline_structural.rs under the feature",
+    ),
 ];
 
 fn core_manifest() -> String {

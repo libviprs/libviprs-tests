@@ -360,7 +360,7 @@
 # `gh api repos/libviprs/libviprs/commits/main`. It carries libviprs#1213 (the
 # core moves to zip 9.0.3, the 7.x line it was on is yanked). This repo's own
 # zip dev-dependency moves to 9 in the same commit (libviprs-tests#279).
-341ef14d9d65c5bc10cab959d975aba032466e3b
+4d6fc7e1e220cb683d1ea2325f8d95e5123466a1
 #
 # Bumped to 48bdb1f1, libviprs main's tip when I checked with `git ls-remote
 # https://github.com/libviprs/libviprs.git refs/heads/main`. It moves because
@@ -379,3 +379,12 @@
 # Bumped to 341ef14d, libviprs main after libviprs#1244, #1258 and #1245 merged (libviprs-tests#295).
 # The pin used to be the head of #1244, which predates vector::convert, and the
 # CLI pinned in CLI_COUNTERPART_REV calls it.
+#
+# Bumped to 6206f5c0, libviprs main after libviprs#1267 added `pvec-normalized`
+# (libviprs-tests#297). The old pin predates the feature, so the row for it here
+# is red against that core, the same shape as #291 and #293, and the hook mirror
+# wants the core's clippy cell for it.
+#
+# Bumped to 4d6fc7e1, the head of libviprs#1272, which declares `pvec-spline` and
+# lints it in ci.yml (libviprs-tests#299). The row and the hook line here are red
+# against any core that lacks either, so the pin moves with them.
