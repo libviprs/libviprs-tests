@@ -360,7 +360,7 @@
 # `gh api repos/libviprs/libviprs/commits/main`. It carries libviprs#1213 (the
 # core moves to zip 9.0.3, the 7.x line it was on is yanked). This repo's own
 # zip dev-dependency moves to 9 in the same commit (libviprs-tests#279).
-0ef1b9566ee8c79e4465fb21ce419d47336dba48
+341ef14d9d65c5bc10cab959d975aba032466e3b
 #
 # Bumped to 48bdb1f1, libviprs main's tip when I checked with `git ls-remote
 # https://github.com/libviprs/libviprs.git refs/heads/main`. It moves because
@@ -375,3 +375,7 @@
 # which 48bdb1f1 predates, and every_core_feature_is_forwarded_here_or_says_why_not
 # holds a row for a feature the pinned core does not declare to be red, so the
 # row and the pin move together (libviprs-tests#293), the same as #291.
+#
+# Bumped to 341ef14d, libviprs main after libviprs#1244, #1258 and #1245 merged (libviprs-tests#295).
+# The pin used to be the head of #1244, which predates vector::convert, and the
+# CLI pinned in CLI_COUNTERPART_REV calls it.

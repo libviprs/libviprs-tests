@@ -340,10 +340,10 @@ const MODULES: &[ModuleRow] = &[
     ),
     row(
         "vector",
-        Reach::NotApplicable,
-        "MVT tiles and the PMTiles vector archive writer and reader; no viprs command \
-         builds or reads one yet (libviprs-cli#119 adds `viprs vector`), so there is \
-         nothing for a row to name until that lands",
+        Reach::Builtin("vector"),
+        "MVT tiles and the PMTiles vector archive writer and reader, reached through \
+         `viprs vector` (views, build, report, info, validate), which is not an op and \
+         so has no OP_MAP.md row",
     ),
     row(
         "pvec",
@@ -477,12 +477,6 @@ const CORE_FEATURES_NOT_IN_CLI: &[(&str, &str)] = &[
         "serde",
         "adds Serialize/Deserialize derives to the plan and config types and no code \
          path; the CLI's JSON (plan, features --json) is its own versioned shape",
-    ),
-    (
-        "dwg-acadsharp",
-        "enables the acadsharp-rs DWG provider, a git-only dependency that links a \
-         NativeAOT archive; the CLI ships no DWG command and the core's own CI covers \
-         the provider under the feature",
     ),
     (
         "dwg-acadrust",

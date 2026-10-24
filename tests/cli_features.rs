@@ -86,6 +86,7 @@ const CODECS: &[Codec] = &[
 /// `pdfium-static`, which conflicts with the runtime-binding pdfium path.
 const FULL: &[&str] = &[
     "avif",
+    "dwg-acadsharp",
     "jp2k",
     "jxl",
     "object-store-sink",
