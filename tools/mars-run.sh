@@ -34,7 +34,8 @@
 #   LIBVIPRS_HOOKS_SKIP_MARS=1   skip the run with a banner (MARS is down)
 #   LIBVIPRS_HOOKS_MARS=U@HOST   default devshell@192.168.0.100
 #   LIBVIPRS_HOOKS_RUST=X.Y.Z    toolchain tag of the image, default 1.99.1
-#   LIBVIPRS_HOOKS_MEM=8g        memory ceiling of the container
+#   LIBVIPRS_HOOKS_MEM=8g        memory ceiling of the lint container
+#   LIBVIPRS_HOOKS_GATE_MEM=8g   memory ceiling of the suite's test container
 #   LIBVIPRS_HOOKS_WAIT=1800     seconds to wait for another run of the same repo
 #   LIBVIPRS_HOOK_TREEISH=REV    hook mode: gate REV's tree instead of the index
 #   LIBVIPRS_TESTS_REV=REV       gate mode: use the harness at REV, not its checkout
@@ -321,6 +322,7 @@ mkrepo libviprs-tests "$MARS_TAGS_TESTS"'
         -v $dir:$dir -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker:ro \
         -v /usr/libexec/docker/cli-plugins:/usr/libexec/docker/cli-plugins:ro \
         -e LIBVIPRS_DIR=$dir/libviprs -e LIBVIPRS_TESTS_DIR=$dir/libviprs-tests \
+        -e RUN_TESTS_MEMORY=${LIBVIPRS_HOOKS_GATE_MEM:-8g} \
         -w $dir/libviprs-tests $IMAGE \
         bash -c $(printf '%q' "tools/run-tests.sh$args")" </dev/null || rc=$?
     if [ "$rc" -eq 255 ]; then
