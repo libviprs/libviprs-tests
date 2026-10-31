@@ -21,8 +21,8 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 
 use common::cli::{cli_available, run_bin, viprs_bin_for};
-use pvec_facade::unstable::RasterId;
 use pvec_facade::PvecReader;
+use pvec_facade::unstable::RasterId;
 
 fn bin() -> Option<PathBuf> {
     cli_available().then(|| viprs_bin_for(false, &["pvec-raster"]))
@@ -145,7 +145,10 @@ fn the_scan_goes_into_a_pvec_and_every_tile_comes_back_equal_to_the_directory_ru
             }
         }
     }
-    assert!(stored > 20 && left_out >= 6, "{stored} stored, {left_out} left out");
+    assert!(
+        stored > 20 && left_out >= 6,
+        "{stored} stored, {left_out} left out"
+    );
 }
 
 #[test]
