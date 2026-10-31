@@ -589,7 +589,7 @@ dependencies = [
  "bit_field",
  "half",
  "lebe",
- "miniz_oxide",
+ "miniz_oxide 0.8.9",
  "num-complex",
  "pulp",
  "smallvec",
@@ -655,7 +655,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
  "crc32fast",
- "miniz_oxide",
+ "miniz_oxide 0.8.9",
  "zlib-rs",
 ]
 
@@ -1277,7 +1277,7 @@ dependencies = [
  "rustfft",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tar",
  "thiserror",
  "tiff",
@@ -1299,6 +1299,7 @@ dependencies = [
  "pdfium-render",
  "png",
  "proptest",
+ "pvec-interchange",
  "serde_json",
  "sha2 0.10.9",
  "tar",
@@ -1360,12 +1361,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "lz4_flex"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
+
+[[package]]
 name = "lzma-rust2"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7277c9742229dc25243236d578b6471a798c554512c6f6a04365ec2e87c2a3bb"
 dependencies = [
- "sha2 0.11.0",
+ "sha2 0.11.1",
 ]
 
 [[package]]
@@ -1407,6 +1414,15 @@ checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "miniz_oxide"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
+dependencies = [
+ "adler2",
 ]
 
 [[package]]
@@ -1640,7 +1656,7 @@ dependencies = [
  "crc32fast",
  "fdeflate",
  "flate2",
- "miniz_oxide",
+ "miniz_oxide 0.8.9",
 ]
 
 [[package]]
@@ -1757,6 +1773,72 @@ name = "pulp-wasm-simd-flag"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d8f70e07b9c3962945a74e59ca1c511bba65b6419468acc217c457d93f3c740"
+
+[[package]]
+name = "pvec-capabilities"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
+
+[[package]]
+name = "pvec-components"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
+dependencies = [
+ "pvec-capabilities",
+ "pvec-entity",
+ "pvec-numeric",
+]
+
+[[package]]
+name = "pvec-container"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
+dependencies = [
+ "lz4_flex",
+ "miniz_oxide 0.9.1",
+ "pvec-capabilities",
+ "pvec-components",
+ "pvec-entity",
+ "pvec-geometry",
+ "pvec-numeric",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "pvec-entity"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
+dependencies = [
+ "pvec-geometry",
+ "pvec-numeric",
+]
+
+[[package]]
+name = "pvec-geometry"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
+dependencies = [
+ "pvec-numeric",
+]
+
+[[package]]
+name = "pvec-interchange"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
+dependencies = [
+ "miniz_oxide 0.9.1",
+ "pvec-capabilities",
+ "pvec-components",
+ "pvec-container",
+ "pvec-entity",
+ "pvec-geometry",
+ "pvec-numeric",
+]
+
+[[package]]
+name = "pvec-numeric"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
 
 [[package]]
 name = "pxfm"
@@ -2100,9 +2182,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
+checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
@@ -2911,6 +2993,12 @@ name = "xmlwriter"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
 
 [[package]]
 name = "zerocopy"
