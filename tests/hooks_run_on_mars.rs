@@ -531,3 +531,24 @@ fn a_trailer_with_nothing_after_it_does_not_skip_the_suite() {
         "an empty Red-tests: skipped the suite:\n{out}"
     );
 }
+
+/// A sentence in the body that happens to start with `Red-tests:` is prose, not
+/// a trailer. Only the last paragraph of the message counts, which is where
+/// trailers go. The first version of the hook matched any line and took the
+/// commit that introduced it for a red one.
+#[test]
+fn a_red_tests_line_in_the_middle_of_the_body_is_prose_not_a_trailer() {
+    let m = Mars::new();
+    let before = m.ws.commit("libviprs", "base", &[("src/a.rs", "// a\n")]);
+    let after = m.ws.commit(
+        "libviprs",
+        "Change\n\nRed-tests: is the trailer a test-first commit carries, and\nthis paragraph only talks about it.\n\nCloses #1",
+        &[("src/a.rs", "// b\n")],
+    );
+    let (ok, out) = m.push("libviprs", &before, &after, &[]);
+    assert!(ok, "{out}");
+    assert!(
+        m.read("gate.cmd").contains("tools/run-tests.sh"),
+        "prose that starts with Red-tests: skipped the suite:\n{out}"
+    );
+}
