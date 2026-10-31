@@ -1264,3 +1264,105 @@ fn go_pmtiles_reads_a_libviprs_archive_that_spilled_into_leaves() {
         swept + edge_count
     );
 }
+
+// ===========================================================================
+// PVec raster passthrough (libviprs/libviprs#1328, libviprs/pvec#222)
+// ===========================================================================
+
+/// A raster pyramid cut the way a PVec raster stream stores it: Google layout, centring off,
+/// overlap 0, padding tiles dropped, PNG tiles.
+fn pvec_pyramid() -> libviprs::raster_pvec::pyramid::RasterPyramid {
+    use libviprs::raster_pvec::pyramid::{
+        RasterPlacement, RasterPyramidOptions, produce_raster_pyramid,
+    };
+    let src = canonical_raster_scaled(700, 530);
+    let plan = PyramidPlanner::new(700, 530, 256, 0, Layout::Google)
+        .expect("a legal plan")
+        .plan();
+    let options =
+        RasterPyramidOptions::new(RasterPlacement::Explicit([1.0, 0.0, 0.0, -1.0, 0.0, 530.0]));
+    produce_raster_pyramid(&src, &plan, &options).expect("the pyramid is produced")
+}
+
+#[test]
+fn an_archive_exported_by_pvec_interchange_extracts_to_the_same_tile_bytes() {
+    use pvec_interchange::pmtiles::{
+        RasterArchive, RasterTile, RasterTileType, write_raster_archive,
+    };
+
+    let pyramid = pvec_pyramid();
+    let tiles: Vec<RasterTile> = pyramid
+        .tiles()
+        .map(|(z, x, y, bytes)| RasterTile {
+            z: u8::try_from(z).expect("a legal zoom"),
+            x,
+            y,
+            bytes: bytes.to_vec(),
+        })
+        .collect();
+    assert!(tiles.len() > 8, "{} tiles", tiles.len());
+    let bytes = write_raster_archive(&RasterArchive {
+        tile_type: RasterTileType::Png,
+        tiles: tiles.clone(),
+        pvec: None,
+        attribution: None,
+    })
+    .expect("pvec-interchange writes the archive");
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("exported.pmtiles");
+    std::fs::write(&path, &bytes).expect("write the archive");
+
+    let reader = Reader::try_open(&path).expect("libviprs opens an archive pvec-interchange wrote");
+    for t in &tiles {
+        let got = reader
+            .get_tile(t.z, t.x, t.y)
+            .expect("the lookup works")
+            .unwrap_or_else(|| panic!("tile {}/{}/{} is missing", t.z, t.x, t.y));
+        assert_eq!(
+            got, t.bytes,
+            "tile {}/{}/{} extracts byte for byte",
+            t.z, t.x, t.y
+        );
+    }
+    // Nothing else is in there: a coordinate inside the zoom's grid that the pyramid dropped as
+    // padding (700 by 530 at edge 256 is 3 by 3 tiles on a 4 by 4 grid) is absent.
+    let top = pyramid.levels - 1;
+    assert_eq!(reader.get_tile(top, 3, 3).expect("lookup"), None);
+}
+
+#[test]
+fn an_archive_libviprs_wrote_reads_back_through_pvec_interchange_with_the_same_bytes() {
+    use pvec_interchange::pmtiles::{RasterReadLimits, RasterTileType, read_raster_archive};
+
+    let src = canonical_raster_scaled(700, 530);
+    let plan = PyramidPlanner::new(700, 530, 256, 0, Layout::Google)
+        .expect("a legal plan")
+        .plan();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("ours.pmtiles");
+    let sink = PmTilesSink::builder(&path)
+        .plan(plan.clone())
+        .tile_format(libviprs::TileFormat::Png)
+        .build()
+        .expect("the sink builds");
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .expect("the run succeeds");
+
+    let bytes = std::fs::read(&path).expect("read the archive");
+    let archive = read_raster_archive(&bytes, &RasterReadLimits::default())
+        .expect("pvec-interchange reads an archive libviprs wrote");
+    assert_eq!(archive.tile_type, RasterTileType::Png);
+    assert!(!archive.tiles.is_empty());
+
+    let reader = Reader::try_open(&path).expect("open");
+    for t in &archive.tiles {
+        let ours = reader
+            .get_tile(t.z, t.x, t.y)
+            .expect("lookup")
+            .unwrap_or_else(|| panic!("libviprs has no tile {}/{}/{}", t.z, t.x, t.y));
+        assert_eq!(t.bytes, ours, "tile {}/{}/{}", t.z, t.x, t.y);
+    }
+}
