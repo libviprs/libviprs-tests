@@ -274,6 +274,7 @@ gate_mode() {
     local rc=0
     mssh "docker run --rm --name $job --platform linux/amd64 \
         -v $dir:$dir -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker:ro \
+        -v /usr/libexec/docker/cli-plugins:/usr/libexec/docker/cli-plugins:ro \
         -e LIBVIPRS_DIR=$dir/libviprs -e LIBVIPRS_TESTS_DIR=$dir/libviprs-tests \
         -w $dir/libviprs-tests rust:$RUST-bookworm \
         bash -c $(printf '%q' "tools/run-tests.sh$args")" </dev/null || rc=$?
