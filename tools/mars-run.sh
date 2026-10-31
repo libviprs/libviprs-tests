@@ -37,6 +37,7 @@
 #   LIBVIPRS_HOOKS_MEM=8g        memory ceiling of the container
 #   LIBVIPRS_HOOKS_WAIT=1800     seconds to wait for another run of the same repo
 #   LIBVIPRS_HOOK_TREEISH=REV    hook mode: gate REV's tree instead of the index
+#   LIBVIPRS_TESTS_REV=REV       gate mode: use the harness at REV, not its checkout
 set -euo pipefail
 
 MARS="${LIBVIPRS_HOOKS_MARS:-devshell@192.168.0.100}"
@@ -255,7 +256,17 @@ gate_mode() {
     fi
     local core_tree tests_tree
     core_tree="$(snapshot_tree "$core")"
-    tests_tree="$(snapshot_tree "$tests")"
+    # LIBVIPRS_TESTS_REV names a revision of the harness to use instead of the
+    # checkout's working tree. A core push sets it to origin/main: the sibling
+    # checkout is somebody's working branch, and gating a core change against
+    # it answers a question about that branch.
+    if [ -n "${LIBVIPRS_TESTS_REV:-}" ]; then
+        cleangit -C "$tests" fetch -q origin 2>/dev/null || say "could not fetch libviprs-tests, using what is here"
+        tests_tree="$(cleangit -C "$tests" rev-parse --verify "${LIBVIPRS_TESTS_REV}^{tree}")" \
+            || die "no ${LIBVIPRS_TESTS_REV} in the libviprs-tests checkout at $tests"
+    else
+        tests_tree="$(snapshot_tree "$tests")"
+    fi
 
     local dir args=""
     # Global: the EXIT trap below runs after this function has returned.

@@ -102,6 +102,10 @@ case "$REPO_NAME" in
     libviprs)
         export LIBVIPRS_DIR="$TREE"
         export LIBVIPRS_TESTS_DIR="$WORKSPACE_ROOT/libviprs-tests"
+        # On MARS a core push is gated against the harness at origin/main, not
+        # against the sibling checkout, which is somebody's working branch.
+        # LIBVIPRS_TESTS_REV=<rev> in the environment picks another revision.
+        export LIBVIPRS_TESTS_REV="${LIBVIPRS_TESTS_REV:-origin/main}"
         ;;
     libviprs-tests)
         export LIBVIPRS_TESTS_DIR="$TREE"
