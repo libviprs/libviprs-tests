@@ -583,3 +583,37 @@ fn the_shipped_trees_become_repositories_with_their_tags() {
         "the core's tags did not go over, so the changelog guard sees none:\n{ssh}"
     );
 }
+
+/// A core push is gated against the harness at origin/main, not against
+/// whatever branch the sibling libviprs-tests checkout is on. The sibling is
+/// someone's working branch with its own, older Dockerfile, and on the first
+/// real core push it failed to build the image for a reason that has nothing
+/// to do with the core.
+#[test]
+fn a_core_push_gates_against_the_harness_at_origin_main() {
+    let m = Mars::new();
+    let tests = m.ws.repo("libviprs-tests");
+    let on_main =
+        m.ws.commit("libviprs-tests", "on main", &[("MARKER", "main\n")]);
+    git(
+        &tests,
+        &["update-ref", "refs/remotes/origin/main", &on_main],
+    );
+    // The sibling checkout has moved on to a branch of its own.
+    m.ws.commit(
+        "libviprs-tests",
+        "somebody's branch",
+        &[("MARKER", "branch\n")],
+    );
+
+    let before = m.ws.commit("libviprs", "base", &[("src/a.rs", "// a\n")]);
+    let after = m.ws.commit("libviprs", "change", &[("src/a.rs", "// b\n")]);
+    let (ok, out) = m.push("libviprs", &before, &after, &[]);
+    assert!(ok, "{out}");
+
+    assert_eq!(
+        m.shipped_file(0, "libviprs-tests/MARKER"),
+        "main\n",
+        "the harness that went to MARS is the sibling checkout, not origin/main"
+    );
+}
