@@ -264,11 +264,41 @@ gate_mode() {
     trap gate_cleanup EXIT
     trap 'mssh "docker kill $GATE_JOB >/dev/null 2>&1" || true; exit 130' INT TERM
 
+    # The trees go over as git archive output, which has no .git, and
+    # run-tests.sh wants one in each: it stages the index and the refs into its
+    # build context so the guards that ask git what is tracked (and the tags)
+    # can answer. So a container unpacks them and makes each a one-commit
+    # repository, with the tags the real repository has as bare refs. That is
+    # the state the guards already treat as "tags present, history absent".
     say "shipping libviprs ($(printf '%.12s' "$core_tree")) and libviprs-tests ($(printf '%.12s' "$tests_tree")) to MARS"
+    # shellcheck disable=SC2016
+    local setup='set -euo pipefail
+tar -xi -f - -C "$MARS_DIR"
+mkrepo() {
+    cd "$MARS_DIR/$1"
+    git init -q
+    git config core.fileMode true
+    git add -A
+    git -c user.name=gate -c user.email=gate@localhost commit -q -m gate
+    printf "%s\n" "$2" | while read -r sha name; do
+        [ -n "${name:-}" ] || continue
+        mkdir -p ".git/refs/tags/$(dirname "$name")"
+        printf "%s\n" "$sha" > ".git/refs/tags/$name"
+    done
+}
+git config --global --add safe.directory "*"
+mkrepo libviprs "$MARS_TAGS_CORE"
+mkrepo libviprs-tests "$MARS_TAGS_TESTS"'
+    local core_tags tests_tags
+    core_tags="$(cleangit -C "$core" for-each-ref --format='%(objectname) %(refname:strip=2)' refs/tags)"
+    tests_tags="$(cleangit -C "$tests" for-each-ref --format='%(objectname) %(refname:strip=2)' refs/tags)"
+    mssh "mkdir -p $dir" || die "could not make the scratch dir on MARS"
     {
         cleangit -C "$core" archive --format=tar --prefix=libviprs/ "$core_tree"
         cleangit -C "$tests" archive --format=tar --prefix=libviprs-tests/ "$tests_tree"
-    } | mssh "mkdir -p $dir && tar -xi -f - -C $dir" || die "shipping the trees to MARS failed"
+    } | mssh "docker run --rm -i --platform linux/amd64 -v $dir:$dir \
+        -e MARS_DIR=$dir -e MARS_TAGS_CORE=$(printf '%q' "$core_tags") -e MARS_TAGS_TESTS=$(printf '%q' "$tests_tags") \
+        rust:$RUST-bookworm bash -c $(printf '%q' "$setup")" || die "shipping the trees to MARS failed"
 
     say "running tools/run-tests.sh on MARS"
     local rc=0
