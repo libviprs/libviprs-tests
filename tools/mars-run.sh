@@ -36,7 +36,9 @@
 #   LIBVIPRS_HOOKS_RUST=X.Y.Z    toolchain tag of the image, default 1.99.1
 #   LIBVIPRS_HOOKS_MEM=8g        memory ceiling of the lint container
 #   LIBVIPRS_HOOKS_GATE_MEM=8g   memory ceiling of the suite's test container
-#   LIBVIPRS_HOOKS_WAIT=1800     seconds to wait for another run of the same repo
+#   LIBVIPRS_HOOKS_WAIT=1800     seconds to wait for another run of the same repo,
+#                                or for a free suite slot
+#   LIBVIPRS_HOOKS_GATE_SLOTS=2  suite runs allowed on MARS at once
 #   LIBVIPRS_HOOK_TREEISH=REV    hook mode: gate REV's tree instead of the index
 #   LIBVIPRS_TESTS_REV=REV       gate mode: use the harness at REV, not its checkout
 #   LIBVIPRS_CORE_REV=pin|REV    gate mode: use the core COUNTERPART_REV names (pin) or REV
@@ -239,6 +241,23 @@ wait_for_name() {
 # ---------------------------------------------------------------------------
 # gate mode
 # ---------------------------------------------------------------------------
+# MARS is shared and a suite run is a docker build plus a test run, so at most
+# LIBVIPRS_HOOKS_GATE_SLOTS (default 2) go at once and the rest queue. The count
+# is the live driver containers, so there is no lock to go stale.
+wait_for_gate_slot() {
+    local slots="${LIBVIPRS_HOOKS_GATE_SLOTS:-2}" waited=0 running
+    while true; do
+        running="$(mssh 'docker ps -q --filter name=hook-gate-' 2>/dev/null | grep -c . || true)"
+        [ "${running:-0}" -lt "$slots" ] && return 0
+        if [ "$waited" -ge "$WAIT" ]; then
+            die "$running suite runs have held MARS for ${WAIT}s, giving up"
+        fi
+        [ "$waited" -eq 0 ] && say "$running suite runs are already going on MARS (limit $slots), waiting"
+        sleep 15
+        waited=$((waited + 15))
+    done
+}
+
 GATE_JOB=""
 gate_cleanup() {
     [ -n "$GATE_JOB" ] || return 0
@@ -252,6 +271,7 @@ gate_mode() {
     # refs into its build context when rsync is there (the tags the changelog
     # guard reads), and rsync is in this image.
     ensure_image
+    wait_for_gate_slot
     local core="${LIBVIPRS_DIR:-}" tests="${LIBVIPRS_TESTS_DIR:-}"
     if [ -z "$core" ] || [ -z "$tests" ]; then
         die "gate mode needs LIBVIPRS_DIR and LIBVIPRS_TESTS_DIR"
