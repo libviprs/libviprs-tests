@@ -46,9 +46,9 @@ use libviprs::streaming::RasterStripSource;
 use libviprs::{
     CancelToken, CollectingObserver, DirectoryPyramidReader, EngineBuilder, EngineConfig,
     EngineError, EngineEvent, EngineKind, EngineObserver, FailurePolicy, FsSink, GeoCoord,
-    GeoTransform, Layout, LocalWorkExecutor, MemorySink, PixelCoord, PmTilesPyramidReader,
-    PyramidPlan, PyramidPlanner, PyramidStorage, Raster, ResumePolicy, RetryPolicy, StripWorkUnit,
-    Tile, TileCoord, TileFormat, TileSink, WorkContext, WorkExecutor,
+    GeoTransform, Layout, LocalWorkExecutor, MemorySink, PixelCoord, PixelOrigin,
+    PmTilesPyramidReader, PyramidPlan, PyramidPlanner, PyramidStorage, Raster, ResumePolicy,
+    RetryPolicy, StripWorkUnit, Tile, TileCoord, TileFormat, TileSink, WorkContext, WorkExecutor,
 };
 
 mod common;
@@ -2290,42 +2290,56 @@ fn geo_bounds_written_from_a_georeference_read_back_from_the_archive() {
     let dir = tempfile::tempdir().expect("tempdir");
     let plan = xyz_plan(512, 256);
     let src = canonical_raster_scaled(512, 512);
-    let geo = georeference();
-    let bounds = geo.image_bounds(512, 512);
-    let centre = bounds.center();
     let archive = dir.path().join("geo.pmtiles");
-    run_archive(
-        &src,
-        &plan,
-        &archive,
-        WriterOptions::default()
-            .with_bounds_degrees([bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y])
-            .with_center_degrees(centre.x, centre.y),
-        false,
-        1,
-    );
+
+    // The sink is handed the transform (libviprs/libviprs#1328, option D'); nothing below hands
+    // the archive's bounds in by hand any more. They are derived from the transform the archive
+    // itself stores, which is what a consumer of the file has to do.
+    let written = georeference();
+    let sink = PmTilesSink::builder(&archive)
+        .plan(plan.clone())
+        .tile_format(TileFormat::Png)
+        .geo_transform(written, PixelOrigin::Corner)
+        .build()
+        .expect("build a PmTilesSink");
+    EngineBuilder::new(&src, plan.clone(), &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .expect("generate into the archive");
 
     let reader = Reader::try_open(&archive).expect("open");
-    let (w, s, e, n) = reader.bounds();
-    for (label, got, want) in [
-        ("west", w, bounds.min.x),
-        ("south", s, bounds.min.y),
-        ("east", e, bounds.max.x),
-        ("north", n, bounds.max.y),
-    ] {
-        assert!(
-            (got - want).abs() < 1e-6,
-            "the archive's {label} bound is {got} and the georeference put it at {want}"
-        );
-    }
+    let stored = reader
+        .geo_transform()
+        .expect("the metadata parses")
+        .expect("the archive carries the transform it was given");
+    assert_eq!(stored.pixel_origin, PixelOrigin::Corner);
+    let geo = stored.transform();
+    assert_eq!(
+        [geo.a, geo.b, geo.c, geo.d, geo.e, geo.f].map(f64::to_bits),
+        [
+            written.a, written.b, written.c, written.d, written.e, written.f
+        ]
+        .map(f64::to_bits),
+        "the stored transform is bit-equal to the one written"
+    );
+    let bounds = geo.image_bounds(512, 512);
     for corner in [(0.0, 0.0), (512.0, 0.0), (512.0, 512.0), (0.0, 512.0)] {
         let g = geo.pixel_to_geo(PixelCoord::new(corner.0, corner.1));
         assert!(
-            g.x >= w - 1e-6 && g.x <= e + 1e-6 && g.y >= s - 1e-6 && g.y <= n + 1e-6,
-            "corner {corner:?} maps to {g:?}, outside the archive's bounds"
+            bounds.contains(g) || {
+                // A corner sits exactly on the box edge, so allow the rounding of the sum.
+                g.x >= bounds.min.x - 1e-9
+                    && g.x <= bounds.max.x + 1e-9
+                    && g.y >= bounds.min.y - 1e-9
+                    && g.y <= bounds.max.y + 1e-9
+            },
+            "corner {corner:?} maps to {g:?}, outside the bounds the stored transform gives"
         );
     }
 
+    // The header bounds are a separate thing and stay at their default (the archive says nothing
+    // about where the raster is except in its metadata). go-pmtiles must agree with our reader
+    // about them, and must still open an archive that carries the extra metadata key.
     if let Some(bin) = go_pmtiles_bin() {
         let shown = go_pmtiles_header(&bin, &archive);
         let theirs: Vec<f64> = shown
@@ -2335,11 +2349,12 @@ fn geo_bounds_written_from_a_georeference_read_back_from_the_archive() {
             .iter()
             .map(|v| v.as_f64().expect("a number"))
             .collect();
-        let ours = [bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y];
-        for (t, o) in theirs.iter().zip(ours) {
+        let (w, s, e, n) = reader.bounds();
+        for (t, o) in theirs.iter().zip([w, s, e, n]) {
             assert!(
                 (t - o).abs() < 1e-6,
-                "go-pmtiles reads bounds {theirs:?}, written {ours:?}"
+                "go-pmtiles reads bounds {theirs:?}, our reader {:?}",
+                (w, s, e, n)
             );
         }
     }
