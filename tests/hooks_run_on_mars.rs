@@ -420,6 +420,8 @@ fn a_push_runs_the_suite_on_mars_and_cleans_up() {
         "cli-plugins",
         // rsync is what lets run-tests.sh stage the refs, and so the tags.
         "viprs-hooks:",
+        // The 4g default OOMs streaming_pdfium_matrix on MARS.
+        "RUN_TESTS_MEMORY=8g",
         "--platform linux/amd64",
         "tools/run-tests.sh",
         "LIBVIPRS_DIR=",
