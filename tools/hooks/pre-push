@@ -33,7 +33,8 @@ set -euo pipefail
 #
 # A commit that adds failing tests before the fix has to be pushable, or every
 # bug report's companion PR starts with --no-verify. So when the tip of every
-# ref being pushed carries a `Red-tests: <issue or reason>` trailer, this runs
+# ref being pushed carries a `Red-tests: <issue or reason>` trailer (a line in
+# the last paragraph of the message, where trailers go), this runs
 # the compile-and-lint half on MARS (the pre-commit checks, against the commit
 # going out) instead of the suite. Only the tip counts: the fix commit on top
 # of it has no trailer, so the full suite is back as soon as the fix is there.
@@ -473,7 +474,10 @@ if [ "$ON_MARS" = true ]; then
                 *[!0]*) : ;;
                 *)      continue ;;
             esac
+            # Last paragraph only, where trailers go: a sentence in the body
+            # that happens to start with the words is prose.
             if git log -1 --format=%B "$l_oid" 2>/dev/null |
+                awk 'BEGIN { RS = "" } { p = $0 } END { print p }' |
                 grep -qiE '^Red-tests:[[:space:]]*[^[:space:]]'; then
                 RED_TIPS+=("$l_oid")
             else

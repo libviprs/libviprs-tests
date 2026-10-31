@@ -37,7 +37,8 @@ set -euo pipefail
 #
 #   Test-first commits: pre-commit runs no tests, so a red commit that compiles
 #   passes it. pre-push runs the suite unless the tip commit carries a
-#   `Red-tests: <issue>` trailer, then only the compile-and-lint half. Only the
+#   `Red-tests: <issue>` trailer (in the last paragraph), then only the
+#   compile-and-lint half. Only the
 #   tip counts, so the fix on top brings the full suite back. --no-verify is
 #   not part of normal work.
 #
