@@ -189,6 +189,12 @@ impl Workspace {
         ws.commit("acadsharp-rs", "stand-in crate", &[]);
         ws.commit("acadrust", "stand-in fork", &[]);
         ws.commit("libviprs-tests", "harness tooling", &[]);
+        // A core push is gated against the harness at origin/main, so the
+        // stand-in harness needs one (there is no remote to fetch it from).
+        git(
+            &ws.repo("libviprs-tests"),
+            &["update-ref", "refs/remotes/origin/main", "HEAD"],
+        );
         ws.commit(
             "libviprs",
             "stand-in core crate",
