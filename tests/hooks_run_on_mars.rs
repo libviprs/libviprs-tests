@@ -46,6 +46,8 @@ echo "$last" >> "$FAKE_DIR/ssh.log"
 case "$last" in
   *"docker info"*) exit 0 ;;
   *"docker image inspect"*) exit 0 ;;
+  *"docker ps -q --filter name=hook-gate-"*)
+    i=0; while [ "$i" -lt "${FAKE_GATES_RUNNING:-0}" ]; do echo "gate$i"; i=$((i+1)); done; exit 0 ;;
   *"docker ps -q"*) exit 0 ;;
   *"docker run --rm -i --name viprs-hook-"*)
     n=$(ls "$FAKE_DIR" | grep -c '^shipped-')
@@ -650,4 +652,40 @@ fn a_harness_push_gates_against_the_core_it_pins() {
         "// pinned\n",
         "the core that went to MARS is the sibling checkout, not COUNTERPART_REV"
     );
+}
+
+/// MARS is shared, and a full suite run is a docker build plus a test run. With
+/// every agent's pushes going through the same hook, the runs have to queue
+/// rather than all start at once: the first full runs on a busy MARS were
+/// OOM-killed and starved each other for tens of minutes.
+#[test]
+fn a_push_waits_for_a_free_suite_slot_instead_of_piling_on() {
+    let m = Mars::new();
+    let before = m.ws.commit("libviprs", "base", &[("src/a.rs", "// a\n")]);
+    let after = m.ws.commit("libviprs", "change", &[("src/a.rs", "// b\n")]);
+
+    let (ok, out) = m.push(
+        "libviprs",
+        &before,
+        &after,
+        &[("FAKE_GATES_RUNNING", "2"), ("LIBVIPRS_HOOKS_WAIT", "0")],
+    );
+    assert!(!ok, "a push started a third suite run on MARS:\n{out}");
+    assert!(
+        out.contains("giving up"),
+        "it did not say it gave up waiting:\n{out}"
+    );
+    assert_eq!(
+        m.read("gate.cmd"),
+        "",
+        "the suite ran although no slot was free:\n{out}"
+    );
+
+    let (ok, out) = m.push(
+        "libviprs",
+        &before,
+        &after,
+        &[("FAKE_GATES_RUNNING", "1"), ("LIBVIPRS_HOOKS_WAIT", "0")],
+    );
+    assert!(ok, "a free slot was not used:\n{out}");
 }
