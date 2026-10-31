@@ -114,7 +114,7 @@ png = "0.18"
 # `tests/pmtiles_interop.rs`: an archive it writes has to extract to the tile bytes it was given,
 # and one libviprs writes has to read back the same way (libviprs/libviprs#1328). Pure Rust, a git
 # dependency pinned by a full revision of libviprs/pvec.
-pvec-interchange = { git = "https://github.com/libviprs/pvec", rev = "9e4b1112436c343585fa5f8fbedf06f9f1598b38", version = "0.0.0" }
+pvec-interchange = { git = "https://github.com/libviprs/pvec", rev = "e1b8124f00f5b3302d421062f3980e207f3b578b", version = "0.0.0" }
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
