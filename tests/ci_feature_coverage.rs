@@ -230,6 +230,18 @@ const EXPECTED: &[(&str, Coverage)] = &[
         ),
     ),
     (
+        "pvec-raster",
+        cov(
+            true,
+            Some("test"),
+            false,
+            "forwards the core's raster-into-PVec producer. The pvec_raster_* suites \
+             (libviprs-tests#305) are gated on it, so the default run compiles them to \
+             nothing; the lint cell type-checks them and the `test` job runs them with \
+             the feature on, by name",
+        ),
+    ),
+    (
         "pdfium-static",
         cov(
             true,

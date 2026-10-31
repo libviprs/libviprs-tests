@@ -1366,3 +1366,70 @@ fn an_archive_libviprs_wrote_reads_back_through_pvec_interchange_with_the_same_b
         assert_eq!(t.bytes, ours, "tile {}/{}/{}", t.z, t.x, t.y);
     }
 }
+
+// ===========================================================================
+// The stored GeoTransform (D' of ADR 0018, libviprs/libviprs#1328)
+// ===========================================================================
+
+/// go-pmtiles reads the `vnd.libviprs` key and the `geo_transform` inside it out of an archive
+/// libviprs wrote with the source raster's transform (libviprs-tests#305). The oracle does not
+/// understand the key, but it has to carry it through `show --metadata` untouched, which is what
+/// makes it a vendor key that survives other people's tools. Libviprs reads the same numbers back.
+#[test]
+fn go_pmtiles_show_reads_the_geotransform_key_of_a_libviprs_archive() {
+    let Some(bin) = go_pmtiles_bin() else {
+        eprintln!(
+            "skipping: no pinned go-pmtiles reachable. Set GO_PMTILES_BIN, or \
+             VIPRS_REQUIRE_GO_PMTILES=1 to make this a failure."
+        );
+        return;
+    };
+    let src = canonical_raster_scaled(300, 200);
+    let plan = PyramidPlanner::new(300, 200, 256, 0, Layout::Xyz)
+        .expect("a legal plan")
+        .plan();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("geo.pmtiles");
+    let sink = PmTilesSink::builder(&path)
+        .plan(plan.clone())
+        .tile_format(libviprs::TileFormat::Png)
+        .geo_transform(
+            libviprs::GeoTransform::new(0.5, 0.0, 100.25, 0.0, -0.5, 199.75),
+            libviprs::PixelOrigin::Centre,
+        )
+        .build()
+        .expect("the sink builds");
+    EngineBuilder::new(&src, plan, &sink)
+        .with_engine(EngineKind::Monolithic)
+        .run()
+        .expect("the run succeeds");
+
+    let out = Command::new(&bin)
+        .args(["show", "--metadata"])
+        .arg(&path)
+        .output()
+        .expect("run pmtiles show");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let shown = String::from_utf8_lossy(&out.stdout).into_owned();
+    let meta: serde_json::Value = serde_json::from_str(shown.trim())
+        .unwrap_or_else(|e| panic!("`show --metadata` is not JSON ({e}): {shown}"));
+    let geo = &meta["vnd.libviprs"]["geo_transform"];
+    assert_eq!(
+        geo["coefficients"],
+        serde_json::json!([0.5, 0.0, 100.25, 0.0, -0.5, 199.75]),
+        "{shown}"
+    );
+    assert_eq!(geo["pixel_origin"], "centre", "{shown}");
+    assert!(
+        Reader::try_open(&path)
+            .expect("open")
+            .geo_transform()
+            .expect("metadata parses")
+            .is_some(),
+        "libviprs reads back the transform it stored"
+    );
+}

@@ -155,7 +155,10 @@
 # `plan` (libviprs#1209) and the un-ignored CropBox cell in
 # tests/cli_page_size_parity.rs passes against it. It needs COUNTERPART_REV at
 # 46991fe5 (the libviprs 0.6.1 tag) or later.
-5a689b85ece9c561388aa587ed18798bbbec93d7
+# libviprs-cli main @ 2026-10-31 (ee01207): `viprs pyramid --storage pvec`, `viprs pmtiles to-pvec`
+# and `viprs pvec rasters` (libviprs/libviprs-cli#130, merged as #133), behind the CLI's
+# `pvec-raster` feature, which tests/cli_pvec_raster.rs builds the binary with.
+ee01207530fa2997825b7dcc63386dc25ee227d1
 #
 # Bumped to 5a689b85, libviprs-cli main after #119 (`viprs vector`). The `vector` row in
 # cli_surface_coverage names that command now (libviprs-tests#295). It needs

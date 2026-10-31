@@ -353,6 +353,19 @@ const MODULES: &[ModuleRow] = &[
          so there is nothing for a row to name",
     ),
     row(
+        "raster_pvec",
+        Reach::Builtin("pvec"),
+        "the raster pyramid and placement the PVec raster stream stores, reached through \
+         `viprs pyramid --storage pvec`, `viprs pmtiles to-pvec` and `viprs pvec rasters` \
+         (libviprs-cli#130)",
+    ),
+    row(
+        "sink_pvec",
+        Reach::Builtin("pvec"),
+        "the PVec sink the engine cuts a raster pyramid into, driven by \
+         `viprs pyramid --storage pvec`",
+    ),
+    row(
         "foreign_stubs",
         Reach::NotApplicable,
         "refusal stubs: every function returns a typed Unsupported, and OP_MAP.md's \
@@ -391,6 +404,13 @@ const MODULES: &[ModuleRow] = &[
 /// `OP_MAP.md` does not name and the CLI does not call, and why it needs no
 /// `viprs` surface.
 const FN_EXCLUSIONS: &[(&str, &str, &str)] = &[
+    (
+        "encode",
+        "encode_png_bilevel",
+        "writes a 1-bit PNG, the bit depth PVec's raster stream can store for a bilevel \
+         scan; no viprs command asks for one bit, and pngsave writes the depth of the \
+         image it was given",
+    ),
     (
         "analyze",
         "decode_analyze",

@@ -92,6 +92,7 @@ const FULL: &[&str] = &[
     "object-store-sink",
     "packfile",
     "pdfium",
+    "pvec-raster",
     "s3",
     "svg",
     "tracing",
