@@ -418,6 +418,8 @@ fn a_push_runs_the_suite_on_mars_and_cleans_up() {
         // run-tests.sh builds with BuildKit, and the docker client mounted in
         // from the host finds buildx only in its plugin directory.
         "cli-plugins",
+        // rsync is what lets run-tests.sh stage the refs, and so the tags.
+        "viprs-hooks:",
         "--platform linux/amd64",
         "tools/run-tests.sh",
         "LIBVIPRS_DIR=",

@@ -245,6 +245,10 @@ gate_cleanup() {
 
 gate_mode() {
     preflight
+    # The toolchain image, not the bare rust one: run-tests.sh only copies the
+    # refs into its build context when rsync is there (the tags the changelog
+    # guard reads), and rsync is in this image.
+    ensure_image
     local core="${LIBVIPRS_DIR:-}" tests="${LIBVIPRS_TESTS_DIR:-}"
     if [ -z "$core" ] || [ -z "$tests" ]; then
         die "gate mode needs LIBVIPRS_DIR and LIBVIPRS_TESTS_DIR"
@@ -298,7 +302,7 @@ mkrepo libviprs-tests "$MARS_TAGS_TESTS"'
         cleangit -C "$tests" archive --format=tar --prefix=libviprs-tests/ "$tests_tree"
     } | mssh "docker run --rm -i --platform linux/amd64 -v $dir:$dir \
         -e MARS_DIR=$dir -e MARS_TAGS_CORE=$(printf '%q' "$core_tags") -e MARS_TAGS_TESTS=$(printf '%q' "$tests_tags") \
-        rust:$RUST-bookworm bash -c $(printf '%q' "$setup")" || die "shipping the trees to MARS failed"
+        $IMAGE bash -c $(printf '%q' "$setup")" || die "shipping the trees to MARS failed"
 
     say "running tools/run-tests.sh on MARS"
     local rc=0
@@ -306,7 +310,7 @@ mkrepo libviprs-tests "$MARS_TAGS_TESTS"'
         -v $dir:$dir -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker:ro \
         -v /usr/libexec/docker/cli-plugins:/usr/libexec/docker/cli-plugins:ro \
         -e LIBVIPRS_DIR=$dir/libviprs -e LIBVIPRS_TESTS_DIR=$dir/libviprs-tests \
-        -w $dir/libviprs-tests rust:$RUST-bookworm \
+        -w $dir/libviprs-tests $IMAGE \
         bash -c $(printf '%q' "tools/run-tests.sh$args")" </dev/null || rc=$?
     if [ "$rc" -eq 255 ]; then
         die "lost the connection to MARS mid-run, so the suite did not finish. Run again."
