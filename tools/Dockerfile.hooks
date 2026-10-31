@@ -1,0 +1,18 @@
+# The toolchain image the git hooks run in on MARS (tools/mars-run.sh builds it
+# there on first use and tags it viprs-hooks:<RUST_VERSION>).
+#
+# It is the stock rust image plus what the hooks' commands need and the stock
+# image leaves out: rustfmt and clippy (the default profile has neither),
+# shellcheck (the libviprs-tests lint job runs it), rsync (mars-run.sh keeps one
+# source volume per repo and syncs only the files that changed, so cargo's
+# mtime-based freshness check does not rebuild the world on every commit) and
+# libvips (the libviprs-bench `libvips` cells link against it).
+#
+# No context: `docker build -` reads this file from stdin.
+ARG RUST_VERSION=1.99.1
+FROM rust:${RUST_VERSION}-bookworm
+RUN set -eu; \
+    rustup component add clippy rustfmt; \
+    apt-get update -qq; \
+    apt-get install -y -qq --no-install-recommends shellcheck rsync libvips-dev pkg-config; \
+    rm -rf /var/lib/apt/lists/*

@@ -21,6 +21,22 @@ set -euo pipefail
 #
 # To skip (emergency only): git push --no-verify. For a skip decision you do
 # not trust, LIBVIPRS_PREPUSH_ALL=1 first.
+#
+# WHERE THE SUITE RUNS (libviprs-tests#311)
+#
+# In libviprs and libviprs-tests it runs on MARS, through tools/mars-run.sh,
+# and never on the machine that is pushing. If MARS can't be reached the push
+# is refused and the message names LIBVIPRS_HOOKS_SKIP_MARS=1, which skips the
+# run loudly. --no-verify is not the way around a MARS that is down.
+#
+# RED TEST-FIRST COMMITS
+#
+# A commit that adds failing tests before the fix has to be pushable, or every
+# bug report's companion PR starts with --no-verify. So when the tip of every
+# ref being pushed carries a `Red-tests: <issue or reason>` trailer, this runs
+# the compile-and-lint half on MARS (the pre-commit checks, against the commit
+# going out) instead of the suite. Only the tip counts: the fix commit on top
+# of it has no trailer, so the full suite is back as soon as the fix is there.
 # ---------------------------------------------------------------------------
 
 # bash 3.2.57 is still both /bin/bash and /bin/sh on macOS, and its command
@@ -114,6 +130,13 @@ case "$REPO_NAME" in
         RUN_TESTS="$WORKSPACE_ROOT/acadsharp-rs-tests/tools/run-tests.sh"
         RUN_ARGS=(--acadsharp-rs "$WORKSPACE_ROOT/acadsharp-rs" --acadrust "$TREE")
         ;;
+esac
+
+# The two repos whose suite is tools/run-tests.sh run it on MARS. The suite
+# for the acadsharp repos has a gate of its own and is left as it was.
+ON_MARS=false
+case "$REPO_NAME" in
+    libviprs|libviprs-tests) ON_MARS=true ;;
 esac
 
 if [ ! -f "$RUN_TESTS" ]; then
@@ -426,6 +449,73 @@ if [ "$REPO_NAME" = acadsharp-rs-tests ] && [ -n "$REF_UPDATES" ]; then
     done <<REFS_FOR_BASE
 $REF_UPDATES
 REFS_FOR_BASE
+fi
+
+if [ "$ON_MARS" = true ]; then
+    # Beside this hook, so the vintage that decides is the one that runs and a
+    # core push does not depend on what the sibling checkout has checked out.
+    MARS_RUN="${LIBVIPRS_HOOKS_MARS_RUN:-$(cd "$(dirname "$0")/.." && pwd)/mars-run.sh}"
+    if [ ! -x "$MARS_RUN" ]; then
+        echo "pre-push: no executable mars-run.sh at $MARS_RUN" >&2
+        echo "It lives in libviprs-tests/tools/. Update that checkout." >&2
+        exit 1
+    fi
+
+    # Is every ref being pushed red on purpose? A ref counts when its tip
+    # commit has a Red-tests: trailer with something after it.
+    RED_TIPS=()
+    FULL_GATE=true
+    if [ -n "$REF_UPDATES" ]; then
+        FULL_GATE=false
+        while read -r _l_ref l_oid _r_ref _r_oid; do
+            [ -n "${l_oid:-}" ] || continue
+            case "$l_oid" in
+                *[!0]*) : ;;
+                *)      continue ;;
+            esac
+            if git log -1 --format=%B "$l_oid" 2>/dev/null |
+                grep -qiE '^Red-tests:[[:space:]]*[^[:space:]]'; then
+                RED_TIPS+=("$l_oid")
+            else
+                FULL_GATE=true
+            fi
+        done <<RED_REFS
+$REF_UPDATES
+RED_REFS
+        if [ "${#RED_TIPS[@]}" -eq 0 ]; then
+            FULL_GATE=true
+        fi
+    fi
+
+    if [ "$FULL_GATE" = false ]; then
+        PRE_COMMIT="$MAIN_CHECKOUT/.git/hooks/pre-commit"
+        if [ ! -x "$PRE_COMMIT" ]; then
+            echo "pre-push: Red-tests: asks for the compile-and-lint half, which is the" >&2
+            echo "pre-commit hook, and there is none at $PRE_COMMIT." >&2
+            echo "Run libviprs-tests/tools/install-hooks.sh." >&2
+            exit 1
+        fi
+        for tip in "${RED_TIPS[@]}"; do
+            echo "Pre-push: tip ${tip:0:12} carries Red-tests:, so the suite is not run."
+            echo "  Compile and lint half only, on MARS."
+            if ! LIBVIPRS_HOOK_TREEISH="$tip" "$PRE_COMMIT"; then
+                echo ""
+                echo "Pre-push checks failed. Push aborted."
+                exit 1
+            fi
+        done
+        exit 0
+    fi
+
+    echo "Running pre-push test suite on MARS for $TREE..."
+    if ! "$MARS_RUN" gate ${RUN_ARGS[@]+"${RUN_ARGS[@]}"}; then
+        echo ""
+        echo "Pre-push tests failed (or MARS could not be reached). Push aborted."
+        echo "MARS down: LIBVIPRS_HOOKS_SKIP_MARS=1 git push ... skips this, loudly."
+        echo "A push of failing tests written first: put 'Red-tests: #N' on the tip commit."
+        exit 1
+    fi
+    exit 0
 fi
 
 echo "Running pre-push test suite on $TREE..."

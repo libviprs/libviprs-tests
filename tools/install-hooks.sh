@@ -24,6 +24,27 @@ set -euo pipefail
 #               and tests/install_hooks_mirror_ci.rs goes red on a job that is
 #               in neither, so a new CI job cannot slip past unnoticed.
 #
+# WHERE THEY RUN (libviprs-tests#311)
+#
+#   For libviprs, libviprs-tests and libviprs-bench (`mars_repo` below) both
+#   hooks run on MARS through tools/mars-run.sh, and nothing runs cargo, clippy
+#   or docker on the machine that is committing. pre-commit ships the STAGED
+#   tree (not the working tree, so no untracked file and no case-insensitive
+#   bind mount) and runs the generated checks in a toolchain container there;
+#   pre-push ships the trees and runs tools/run-tests.sh there. If MARS can't be
+#   reached the hook fails and names LIBVIPRS_HOOKS_SKIP_MARS=1, which skips
+#   loudly. It never falls back to running here.
+#
+#   Test-first commits: pre-commit runs no tests, so a red commit that compiles
+#   passes it. pre-push runs the suite unless the tip commit carries a
+#   `Red-tests: <issue>` trailer, then only the compile-and-lint half. Only the
+#   tip counts, so the fix on top brings the full suite back. --no-verify is
+#   not part of normal work.
+#
+#   Repos not on that list are untouched: libviprs-cli is another change's, and
+#   the doc site, the dependency inputs and the forks need node, ruff and pytest
+#   which the MARS toolchain image does not carry.
+#
 # WHY THE SPLIT FALLS WHERE IT DOES
 #
 # Measured in this repo on 2026-09-02, warm target directory, Apple M-series:
@@ -48,7 +69,8 @@ set -euo pipefail
 # Grepping either file would be worth nothing, which is the standing lesson of
 # libviprs/libviprs#695.
 #
-# Usage:  ./tools/install-hooks.sh            # from libviprs-tests/
+# Usage:  ./tools/install-hooks.sh [REPO...]  # from libviprs-tests/; REPO names
+#                                             # limit the install to those repos
 #         ./libviprs-tests/tools/install-hooks.sh   # from the workspace root
 #         ./tools/install-hooks.sh --describe # print the contract, install
 #                                             # nothing (this is what the
@@ -434,6 +456,19 @@ has_suite_slot() {
     esac
 }
 
+# Which repos run their hooks on MARS (libviprs-tests#311). Their pre-commit
+# hook ships the staged tree to MARS and runs the generated checks there, and
+# their pre-push hook runs the suite there. Nothing runs cargo or docker on the
+# machine that is committing. The rest are left as they were: libviprs-cli is
+# another change's, and the doc site, the dependency inputs and the forks need
+# node, ruff and pytest, which the MARS toolchain image does not carry.
+mars_repo() {
+    case "$1" in
+        libviprs|libviprs-tests|libviprs-bench) return 0 ;;
+        *)                                      return 1 ;;
+    esac
+}
+
 # The comment line every hook this script writes carries. It is what tells our
 # own output apart from a hook somebody wrote by hand.
 INSTALLER_MARKER="Installed by libviprs-tests/tools/install-hooks.sh"
@@ -471,6 +506,11 @@ describe() {
         else
             printf 'prepush\t%s\tno\n' "$repo"
         fi
+        if mars_repo "$repo"; then
+            printf 'mars\t%s\tyes\n' "$repo"
+        else
+            printf 'mars\t%s\tno\n' "$repo"
+        fi
     done
 }
 
@@ -478,10 +518,14 @@ if [ "${1:-}" = "--describe" ]; then
     describe
     exit 0
 fi
-if [ $# -gt 0 ]; then
-    echo "usage: $0 [--describe]" >&2
-    exit 2
-fi
+# Repo names on the command line limit the install to those repos, so one repo
+# can move to a new hook without rewriting the rest.
+ONLY=("$@")
+for name in ${ONLY[@]+"${ONLY[@]}"}; do
+    case "$name" in
+        -*) echo "usage: $0 [--describe] [REPO...]" >&2; exit 2 ;;
+    esac
+done
 
 # A repo that no longer gets the gate must not keep the copy an older version
 # of this script left in it. Nothing but this script writes to .git/hooks, so
@@ -503,62 +547,7 @@ drop_generated_pre_push() {
 write_pre_commit() {
     local hooks_dir="$1"
     local repo_name="$2"
-    local repo_dir="${3:-}"
     local pre_commit="$hooks_dir/pre-commit"
-
-    # A repo that ships tools/local-ci.py gets a hook that runs THAT. It reads
-    # .github/workflows/ci.yml at run time and executes whatever is in there,
-    # inside a container carrying the toolchains the workflow asks for, so it
-    # cannot drift from CI. The step list above is the fallback for repos
-    # without one, and it is only ever a subset.
-    if [ -n "$repo_dir" ] && [ -f "$repo_dir/tools/local-ci.py" ]; then
-        cat > "$pre_commit" << 'LOCALCI'
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Pre-commit hook: runs the fast half of this repo's real CI job list, in
-# Docker, via tools/local-ci.py. That script derives its commands from
-# .github/workflows/ci.yml, so the COMMANDS here cannot drift from CI.
-#
-# It runs with --worktree, which bind-mounts the tree instead of provisioning
-# it from git. That is the difference between about 12s and about 107s per
-# commit, measured, and 107s per commit is not a thing anyone will tolerate.
-#
-# The cost is real and you should know it: a Docker Desktop bind mount off an
-# APFS host is CASE-INSENSITIVE and it carries untracked files. So this hook
-# can pass on a tree CI will reject, and it has: libviprs#977 was a fixture
-# whose name differed from the committed file only in case, it resolved fine
-# through the bind mount, and it was red on ubuntu-latest for two days.
-#
-# So this hook is the fast check, NOT the gate. The gate is `make ci`, which
-# provisions from git and is case-exact. Run that before you push anything you
-# care about. libviprs/tests/fixture_paths_are_committed.rs catches the one
-# specific shape that bit us, but it does not make the bind mount case-exact.
-#
-# Installed by libviprs-tests/tools/install-hooks.sh.
-# To skip (emergency only): git commit --no-verify
-
-# A repo's main checkout and all of its linked worktrees share one hooks
-# directory, and git invokes the hook with $0 inside that shared directory
-# regardless of which worktree is actually being committed in, so deriving
-# REPO_DIR from $0 always resolves to the main checkout (libviprs/libviprs#684,
-# the same bug install_pre_push below already dodges). Ask git instead.
-REPO_DIR="$(git rev-parse --show-toplevel)"
-echo "Running the fast CI jobs locally (tools/local-ci.py --fast --worktree)..."
-if ! python3 "$REPO_DIR/tools/local-ci.py" --fast --worktree; then
-    echo ""
-    echo "Failed. These are the real CI commands, so CI will fail the same way."
-    echo "Run everything including tests: make ci"
-    echo "Skip this hook once:            git commit --no-verify"
-    exit 1
-fi
-echo "Passed, but this was the FAST check, not the gate: --worktree bind-mounts"
-echo "the tree, which is case-insensitive here and carries untracked files."
-echo "Before pushing, run the real gate: make ci"
-LOCALCI
-        chmod +x "$pre_commit"
-        return
-    fi
 
     {
         cat << HEAD
@@ -567,14 +556,41 @@ set -euo pipefail
 
 # Pre-commit hook: the lint half of this repo's CI, which is the jobs
 # install-hooks.sh lists under mirror_jobs for $repo_name. Tests run on push.
-# A repo with tools/local-ci.py gets the real job list instead of this.
 # $INSTALLER_MARKER
 # To update it, edit that script and re-run it. To skip (emergency only):
 #   git commit --no-verify
 
+HEAD
+        if mars_repo "$repo_name"; then
+            cat << MARSHEAD
+# This hook runs on MARS, not here (libviprs-tests#311). The first time through
+# it hands itself and the staged tree to tools/mars-run.sh, which runs this very
+# file inside the toolchain container there with LIBVIPRS_ON_MARS=1, so the
+# commands below are the same ones on both sides and nothing here runs cargo.
+# If MARS is down: LIBVIPRS_HOOKS_SKIP_MARS=1 git commit ... skips it, loudly.
+# Never --no-verify for that. A test-first commit that is meant to be red needs
+# nothing special here: this hook runs no tests, only format and lint.
+if [ "\${LIBVIPRS_ON_MARS:-}" != 1 ]; then
+    MARS_RUN="$SCRIPT_DIR/mars-run.sh"
+    TREE_RUNNER="\$(git rev-parse --show-toplevel)/tools/mars-run.sh"
+    if [ -x "\$TREE_RUNNER" ]; then MARS_RUN="\$TREE_RUNNER"; fi
+    # The seam the guards use to stand in for MARS. Not a way to run locally:
+    # the runner it names is what decides where anything runs.
+    if [ -n "\${LIBVIPRS_HOOKS_MARS_RUN:-}" ]; then MARS_RUN="\$LIBVIPRS_HOOKS_MARS_RUN"; fi
+    if [ ! -x "\$MARS_RUN" ]; then
+        echo "pre-commit: no executable mars-run.sh at \$MARS_RUN" >&2
+        echo "Re-run libviprs-tests/tools/install-hooks.sh, or restore that checkout." >&2
+        exit 1
+    fi
+    exec "\$MARS_RUN" hook $repo_name "\$0"
+fi
+
+MARSHEAD
+        fi
+        cat << HEAD2
 echo "Running pre-commit checks (the lint half of CI)..."
 
-HEAD
+HEAD2
         # One command per CI step, so a failure prints exactly which CI line it
         # would have flunked.
         local step guard note cmd
@@ -905,6 +921,14 @@ for REPO_DIR in "${REPOS[@]}"; do
     REPO_NAME="$(basename "$REPO_DIR")"
     HOOKS_DIR="$REPO_DIR/.git/hooks"
 
+    if [ "${#ONLY[@]}" -gt 0 ]; then
+        wanted=false
+        for name in "${ONLY[@]}"; do
+            [ "$name" = "$REPO_NAME" ] && wanted=true
+        done
+        [ "$wanted" = true ] || continue
+    fi
+
     if [ ! -d "$HOOKS_DIR" ]; then
         echo "  skip: $REPO_NAME (not a git repo)"
         skipped=$((skipped + 1))
@@ -920,9 +944,8 @@ for REPO_DIR in "${REPOS[@]}"; do
         *)
             # The pre-commit hook goes everywhere: it runs the repo's own
             # checks in the repo it is installed in, so for the cli it gates
-            # the cli. $REPO_DIR lets it detect a tools/local-ci.py in the
-            # target repo and defer to that instead.
-            write_pre_commit "$HOOKS_DIR" "$REPO_NAME" "$REPO_DIR"
+            # the cli.
+            write_pre_commit "$HOOKS_DIR" "$REPO_NAME"
             if has_suite_slot "$REPO_NAME"; then
                 install_pre_push "$HOOKS_DIR"
                 echo "  done: $REPO_NAME (pre-commit + pre-push)"
