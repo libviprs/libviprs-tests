@@ -555,3 +555,29 @@ fn a_red_tests_line_in_the_middle_of_the_body_is_prose_not_a_trailer() {
         "prose that starts with Red-tests: skipped the suite:\n{out}"
     );
 }
+
+/// The trees go over as `git archive` output, which has no `.git`, and
+/// run-tests.sh stages the index and the refs from one into its build
+/// context: the guards that ask git what is tracked fail without a repository
+/// (case_only_path_collisions did, on the first real run). So the run on MARS
+/// has to turn each tree into a repository, and keep the tags the real one has.
+#[test]
+fn the_shipped_trees_become_repositories_with_their_tags() {
+    let m = Mars::new();
+    let before = m.ws.commit("libviprs", "base", &[("src/a.rs", "// a\n")]);
+    git(&m.ws.repo("libviprs"), &["tag", "v0.1.0", &before]);
+    let after = m.ws.commit("libviprs", "change", &[("src/a.rs", "// b\n")]);
+
+    let (ok, out) = m.push("libviprs", &before, &after, &[]);
+    assert!(ok, "{out}");
+
+    let ssh = m.read("ssh.log");
+    assert!(
+        ssh.contains("git init") && ssh.contains("git add -A"),
+        "the shipped trees were left without a .git:\n{ssh}"
+    );
+    assert!(
+        ssh.contains("v0.1.0"),
+        "the core's tags did not go over, so the changelog guard sees none:\n{ssh}"
+    );
+}
