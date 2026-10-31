@@ -110,6 +110,10 @@ case "$REPO_NAME" in
     libviprs-tests)
         export LIBVIPRS_TESTS_DIR="$TREE"
         export LIBVIPRS_DIR="$WORKSPACE_ROOT/libviprs"
+        # On MARS a harness push is gated against the core its COUNTERPART_REV
+        # pins, the pairing hosted CI and the merge gate use, not against the
+        # sibling checkout. LIBVIPRS_CORE_REV=<rev> picks another revision.
+        export LIBVIPRS_CORE_REV="${LIBVIPRS_CORE_REV:-pin}"
         # A push that changes the harness gates on the harness it changes,
         # not on the copy sitting in the main checkout.
         if [ -x "$TREE/tools/run-tests.sh" ]; then

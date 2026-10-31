@@ -39,6 +39,7 @@
 #   LIBVIPRS_HOOKS_WAIT=1800     seconds to wait for another run of the same repo
 #   LIBVIPRS_HOOK_TREEISH=REV    hook mode: gate REV's tree instead of the index
 #   LIBVIPRS_TESTS_REV=REV       gate mode: use the harness at REV, not its checkout
+#   LIBVIPRS_CORE_REV=pin|REV    gate mode: use the core COUNTERPART_REV names (pin) or REV
 set -euo pipefail
 
 MARS="${LIBVIPRS_HOOKS_MARS:-devshell@192.168.0.100}"
@@ -256,7 +257,6 @@ gate_mode() {
         die "gate mode needs LIBVIPRS_DIR and LIBVIPRS_TESTS_DIR"
     fi
     local core_tree tests_tree
-    core_tree="$(snapshot_tree "$core")"
     # LIBVIPRS_TESTS_REV names a revision of the harness to use instead of the
     # checkout's working tree. A core push sets it to origin/main: the sibling
     # checkout is somebody's working branch, and gating a core change against
@@ -267,6 +267,20 @@ gate_mode() {
             || die "no ${LIBVIPRS_TESTS_REV} in the libviprs-tests checkout at $tests"
     else
         tests_tree="$(snapshot_tree "$tests")"
+    fi
+    # LIBVIPRS_CORE_REV is the same idea for the core. `pin` means the revision
+    # the harness being gated names in COUNTERPART_REV, which is what hosted CI
+    # and the merge gate pair it with; any other value is a revision of the core.
+    if [ -n "${LIBVIPRS_CORE_REV:-}" ]; then
+        local core_rev="$LIBVIPRS_CORE_REV"
+        if [ "$core_rev" = pin ]; then
+            core_rev="$(pinned_rev "$tests" "$tests_tree" COUNTERPART_REV)"
+            [ -n "$core_rev" ] || die "COUNTERPART_REV has no revision in the harness being gated"
+        fi
+        have_rev "$core" "$core_rev" || die "libviprs revision $core_rev is not in $core, even after a fetch"
+        core_tree="$(cleangit -C "$core" rev-parse --verify "${core_rev}^{tree}")"
+    else
+        core_tree="$(snapshot_tree "$core")"
     fi
 
     local dir args=""
