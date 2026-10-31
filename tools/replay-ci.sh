@@ -229,6 +229,9 @@ STEP
 step <<'STEP'
 cargo test --features packfile --test phase3_packfile --test builder_sink_packfile
 STEP
+step <<'STEP'
+cargo test --features pvec-raster --test pvec_raster_roundtrip --test pvec_raster_determinism --test pvec_raster_degraded --test pvec_raster_interchange
+STEP
 step CODEC_E2E_REQUIRE_FEATURES=all <<'STEP'
 cargo test --features "jxl avif svg jp2k" --test codec_e2e
 STEP
@@ -268,6 +271,9 @@ STEP
 step VIPRS_REQUIRE_CLI=1 <<'STEP'
 cargo test --features "jxl jp2k avif svg" --test cli_foreign_diff
 STEP
+step VIPRS_REQUIRE_CLI=1 <<'STEP'
+cargo test --features pvec-raster --test cli_pvec_raster_extract --test cli_pvec_raster
+STEP
 step PDFIUM_RELEASE=pdfium-8085 PDFIUM_SHA256=ec671f549717c8c3e1642680cd834a9dbc580fb3c239bc3a426e9475166aaa63 <<'STEP'
 curl -fsSL -o pdfium.tgz "https://github.com/libviprs/libviprs-dep/releases/download/${PDFIUM_RELEASE}/pdfium-linux-x64.tgz"
 echo "${PDFIUM_SHA256}  pdfium.tgz" | sha256sum -c -
@@ -299,7 +305,7 @@ sudo install -m 0755 go-pmtiles/pmtiles /usr/local/bin/pmtiles
 pmtiles version
 STEP
 step VIPRS_REQUIRE_GO_PMTILES=1 <<'STEP'
-cargo test --test pmtiles_interop --test phase_pmtiles --test pmtiles_bounded --test pmtiles_ci_wiring --test pmtiles_sweep --test pmtiles_migrate_google --test pipeline_e2e
+cargo test --test pmtiles_interop --test phase_pmtiles --test pmtiles_bounded --test pmtiles_ci_wiring --test pmtiles_sweep --test pmtiles_migrate_google --test pipeline_e2e --test pvec_raster_go_pmtiles --features pvec-raster
 STEP
 
 job lint

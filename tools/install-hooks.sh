@@ -258,6 +258,7 @@ LIBVIPRS_STEPS=(
     "cargo clippy --all-targets --features dwg-acadrust -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features pvec-normalized -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features pvec-spline -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features pvec-raster -- -D warnings -W clippy::incompatible_msrv -W deprecated"
 )
 
 # The cli lints thirteen configurations (libviprs-cli#48, #64). The bare pass IS
@@ -297,6 +298,7 @@ LIBVIPRS_TESTS_STEPS=(
     "cargo clippy --all-targets --features avif -- -D warnings"
     "cargo clippy --all-targets --features svg -- -D warnings"
     "cargo clippy --all-targets --features jp2k -- -D warnings"
+    "cargo clippy --all-targets --features pvec-raster -- -D warnings"
     "cargo clippy --all-targets --features pdfium-static -- -D warnings"
     "./tools/run_ported_cells.sh --clippy"
     "shellcheck tools/*.sh tools/hooks/pre-push"

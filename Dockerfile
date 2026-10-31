@@ -53,7 +53,8 @@ RUN case "${TARGETARCH}" in \
 # there is one, and an empty file for every source the manifests point at (a
 # stub `src/lib.rs` for each package, since the harness has no `src/` at all and
 # cargo will not load a package with no targets, and every explicit
-# `path = "..."` target, like the core's fuzz binaries). Nothing else.
+# `path = "..."` target, like the core's fuzz binaries, and the conventional file of every
+# `[[test]]`, `[[example]]` and `[[bench]]` entry that names no path). Nothing else.
 #
 # The fetch used to run after copying both whole trees in, so its cache key was
 # every byte of both trees: a one-line comment in a test file gave BuildKit a new
@@ -80,6 +81,13 @@ RUN --mount=type=bind,target=/ctx \
         | while read -r target; do \
             mkdir -p "/skel/$dir/$(dirname "$target")"; \
             : > "/skel/$dir/$target"; \
+        done; \
+        awk '/^\[\[(test|example|bench)\]\]/ { d = $0; gsub(/[][]/, "", d); next } \
+             /^\[/ { d = "" } \
+             d != "" && /^name[[:space:]]*=/ { n = $0; sub(/^[^"]*"/, "", n); sub(/".*$/, "", n); print d "s/" n ".rs" }' "$manifest" \
+        | while read -r target; do \
+            mkdir -p "/skel/$dir/$(dirname "$target")"; \
+            [ -e "/skel/$dir/$target" ] || : > "/skel/$dir/$target"; \
         done; \
     done
 

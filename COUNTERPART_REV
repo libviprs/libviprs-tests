@@ -360,7 +360,10 @@
 # `gh api repos/libviprs/libviprs/commits/main`. It carries libviprs#1213 (the
 # core moves to zip 9.0.3, the 7.x line it was on is yanked). This repo's own
 # zip dev-dependency moves to 9 in the same commit (libviprs-tests#279).
-4d6fc7e1e220cb683d1ea2325f8d95e5123466a1
+# libviprs main @ 2026-10-31 (fa9f6452): the PVec raster producer, which the raster suites of
+# libviprs-tests#305 run against: the stored GeoTransform and the tile passthrough (#1328), the
+# sniffer-legal tiles (#1330), the PVec sink (#1331) and the PDF image bake (#1332).
+fa9f6452c57a6ad19c241ae5eb1acabac1adb039
 #
 # Bumped to 48bdb1f1, libviprs main's tip when I checked with `git ls-remote
 # https://github.com/libviprs/libviprs.git refs/heads/main`. It moves because

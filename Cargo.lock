@@ -1272,6 +1272,8 @@ dependencies = [
  "moxcms 0.8.1",
  "openjpeg2-pure-rs",
  "pdfium-render",
+ "pvec",
+ "pvec-geometry 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
  "rav1d",
  "resvg",
  "rustfft",
@@ -1299,6 +1301,10 @@ dependencies = [
  "pdfium-render",
  "png",
  "proptest",
+ "pvec",
+ "pvec-capabilities 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-container 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-geometry 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
  "pvec-interchange",
  "serde_json",
  "sha2 0.10.9",
@@ -1775,18 +1781,74 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d8f70e07b9c3962945a74e59ca1c511bba65b6419468acc217c457d93f3c740"
 
 [[package]]
+name = "pvec"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099#b9f441618153d256777121a6a1518b15e7f42099"
+dependencies = [
+ "pvec-capabilities 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-codec",
+ "pvec-components 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-container 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-entity 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-geometry 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-stream",
+]
+
+[[package]]
+name = "pvec-capabilities"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099#b9f441618153d256777121a6a1518b15e7f42099"
+
+[[package]]
 name = "pvec-capabilities"
 version = "0.0.0"
 source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
+
+[[package]]
+name = "pvec-codec"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099#b9f441618153d256777121a6a1518b15e7f42099"
+dependencies = [
+ "pvec-capabilities 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-entity 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-geometry 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+]
+
+[[package]]
+name = "pvec-components"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099#b9f441618153d256777121a6a1518b15e7f42099"
+dependencies = [
+ "pvec-capabilities 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-entity 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+]
 
 [[package]]
 name = "pvec-components"
 version = "0.0.0"
 source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
 dependencies = [
- "pvec-capabilities",
- "pvec-entity",
- "pvec-numeric",
+ "pvec-capabilities 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-entity 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+]
+
+[[package]]
+name = "pvec-container"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099#b9f441618153d256777121a6a1518b15e7f42099"
+dependencies = [
+ "lz4_flex",
+ "miniz_oxide 0.9.1",
+ "pvec-capabilities 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-components 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-entity 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-geometry 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -1796,12 +1858,21 @@ source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980
 dependencies = [
  "lz4_flex",
  "miniz_oxide 0.9.1",
- "pvec-capabilities",
- "pvec-components",
- "pvec-entity",
- "pvec-geometry",
- "pvec-numeric",
+ "pvec-capabilities 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-components 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-entity 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-geometry 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
  "xxhash-rust",
+]
+
+[[package]]
+name = "pvec-entity"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099#b9f441618153d256777121a6a1518b15e7f42099"
+dependencies = [
+ "pvec-geometry 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
 ]
 
 [[package]]
@@ -1809,8 +1880,16 @@ name = "pvec-entity"
 version = "0.0.0"
 source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
 dependencies = [
- "pvec-geometry",
- "pvec-numeric",
+ "pvec-geometry 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+]
+
+[[package]]
+name = "pvec-geometry"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099#b9f441618153d256777121a6a1518b15e7f42099"
+dependencies = [
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
 ]
 
 [[package]]
@@ -1818,7 +1897,7 @@ name = "pvec-geometry"
 version = "0.0.0"
 source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
 dependencies = [
- "pvec-numeric",
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
 ]
 
 [[package]]
@@ -1827,18 +1906,34 @@ version = "0.0.0"
 source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
 dependencies = [
  "miniz_oxide 0.9.1",
- "pvec-capabilities",
- "pvec-components",
- "pvec-container",
- "pvec-entity",
- "pvec-geometry",
- "pvec-numeric",
+ "pvec-capabilities 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-components 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-container 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-entity 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-geometry 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b)",
 ]
 
 [[package]]
 name = "pvec-numeric"
 version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099#b9f441618153d256777121a6a1518b15e7f42099"
+
+[[package]]
+name = "pvec-numeric"
+version = "0.0.0"
 source = "git+https://github.com/libviprs/pvec?rev=e1b8124f00f5b3302d421062f3980e207f3b578b#e1b8124f00f5b3302d421062f3980e207f3b578b"
+
+[[package]]
+name = "pvec-stream"
+version = "0.0.0"
+source = "git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099#b9f441618153d256777121a6a1518b15e7f42099"
+dependencies = [
+ "pvec-container 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-entity 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-geometry 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+ "pvec-numeric 0.0.0 (git+https://github.com/libviprs/pvec?rev=b9f441618153d256777121a6a1518b15e7f42099)",
+]
 
 [[package]]
 name = "pxfm"
