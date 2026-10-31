@@ -415,6 +415,9 @@ fn a_push_runs_the_suite_on_mars_and_cleans_up() {
     let gate = m.read("gate.cmd");
     for needle in [
         "docker.sock",
+        // run-tests.sh builds with BuildKit, and the docker client mounted in
+        // from the host finds buildx only in its plugin directory.
+        "cli-plugins",
         "--platform linux/amd64",
         "tools/run-tests.sh",
         "LIBVIPRS_DIR=",
