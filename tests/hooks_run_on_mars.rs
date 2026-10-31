@@ -619,3 +619,35 @@ fn a_core_push_gates_against_the_harness_at_origin_main() {
         "the harness that went to MARS is the sibling checkout, not origin/main"
     );
 }
+
+/// A harness push is gated against the core its COUNTERPART_REV pins, which is
+/// what hosted CI and the merge gate pair it with, and not against whatever the
+/// sibling core checkout has. The sibling's main moves on without the harness
+/// (and was red in its own suite when this was found), so gating against it
+/// blames the harness for the core.
+#[test]
+fn a_harness_push_gates_against_the_core_it_pins() {
+    let m = Mars::new();
+    let pinned =
+        m.ws.commit("libviprs", "pinned core", &[("src/lib.rs", "// pinned\n")]);
+    m.ws.commit("libviprs", "later core", &[("src/lib.rs", "// later\n")]);
+
+    let before = m.ws.commit(
+        "libviprs-tests",
+        "base",
+        &[("COUNTERPART_REV", "# pin\n0000000\n")],
+    );
+    let after = m.ws.commit(
+        "libviprs-tests",
+        "bump the pin",
+        &[("COUNTERPART_REV", &format!("# pin\n{pinned}\n"))],
+    );
+    let (ok, out) = m.push("libviprs-tests", &before, &after, &[]);
+    assert!(ok, "{out}");
+
+    assert_eq!(
+        m.shipped_file(0, "libviprs/src/lib.rs"),
+        "// pinned\n",
+        "the core that went to MARS is the sibling checkout, not COUNTERPART_REV"
+    );
+}
