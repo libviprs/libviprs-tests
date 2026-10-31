@@ -167,6 +167,8 @@ fn contract() -> BTreeMap<String, RepoContract> {
             ("checkout-path", 3) => entry.checkout_path = Some(f[2].to_string()),
             ("mirror", 3) => entry.mirrored.push(f[2].to_string()),
             ("prepush", 3) => entry.pre_push = f[2] == "yes",
+            // Where the hooks run is hooks_run_on_mars.rs's business.
+            ("mars", 3) => {}
             ("defer", 4) => {
                 entry.deferred.insert(f[2].to_string(), f[3].to_string());
             }
@@ -629,6 +631,10 @@ fn run_recorded(
         .env("PATH", path)
         .env("LOCKSTEP_RECORD", &record)
         .env("LOCKSTEP_ROOT", &repo_dir)
+        // This is the hook as it runs on MARS, where it has the tools. Run
+        // anywhere else it hands itself to tools/mars-run.sh first
+        // (hooks_run_on_mars.rs covers that half).
+        .env("LIBVIPRS_ON_MARS", "1")
         .output()
         .expect("run the generated pre-commit hook");
 
@@ -867,13 +873,10 @@ fn the_hook_mirrors_this_repos_ci() {
 /// The core. `libviprs = { path = "../libviprs" }` in this crate's manifest
 /// means it is there whenever this suite can run at all.
 ///
-/// The core ships `tools/local-ci.py`, so its real pre-commit hook defers to
-/// that rather than to the step list below, and this arm is checking the
-/// fallback. The fallback still matters: it is what lands in any repo without
-/// one, it is what the core gets back if that script goes away, and it is the
-/// only written statement of what the core's lint half is. What `local-ci.py`
-/// runs is that script's own business and it derives its list from ci.yml at
-/// run time.
+/// The core's pre-commit hook is the step list below, run on MARS
+/// (libviprs-tests#311). It used to defer to `tools/local-ci.py` on the
+/// committing machine's Docker; this list is now the only written statement of
+/// what the core's lint half is, so it is held to the workflow like the rest.
 #[test]
 fn the_hook_mirrors_the_cores_ci() {
     check_repo("libviprs");

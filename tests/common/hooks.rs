@@ -80,6 +80,29 @@ echo "STUB-GIT_QUARANTINE_PATH=${GIT_QUARANTINE_PATH-unset}"
 echo "STUB-ARGS=$*"
 "#;
 
+/// A stand-in for `tools/mars-run.sh`, for the guards that are about the hook's
+/// decisions rather than about shipping anything to MARS. The hook runs the
+/// suite on MARS through that script, so what the suite would have been given
+/// is read off the environment the hook hands it, which is the same contract
+/// the real one uses: the two trees in `LIBVIPRS_DIR` and `LIBVIPRS_TESTS_DIR`.
+/// The suite script that would run is the pushed harness tree's own.
+pub const STUB_MARS_RUN: &str = r#"#!/bin/sh
+case "$1" in
+  gate) shift ;;
+  hook) echo "STUB-RAN-THE-HOOK=$2 tree=${LIBVIPRS_HOOK_TREEISH-unset}"; exit 0 ;;
+esac
+echo "STUB-RAN-THE-SUITE"
+echo "STUB-SCRIPT=${LIBVIPRS_TESTS_DIR-unset}/tools/run-tests.sh"
+echo "STUB-LIBVIPRS_DIR=${LIBVIPRS_DIR-unset}"
+echo "STUB-LIBVIPRS_TESTS_DIR=${LIBVIPRS_TESTS_DIR-unset}"
+echo "STUB-GIT_DIR=${GIT_DIR-unset}"
+echo "STUB-GIT_WORK_TREE=${GIT_WORK_TREE-unset}"
+echo "STUB-GIT_INDEX_FILE=${GIT_INDEX_FILE-unset}"
+echo "STUB-GIT_PREFIX=${GIT_PREFIX-unset}"
+echo "STUB-GIT_QUARANTINE_PATH=${GIT_QUARANTINE_PATH-unset}"
+echo "STUB-ARGS=$*"
+"#;
+
 /// One `STUB-<name>=` line out of what a push printed.
 pub fn reported(out: &str, name: &str) -> String {
     let prefix = format!("STUB-{name}=");
@@ -131,7 +154,12 @@ impl Workspace {
         let tests_root = root.join("libviprs-tests");
         std::fs::create_dir_all(tests_root.join("tools/hooks"))
             .expect("create the stand-in tools directory");
-        for rel in ["tools/install-hooks.sh", PRE_PUSH_HOOK] {
+        for rel in [
+            "tools/install-hooks.sh",
+            "tools/mars-run.sh",
+            "tools/Dockerfile.hooks",
+            PRE_PUSH_HOOK,
+        ] {
             let to = tests_root.join(rel);
             let from = repo_root().join(rel);
             std::fs::copy(&from, &to).unwrap_or_else(|e| {
@@ -146,6 +174,10 @@ impl Workspace {
         // The acadsharp-rs-tests suite has its own gate script, and a push from
         // acadsharp-rs or acadrust runs it with the pushed tree in its slot.
         // The stub reports its arguments, which is how the slot is read back.
+        let mars_stub = tests_root.join("tools/stub-mars-run.sh");
+        std::fs::write(&mars_stub, STUB_MARS_RUN).expect("write the stub mars-run.sh");
+        make_executable(&mars_stub);
+
         let suite_stub = root.join("acadsharp-rs-tests/tools/run-tests.sh");
         std::fs::create_dir_all(suite_stub.parent().expect("suite tools dir"))
             .expect("create the stand-in suite tools directory");
@@ -344,6 +376,14 @@ impl<'a> Push<'a> {
         ] {
             cmd.env_remove(leaked);
         }
+        // The hook runs the suite for these two repos on MARS. Stand in for
+        // MARS, so what is under test is the hook's decision.
+        cmd.env(
+            "LIBVIPRS_HOOKS_MARS_RUN",
+            self.ws
+                .repo("libviprs-tests")
+                .join("tools/stub-mars-run.sh"),
+        );
         if self.force_all {
             cmd.env("LIBVIPRS_PREPUSH_ALL", "1");
         }
