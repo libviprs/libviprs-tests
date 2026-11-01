@@ -315,6 +315,9 @@ of the source, `vips rot ... d90` of it and `vips flip ... horizontal` of it,
 and `gray` the `src_gray.png` samples as a uint8 numpy array (H x W). The
 `enc/libviprs_*` files are the libviprs encoders' output for `r`, the decoded
 `src_rgb.png`, at core `8afc3ae5`.
+`enc/libviprs_tiff.tif` alone was rewritten later, at core `9fcc0ec3`, when the core moved to `tiff` 0.11.3
+(libviprs-tests#313): same tags and same deflate strip, but 0.11 lays the out-of-line tag values after
+the strip, so the offsets differ. vips reads it back to the same pixels as before.
 
 Every row regenerates byte for byte except `exr_half.exr` and `mat.mat`,
 whose writers stamp the time into the header. Their pixels, and so their
@@ -355,7 +358,7 @@ image with itself.
 | `enc/libviprs_ppm_vips.png` | 952 | `cff886d128eb7fbd` | vips 8.18.4 | `vips copy codec/enc/libviprs_ppm.ppm codec/enc/libviprs_ppm_vips.png[compression=9,filter=all]` |
 | `enc/libviprs_rad.hdr` | 60819 | `d15401e433b27802` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `src_float.v decoded, .encode_radiance(radiance::SaveOptions::default())` |
 | `enc/libviprs_rad_vips.v` | 789518 | `5f831e86d7b9ab4d` | vips 8.18.4 | `vips rad2float codec/enc/libviprs_rad.hdr codec/enc/libviprs_rad_vips.v` |
-| `enc/libviprs_tiff.tif` | 2542 | `a4c362c48a75460e` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.tiff_save()` |
+| `enc/libviprs_tiff.tif` | 2542 | `5f46a95b336ffd44` | libviprs 9fcc0ec3 (tiff 0.11.3, rust 1.99.1, x86_64) | `r.tiff_save()` |
 | `enc/libviprs_tiff_vips.png` | 952 | `cff886d128eb7fbd` | vips 8.18.4 | `vips copy codec/enc/libviprs_tiff.tif codec/enc/libviprs_tiff_vips.png[compression=9,filter=all]` |
 | `enc/libviprs_webp.webp` | 1272 | `f50d7199cc1c6be5` | libviprs 8afc3ae5 (rust 1.97.1, x86_64) | `r.encode_webp(webp::SaveOptions::default())` |
 | `enc/libviprs_webp_vips.png` | 952 | `cff886d128eb7fbd` | vips 8.18.4 | `vips copy codec/enc/libviprs_webp.webp codec/enc/libviprs_webp_vips.png[compression=9,filter=all]` |
