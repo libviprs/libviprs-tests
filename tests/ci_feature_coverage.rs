@@ -698,7 +698,21 @@ fn core_manifest() -> String {
 /// (libviprs-tests#324). A pending row is accepted while the pin lacks the
 /// feature. The first pin bump that brings the feature turns it red until the row
 /// moves to [`CORE_FEATURES_NOT_FORWARDED_HERE`] (or the feature is forwarded).
-const CORE_FEATURES_PENDING_IN_THE_PIN: &[(&str, &str)] = &[];
+const CORE_FEATURES_PENDING_IN_THE_PIN: &[(&str, &str)] = &[
+    (
+        "jbig2",
+        "enables JBIG2Decode in the PDF image bake through hayro-jbig2 (libviprs#1365). \
+         Nothing here drives the bake with JBIG2 streams, and the decoder is under \
+         upstream fuzz findings, so forwarding it would add the dependency to every cell \
+         for nothing to run. The core's own CI lints and tests it under the feature",
+    ),
+    (
+        "pvec-conformance",
+        "names the combination of dwg-acadrust, pvec-normalized and pvec-spline that the \
+         core's own PVec conformance suites need (libviprs#1408), and adds no crate and \
+         no code path, so there is nothing here for a cell to run under it",
+    ),
+];
 
 /// What this suite fails to account for, one message per problem. `forwarded`
 /// answers which of our features forwards a core feature. Rows are held as hard
@@ -710,7 +724,6 @@ fn unaccounted(
     excused: &[(&str, &str)],
     pending: &[(&str, &str)],
 ) -> Vec<String> {
-    let _ = pending;
     let mut problems = Vec::new();
     for feature in core {
         let forwarded = forwarded(feature);
@@ -720,12 +733,28 @@ fn unaccounted(
                 "`{feature}`: CORE_FEATURES_NOT_FORWARDED_HERE excuses it, and this \
                  crate forwards it as `{f}`. Drop the row."
             )),
+            // A pending row for a declared feature is reported below, once.
+            (None, false) if pending.iter().any(|(f, _)| f == feature) => {}
             (None, false) => problems.push(format!(
                 "`{feature}`: the core declares it and no feature here enables \
                  `libviprs/{feature}`. Forward it (and give it a row in EXPECTED), or \
                  add a row to CORE_FEATURES_NOT_FORWARDED_HERE saying why not."
             )),
             _ => {}
+        }
+    }
+    for (feature, why) in pending {
+        if core.iter().any(|f| f == feature) {
+            problems.push(format!(
+                "`{feature}`: CORE_FEATURES_PENDING_IN_THE_PIN holds a pending row for it, \
+                 and the pinned core now declares it. Pending is over: move the row to \
+                 CORE_FEATURES_NOT_FORWARDED_HERE (or forward the feature)."
+            ));
+        }
+        if why.trim().is_empty() {
+            problems.push(format!(
+                "`{feature}`: its CORE_FEATURES_PENDING_IN_THE_PIN row has no reason"
+            ));
         }
     }
     for (feature, why) in excused {
