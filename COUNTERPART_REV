@@ -398,4 +398,6 @@
 # this pin (libviprs-tests#311), so a pin that is red on its own blocks every push.
 #
 # Bumped to 88744ef7, libviprs main's tip when I checked with `git ls-remote https://github.com/libviprs/libviprs.git refs/heads/main` (libviprs-tests#319). The old pin was built on tiff 0.10 and the committed tiff encoder fixture no longer matched what main writes.
-88744ef70042c588856fea94313f03b3db7be06c
+#
+# Bumped to 2200daa5, the tip of libviprs/libviprs#1420, which adds the pvec-convert feature this suite now accounts for (libviprs-tests#326). That commit becomes part of libviprs main when #1420 merges, so the pin stays reachable.
+2200daa51abe6b1b9280c1795dbbb836648c4e9f
