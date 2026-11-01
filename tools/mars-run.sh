@@ -16,8 +16,8 @@
 #
 # Where things go on MARS (devshell@192.168.0.100, native x86_64):
 #   * hook mode keeps no scratch directory at all. Sources live in one docker
-#     volume per repo (viprs-hook-src-REPO), cargo's registry in
-#     viprs-hook-cargo and the build output in viprs-hook-target-REPO, which is
+#     volume per repo and worktree (viprs-hook-src-REPO-WORKTREE), cargo's
+#     registry in viprs-hook-cargo and the build output in viprs-hook-target-REPO, which is
 #     CARGO_TARGET_DIR=/tmp/target in the container. Each run streams a tar in
 #     and rsyncs it over the volume by checksum, so only files that really
 #     changed get a new mtime and cargo rebuilds only what changed.
@@ -187,12 +187,21 @@ hook_mode() {
 
     ensure_image
 
-    local name="viprs-hook-$repo" b64 mounts
+    # One name per run: repo, worktree (its directory name plus a checksum of
+    # its path, so two checkouts called the same do not meet) and this pid. The
+    # source volumes are per worktree for the same reason, so runs from
+    # different worktrees of one repo go side by side. Two runs from the SAME
+    # worktree would still sync one tree over the other's build, so those wait
+    # for each other (libviprs-tests#317).
+    local wt wtid b64 mounts name
+    wt="$(basename "$top" | tr -c 'A-Za-z0-9_.\n-' '_')"
+    wtid="$wt-$(printf %s "$top" | cksum | cut -d' ' -f1)"
+    name="viprs-hook-$repo-$wtid-$$"
     b64="$(base64 < "$hookfile" | tr -d '\n')"
-    mounts="-v viprs-hook-src-$repo:/w/$repo"
-    [ -n "$core" ] && mounts="$mounts -v viprs-hook-sib-$repo:/w/libviprs"
+    mounts="-v viprs-hook-src-$repo-$wtid:/w/$repo"
+    [ -n "$core" ] && mounts="$mounts -v viprs-hook-sib-$repo-$wtid:/w/libviprs"
 
-    wait_for_name "$name"
+    wait_for_worktree "viprs-hook-$repo-$wtid-"
     say "running the $repo checks on MARS ($(printf '%.12s' "$tree"))"
     trap 'mssh "docker kill $name >/dev/null 2>&1" || true' INT TERM
     # The driver below runs in the container: unpack, sync, run the hook file.
@@ -224,15 +233,16 @@ LIBVIPRS_ON_MARS=1 exec bash /tmp/hook.sh'
     return "$rc"
 }
 
-# Another run of the same repo is using the source volume: wait for it rather
-# than racing it, which would sync one tree over another's build.
-wait_for_name() {
-    local name="$1" waited=0
-    while [ -n "$(mssh "docker ps -q --filter name=^$name\$" 2>/dev/null || true)" ]; do
+# Another run from this worktree is using its source volume: wait for it rather
+# than racing it, which would sync one tree over another's build. Runs from
+# other worktrees have their own volumes and are not waited for.
+wait_for_worktree() {
+    local prefix="$1" waited=0 holder
+    while holder="$(mssh "docker ps --filter name=^$prefix --format '{{.Names}}'" 2>/dev/null || true)"; [ -n "$holder" ]; do
         if [ "$waited" -ge "$WAIT" ]; then
-            die "another $name run has held MARS for ${WAIT}s, giving up"
+            die "$holder has held this worktree's volume on MARS for ${WAIT}s, giving up"
         fi
-        [ "$waited" -eq 0 ] && say "another $name run is in progress on MARS, waiting"
+        [ "$waited" -eq 0 ] && say "$holder is still running from this worktree, waiting"
         sleep 5
         waited=$((waited + 5))
     done
@@ -245,14 +255,15 @@ wait_for_name() {
 # LIBVIPRS_HOOKS_GATE_SLOTS (default 2) go at once and the rest queue. The count
 # is the live driver containers, so there is no lock to go stale.
 wait_for_gate_slot() {
-    local slots="${LIBVIPRS_HOOKS_GATE_SLOTS:-2}" waited=0 running
+    local slots="${LIBVIPRS_HOOKS_GATE_SLOTS:-2}" waited=0 running holders
     while true; do
         running="$(mssh 'docker ps -q --filter name=hook-gate-' 2>/dev/null | grep -c . || true)"
         [ "${running:-0}" -lt "$slots" ] && return 0
+        holders="$(mssh "docker ps --filter name=hook-gate- --format '{{.Names}} ({{.RunningFor}})'" 2>/dev/null | tr '\n' ' ' || true)"
         if [ "$waited" -ge "$WAIT" ]; then
-            die "$running suite runs have held MARS for ${WAIT}s, giving up"
+            die "$running suite runs have held MARS for ${WAIT}s, giving up. Holders: ${holders:-unknown}"
         fi
-        [ "$waited" -eq 0 ] && say "$running suite runs are already going on MARS (limit $slots), waiting"
+        [ "$waited" -eq 0 ] && say "$running suite runs are already going on MARS (limit $slots), waiting. Holders: ${holders:-unknown}"
         sleep 15
         waited=$((waited + 15))
     done
@@ -303,13 +314,14 @@ gate_mode() {
         core_tree="$(snapshot_tree "$core")"
     fi
 
-    local dir args=""
+    local dir
+    local args=""
     # Global: the EXIT trap below runs after this function has returned.
     GATE_JOB="hook-gate-$$-$(date +%s)"
     local job="$GATE_JOB"
     dir="$SCRATCH_PARENT/$job"
     local a
-    for a in "$@"; do args="$args $(printf '%q' "$a")"; done
+    for a in ${@+"$@"}; do args="${args} $(printf '%q' "$a")"; done
 
     trap gate_cleanup EXIT
     trap 'mssh "docker kill $GATE_JOB >/dev/null 2>&1" || true; exit 130' INT TERM
