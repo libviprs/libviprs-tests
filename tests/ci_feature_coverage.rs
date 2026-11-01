@@ -678,6 +678,13 @@ const CORE_FEATURES_NOT_FORWARDED_HERE: &[(&str, &str)] = &[
          leave the cell nothing to run. The core's own CI lints it and runs \
          tests/pvec_dwg_spline_structural.rs under the feature",
     ),
+    (
+        "pvec-write",
+        "enables the PVec writer over pvec-facade, a git-only dependency pinned by \
+         revision, and implies pvec-normalized. Nothing in this suite drives the writer, \
+         so forwarding it would add that revision to every cell and leave the cell \
+         nothing to run. The core's own CI lints and tests it under the feature",
+    ),
 ];
 
 fn core_manifest() -> String {
