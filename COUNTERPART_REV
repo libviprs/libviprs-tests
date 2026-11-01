@@ -363,7 +363,7 @@
 # libviprs main @ 2026-10-31 (fa9f6452): the PVec raster producer, which the raster suites of
 # libviprs-tests#305 run against: the stored GeoTransform and the tile passthrough (#1328), the
 # sniffer-legal tiles (#1330), the PVec sink (#1331) and the PDF image bake (#1332).
-6d71274315bb2663c8ce5e6e7132796941c64b3c
+88744ef70042c588856fea94313f03b3db7be06c
 #
 # Bumped to 48bdb1f1, libviprs main's tip when I checked with `git ls-remote
 # https://github.com/libviprs/libviprs.git refs/heads/main`. It moves because
@@ -397,3 +397,9 @@
 # `save_route_coverage` red). Main has gone red again since, because other changes
 # landed while hosted CI is off. The git hooks run the whole suite on MARS against
 # this pin (libviprs-tests#311), so a pin that is red on its own blocks every push.
+#
+# Bumped to 88744ef7, libviprs main's tip when I checked with `git ls-remote
+# https://github.com/libviprs/libviprs.git refs/heads/main`. It moves because of
+# libviprs-tests#316: the core declares `pvec-write` (libviprs#1314), which 6d712743 predates, and
+# every_core_feature_is_forwarded_here_or_says_why_not holds a row for a feature the pinned core does
+# not declare to be red, so the row and the pin move together, the same shape as #291, #293 and #297.
