@@ -48,6 +48,8 @@ case "$last" in
   *"docker image inspect"*) exit 0 ;;
   *"docker ps -q --filter name=hook-gate-"*)
     i=0; while [ "$i" -lt "${FAKE_GATES_RUNNING:-0}" ]; do echo "gate$i"; i=$((i+1)); done; exit 0 ;;
+  *"docker ps --filter name=hook-gate-"*)
+    i=0; while [ "$i" -lt "${FAKE_GATES_RUNNING:-0}" ]; do echo "hook-gate-$i"; i=$((i+1)); done; exit 0 ;;
   *"docker ps -q"*) exit 0 ;;
   *"docker run --rm -i --name viprs-hook-"*)
     n=$(ls "$FAKE_DIR" | grep -c '^shipped-')
@@ -688,4 +690,139 @@ fn a_push_waits_for_a_free_suite_slot_instead_of_piling_on() {
         &[("FAKE_GATES_RUNNING", "1"), ("LIBVIPRS_HOOKS_WAIT", "0")],
     );
     assert!(ok, "a free slot was not used:\n{out}");
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent runs (libviprs-tests#317)
+// ---------------------------------------------------------------------------
+
+/// The container name of a recorded `docker run ... --name NAME`.
+fn container_name(run: &str) -> String {
+    let after = run.split("--name ").nth(1).unwrap_or_default();
+    after
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// Every hook of a repo used to run in a container called
+/// `viprs-hook-<repo>`, so a second commit from another worktree, or a second
+/// agent, collided with the first. Each run gets its own name: the repo, the
+/// worktree and the pid.
+#[test]
+fn two_hook_runs_of_one_repo_get_different_container_names() {
+    let m = Mars::new();
+    stage(&m.ws.repo("libviprs"), "src/lib.rs", "// staged\n");
+
+    let (ok, out) = m.commit_hook("libviprs", &[]);
+    assert!(ok, "{out}");
+    let (ok, out) = m.commit_hook("libviprs", &[]);
+    assert!(ok, "{out}");
+
+    let first = container_name(&m.read("run-0.cmd"));
+    let second = container_name(&m.read("run-1.cmd"));
+    assert!(
+        first.starts_with("viprs-hook-libviprs-"),
+        "the name does not carry the repo and a suffix: {first:?}"
+    );
+    assert_ne!(first, second, "two runs share the container name {first}");
+}
+
+/// A run from a linked worktree names that worktree, so two lanes of one repo
+/// cannot take the same name even if their pids ever matched.
+#[test]
+fn a_hook_run_from_a_worktree_names_the_worktree() {
+    let m = Mars::new();
+    let tree = m.ws.worktree("libviprs", "lane-317");
+    stage(&tree, "src/lib.rs", "// staged\n");
+
+    let root = m.ws.repo("libviprs");
+    let out = Command::new("bash")
+        .arg(root.join(".git/hooks/pre-commit"))
+        .current_dir(&tree)
+        .env("PATH", m.path())
+        .env("FAKE_DIR", &m.dir)
+        .env_remove("LIBVIPRS_ON_MARS")
+        .env_remove("LIBVIPRS_HOOKS_SKIP_MARS")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .output()
+        .expect("run the hook from the worktree");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let name = container_name(&m.read("run-0.cmd"));
+    assert!(
+        name.contains("lane-317"),
+        "the container name does not carry the worktree: {name:?}"
+    );
+}
+
+/// A run must not wait for, or be killed by, another run's container.
+#[test]
+fn a_hook_run_does_not_wait_for_another_runs_container() {
+    let m = Mars::new();
+    stage(&m.ws.repo("libviprs"), "src/lib.rs", "// staged\n");
+    let (ok, out) = m.commit_hook("libviprs", &[("LIBVIPRS_HOOKS_WAIT", "0")]);
+    assert!(ok, "{out}");
+    let log = m.read("ssh.log");
+    assert!(
+        !log.contains("--filter name=^viprs-hook-libviprs$"),
+        "the run still waits on the shared container name:\n{log}"
+    );
+}
+
+/// `set -u` and an empty argument list: `mars-run.sh gate` with nothing after
+/// it is the full-suite push, and it died with "args: unbound variable".
+#[test]
+fn the_gate_with_no_arguments_does_not_trip_set_u() {
+    let m = Mars::new();
+    let core = m.ws.repo("libviprs");
+    let tests = m.ws.repo("libviprs-tests");
+    m.ws.commit("libviprs", "c", &[("src/a.rs", "// a\n")]);
+    let script =
+        m.ws.checked_in_hook()
+            .parent()
+            .expect("hooks dir")
+            .join("../mars-run.sh");
+
+    for shell in ["bash", "/bin/bash"] {
+        let out = Command::new(shell)
+            .arg(&script)
+            .arg("gate")
+            .env("PATH", m.path())
+            .env("FAKE_DIR", &m.dir)
+            .env("LIBVIPRS_DIR", &core)
+            .env("LIBVIPRS_TESTS_DIR", &tests)
+            .env_remove("LIBVIPRS_HOOKS_SKIP_MARS")
+            .output()
+            .expect("run mars-run.sh gate");
+        let text = String::from_utf8_lossy(&out.stderr);
+        assert!(!text.contains("unbound variable"), "{shell}: {text}");
+        assert!(out.status.success(), "{shell}: {text}");
+    }
+}
+
+/// Waiting for a suite slot says who holds the slots, so a stuck queue can be
+/// read instead of guessed at.
+#[test]
+fn waiting_for_a_slot_names_the_runs_that_hold_them() {
+    let m = Mars::new();
+    let before = m.ws.commit("libviprs", "base", &[("src/a.rs", "// a\n")]);
+    let after = m.ws.commit("libviprs", "change", &[("src/a.rs", "// b\n")]);
+    let (ok, out) = m.push(
+        "libviprs",
+        &before,
+        &after,
+        &[("FAKE_GATES_RUNNING", "2"), ("LIBVIPRS_HOOKS_WAIT", "0")],
+    );
+    assert!(!ok, "{out}");
+    assert!(
+        out.contains("hook-gate-0") && out.contains("hook-gate-1"),
+        "the message does not name the holders:\n{out}"
+    );
 }
