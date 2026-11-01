@@ -15,9 +15,7 @@
 mod fx;
 
 use libviprs::pmtiles::Reader;
-use pvec_interchange::pmtiles::{
-    RasterReadLimits, RasterTileType, read_raster_archive,
-};
+use pvec_interchange::pmtiles::{RasterReadLimits, RasterTileType, read_raster_archive};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -67,7 +65,8 @@ fn the_export_extracts_to_the_same_tile_bytes_digest_equal_per_tile() {
 fn a_tile_with_one_flipped_byte_is_not_the_exported_tile() {
     // The control for the digest comparison above.
     let (pyramid, pvec) = fx::interchange_pvec();
-    let parsed = read_raster_archive(&fx::export_raster_0(&pvec), &RasterReadLimits::default()).unwrap();
+    let parsed =
+        read_raster_archive(&fx::export_raster_0(&pvec), &RasterReadLimits::default()).unwrap();
     let t = &parsed.tiles[0];
     let planned = pyramid
         .tile(u32::from(t.z), t.x, t.y)

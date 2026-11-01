@@ -53,7 +53,11 @@ fn go_pmtiles_show_reads_the_vnd_pvec_key_of_the_export() {
         .arg(&path)
         .output()
         .expect("run pmtiles show");
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let shown = String::from_utf8_lossy(&out.stdout).into_owned();
     let meta: serde_json::Value = serde_json::from_str(shown.trim())
         .unwrap_or_else(|e| panic!("`show --metadata` is not JSON ({e}): {shown}"));
