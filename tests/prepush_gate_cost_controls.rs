@@ -243,6 +243,11 @@ const INERT_IN_LIBVIPRS: &[&str] = &[
     // libviprs/libviprs#1345. It is rendered from a constant by a test in the core, and nothing
     // in this suite reads it, so a push that changes only this file runs nothing that could fail.
     "docs/pvec-raster-producer.md",
+    // Added with the bump to core 88744ef7 (libviprs-tests#316). The tier and spool rescope ADR and the
+    // provider differential page: design and usage write-ups that no test in either repo pulls in
+    // with `include_str!`, so a push that changes only these runs nothing that could fail.
+    "docs/adr/pvec-tiers-and-spool-rescope.md",
+    "docs/provider-differential.md",
     "docs/spikes/bounded-memory.md",
     "docs/spikes/bounded-memory/results-x64.txt",
     "docs/spikes/bounded-memory/run.sh",
