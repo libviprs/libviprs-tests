@@ -85,8 +85,11 @@ const PORTRAIT_BUDGET_BYTES: u64 = 6 * 1024 * 1024;
 const BLUEPRINT_BUDGET_BYTES: u64 = 20 * 1024 * 1024;
 
 fn run_parity(fixture: &str, layout: Layout, centre: bool, budget_bytes: u64, label: &str) {
-    let ref_source = PdfiumStripSource::new(fixture, 1, DPI)
-        .unwrap_or_else(|e| panic!("{label}: PdfiumStripSource::new: {e:?}"));
+    // Both sources are streaming ones: the engine's memory budget below is a strip budget, and a cached
+    // source holds the whole page, which the engine now refuses against a budget that small
+    // (libviprs#1466).
+    let ref_source = PdfiumStripSource::new_streaming(fixture, 1, DPI)
+        .unwrap_or_else(|e| panic!("{label}: PdfiumStripSource::new_streaming: {e:?}"));
     let w = ref_source.width();
     let h = ref_source.height();
 
@@ -133,8 +136,8 @@ fn run_parity(fixture: &str, layout: Layout, centre: bool, budget_bytes: u64, la
 
     // Streaming — fed the strip source directly, with a budget that forces
     // true strip iteration (verified via the engine's pre-flight check).
-    let stream_source = PdfiumStripSource::new(fixture, 1, DPI)
-        .unwrap_or_else(|e| panic!("{label}: PdfiumStripSource::new (stream): {e:?}"));
+    let stream_source = PdfiumStripSource::new_streaming(fixture, 1, DPI)
+        .unwrap_or_else(|e| panic!("{label}: PdfiumStripSource::new_streaming (stream): {e:?}"));
     let stream_sink = MemorySink::new();
     EngineBuilder::new(stream_source, plan.clone(), &stream_sink)
         .with_engine(EngineKind::Streaming)

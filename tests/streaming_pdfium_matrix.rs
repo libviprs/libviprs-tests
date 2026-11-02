@@ -472,7 +472,7 @@ fn generate_pyramid_streaming_mix_pre_flight_min() {
 /// boundary, not just with comfortable headroom.
 fn end_to_end_streaming_pre_flight_min(fixture: &str) {
     let dpi = 72;
-    let source = PdfiumStripSource::new(fixture, 1, dpi).unwrap();
+    let source = PdfiumStripSource::new_streaming(fixture, 1, dpi).unwrap();
     let plan = PyramidPlanner::new(
         source.width(),
         source.height(),
@@ -489,7 +489,7 @@ fn end_to_end_streaming_pre_flight_min(fixture: &str) {
 
 fn end_to_end_streaming_generous(fixture: &str, headroom: u64) {
     let dpi = 72;
-    let source = PdfiumStripSource::new(fixture, 1, dpi).unwrap();
+    let source = PdfiumStripSource::new_streaming(fixture, 1, dpi).unwrap();
     let plan = PyramidPlanner::new(
         source.width(),
         source.height(),
@@ -548,7 +548,9 @@ fn worst_case_strip_bytes(width: u32) -> u64 {
 #[test]
 fn budget_error_policy_passes_when_fits() {
     let baseline = PdfiumStripSource::new(FIXTURE_BLUEPRINT, 1, 72).unwrap();
-    let budget = worst_case_strip_bytes(baseline.width()) * 4; // generous headroom
+    // A cached source holds the whole page, so the budget it is checked against is the whole raster
+    // (libviprs#1466), not the strip.
+    let budget = u64::from(baseline.width()) * u64::from(baseline.height()) * 4;
     let source = PdfiumStripSource::new_with_budget(
         FIXTURE_BLUEPRINT,
         1,
@@ -615,7 +617,8 @@ fn budget_auto_adjust_reduces_dpi_until_fits() {
 #[test]
 fn budget_auto_adjust_keeps_dpi_when_fits() {
     let baseline = PdfiumStripSource::new(FIXTURE_BLUEPRINT, 1, 72).unwrap();
-    let budget = worst_case_strip_bytes(baseline.width()) * 4;
+    // The whole raster, as for the `Error` policy above (libviprs#1466).
+    let budget = u64::from(baseline.width()) * u64::from(baseline.height()) * 4;
     let source = PdfiumStripSource::new_with_budget(
         FIXTURE_BLUEPRINT,
         1,
@@ -656,7 +659,9 @@ fn budget_auto_adjust_errors_when_min_dpi_floor_exceeded() {
 fn budget_auto_adjust_drives_end_to_end_streaming() {
     let baseline_300 = PdfiumStripSource::new(FIXTURE_BLUEPRINT, 1, 300).unwrap();
     let source_budget = worst_case_strip_bytes(baseline_300.width()) / 16;
-    let source = PdfiumStripSource::new_with_budget(
+    // A streaming source: the engine budget below is a strip budget, which a cached source (the whole
+    // page) would not fit (libviprs#1466).
+    let source = PdfiumStripSource::new_streaming_with_budget(
         FIXTURE_BLUEPRINT,
         1,
         300,
