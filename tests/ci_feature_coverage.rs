@@ -703,7 +703,33 @@ fn core_manifest() -> String {
 /// suite against the core being pushed, so when its HEAD is not the pin the
 /// manifest is read from the pin's commit in that same checkout.
 fn pinned_core_features(tested: &[String]) -> Vec<String> {
-    tested.to_vec()
+    let rev = read("COUNTERPART_REV")
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with('#'))
+        .expect("COUNTERPART_REV must name a revision")
+        .to_string();
+    let core = repo_root().join("../libviprs");
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&core)
+            .args(args)
+            .output()
+            .unwrap_or_else(|e| panic!("cannot run git in {}: {e}", core.display()))
+    };
+    let head = git(&["rev-parse", "HEAD"]);
+    if String::from_utf8_lossy(&head.stdout).trim() == rev {
+        return tested.to_vec();
+    }
+    let shown = git(&["show", &format!("{rev}:Cargo.toml")]);
+    assert!(
+        shown.status.success(),
+        "cannot read Cargo.toml at the pinned core {rev} in {}: {}. Fetch the pin there.",
+        core.display(),
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    manifest::feature_names(&String::from_utf8_lossy(&shown.stdout))
 }
 
 /// Rows for core features that the pinned core does not declare yet, because the
@@ -743,7 +769,6 @@ fn unaccounted(
     excused: &[(&str, &str)],
     pending: &[(&str, &str)],
 ) -> Vec<String> {
-    let _ = pinned; // red commit: not consulted yet
     let mut problems = Vec::new();
     for feature in core {
         let forwarded = forwarded(feature);
@@ -764,7 +789,7 @@ fn unaccounted(
         }
     }
     for (feature, why) in pending {
-        if core.iter().any(|f| f == feature) {
+        if pinned.iter().any(|f| f == feature) {
             problems.push(format!(
                 "`{feature}`: CORE_FEATURES_PENDING_IN_THE_PIN holds a pending row for it, \
                  and the pinned core now declares it. Pending is over: move the row to \
