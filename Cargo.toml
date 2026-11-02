@@ -124,8 +124,8 @@ pvec-interchange = { git = "https://github.com/libviprs/pvec", rev = "e1b8124f00
 # `pvec-raster` feature pins, because the sink takes a `PvecWriter` of that crate's type; the test
 # `tests/pvec_raster_pins.rs` compares the two. The container, capabilities and interchange crates
 # are the newer revision of `pvec-interchange` above and are only handed bytes.
-pvec-facade = { package = "pvec", git = "https://github.com/libviprs/pvec", rev = "b9f441618153d256777121a6a1518b15e7f42099", version = "0.0.0", features = ["unstable-stream"] }
-pvec-geometry = { git = "https://github.com/libviprs/pvec", rev = "b9f441618153d256777121a6a1518b15e7f42099", version = "0.0.0" }
+pvec-facade = { package = "pvec", git = "https://github.com/libviprs/pvec", rev = "ff67ecb85b5367c5db56f7d03f162c02437414a8", version = "0.0.0", features = ["unstable-stream"] }
+pvec-geometry = { git = "https://github.com/libviprs/pvec", rev = "ff67ecb85b5367c5db56f7d03f162c02437414a8", version = "0.0.0" }
 pvec-container = { git = "https://github.com/libviprs/pvec", rev = "e1b8124f00f5b3302d421062f3980e207f3b578b", version = "0.0.0" }
 pvec-capabilities = { git = "https://github.com/libviprs/pvec", rev = "e1b8124f00f5b3302d421062f3980e207f3b578b", version = "0.0.0" }
 serde_json = "1"
