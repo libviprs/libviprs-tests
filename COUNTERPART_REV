@@ -404,4 +404,5 @@
 # streaming writer (libviprs/pvec#235, ff67ecb8). The core and this suite have to name one revision of the
 # facade (tests/pvec_raster_pins.rs), so the pin and the two manifest lines move together. That commit becomes
 # part of libviprs main when that PR merges.
-d55f8a8c6287c853fb9935cdec100a05061f8ebf
+# Bumped to 09cca562, libviprs main with the spool sink (libviprs#1461), which replaces the branch tip named above.
+09cca562d457e53d5f3483cd42ef3a8afd1f4c31
