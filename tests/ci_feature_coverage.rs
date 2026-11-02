@@ -698,6 +698,88 @@ fn core_manifest() -> String {
     read("../libviprs/Cargo.toml")
 }
 
+/// Rows for core features that the pinned core does not declare yet, because the
+/// commit that adds them is still open in the core. The core's own pre-push gate
+/// runs this suite against the core being pushed, so the row has to exist before
+/// the feature lands, and the pin cannot move to a commit that is not on main
+/// (libviprs-tests#324). A pending row is accepted while the pin lacks the
+/// feature. The first pin bump that brings the feature turns it red until the row
+/// moves to [`CORE_FEATURES_NOT_FORWARDED_HERE`] (or the feature is forwarded).
+const CORE_FEATURES_PENDING_IN_THE_PIN: &[(&str, &str)] = &[
+    (
+        "jbig2",
+        "enables JBIG2Decode in the PDF image bake through hayro-jbig2 (libviprs#1365). \
+         Nothing here drives the bake with JBIG2 streams, and the decoder is under \
+         upstream fuzz findings, so forwarding it would add the dependency to every cell \
+         for nothing to run. The core's own CI lints and tests it under the feature",
+    ),
+    (
+        "pvec-conformance",
+        "names the combination of dwg-acadrust, pvec-normalized and pvec-spline that the \
+         core's own PVec conformance suites need (libviprs#1408), and adds no crate and \
+         no code path, so there is nothing here for a cell to run under it",
+    ),
+];
+
+/// What this suite fails to account for, one message per problem. `forwarded`
+/// answers which of our features forwards a core feature. Rows are held as hard
+/// as the manifest: an excuse for a feature the core does not declare, or one
+/// this crate forwards, is red; a pending row is red once the core declares it.
+fn unaccounted(
+    core: &[String],
+    forwarded: &dyn Fn(&str) -> Option<String>,
+    excused: &[(&str, &str)],
+    pending: &[(&str, &str)],
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    for feature in core {
+        let forwarded = forwarded(feature);
+        let excused = excused.iter().any(|(f, _)| f == feature);
+        match (forwarded, excused) {
+            (Some(f), true) => problems.push(format!(
+                "`{feature}`: CORE_FEATURES_NOT_FORWARDED_HERE excuses it, and this \
+                 crate forwards it as `{f}`. Drop the row."
+            )),
+            // A pending row for a declared feature is reported below, once.
+            (None, false) if pending.iter().any(|(f, _)| f == feature) => {}
+            (None, false) => problems.push(format!(
+                "`{feature}`: the core declares it and no feature here enables \
+                 `libviprs/{feature}`. Forward it (and give it a row in EXPECTED), or \
+                 add a row to CORE_FEATURES_NOT_FORWARDED_HERE saying why not."
+            )),
+            _ => {}
+        }
+    }
+    for (feature, why) in pending {
+        if core.iter().any(|f| f == feature) {
+            problems.push(format!(
+                "`{feature}`: CORE_FEATURES_PENDING_IN_THE_PIN holds a pending row for it, \
+                 and the pinned core now declares it. Pending is over: move the row to \
+                 CORE_FEATURES_NOT_FORWARDED_HERE (or forward the feature)."
+            ));
+        }
+        if why.trim().is_empty() {
+            problems.push(format!(
+                "`{feature}`: its CORE_FEATURES_PENDING_IN_THE_PIN row has no reason"
+            ));
+        }
+    }
+    for (feature, why) in excused {
+        if !core.iter().any(|f| f == feature) {
+            problems.push(format!(
+                "`{feature}`: CORE_FEATURES_NOT_FORWARDED_HERE has a row for it ({why}) \
+                 and the core no longer declares it. Drop or rename the row."
+            ));
+        }
+        if why.trim().is_empty() {
+            problems.push(format!(
+                "`{feature}`: its CORE_FEATURES_NOT_FORWARDED_HERE row has no reason"
+            ));
+        }
+    }
+    problems
+}
+
 /// Every capability feature the core declares is forwarded by this crate, or
 /// says in [`CORE_FEATURES_NOT_FORWARDED_HERE`] why not.
 ///
@@ -718,42 +800,77 @@ fn every_core_feature_is_forwarded_here_or_says_why_not() {
     );
     let ours = manifest::features(&read("Cargo.toml"));
 
-    let mut problems = Vec::new();
-    for feature in &core {
-        let forwarded = manifest::forwarder(&ours, &core_table, feature, &[]);
-        let excused = CORE_FEATURES_NOT_FORWARDED_HERE
-            .iter()
-            .any(|(f, _)| f == feature);
-        match (forwarded, excused) {
-            (Some(f), true) => problems.push(format!(
-                "`{feature}`: CORE_FEATURES_NOT_FORWARDED_HERE excuses it, and this \
-                 crate forwards it as `{f}`. Drop the row."
-            )),
-            (None, false) => problems.push(format!(
-                "`{feature}`: the core declares it and no feature here enables \
-                 `libviprs/{feature}`. Forward it (and give it a row in EXPECTED), or \
-                 add a row to CORE_FEATURES_NOT_FORWARDED_HERE saying why not."
-            )),
-            _ => {}
-        }
-    }
-    for (feature, why) in CORE_FEATURES_NOT_FORWARDED_HERE {
-        if !core.iter().any(|f| f == feature) {
-            problems.push(format!(
-                "`{feature}`: CORE_FEATURES_NOT_FORWARDED_HERE has a row for it ({why}) \
-                 and the core no longer declares it. Drop or rename the row."
-            ));
-        }
-        if why.trim().is_empty() {
-            problems.push(format!(
-                "`{feature}`: its CORE_FEATURES_NOT_FORWARDED_HERE row has no reason"
-            ));
-        }
-    }
+    let problems = unaccounted(
+        &core,
+        &|feature| manifest::forwarder(&ours, &core_table, feature, &[]),
+        CORE_FEATURES_NOT_FORWARDED_HERE,
+        CORE_FEATURES_PENDING_IN_THE_PIN,
+    );
     assert!(
         problems.is_empty(),
         "this suite does not account for {} core feature(s):\n  {}",
         problems.len(),
         problems.join("\n  ")
     );
+}
+
+// ---------------------------------------------------------------------------
+// Pending-core rows (libviprs-tests#324)
+// ---------------------------------------------------------------------------
+
+fn names(list: &[&str]) -> Vec<String> {
+    list.iter().map(|s| s.to_string()).collect()
+}
+
+fn nothing_forwarded(_: &str) -> Option<String> {
+    None
+}
+
+/// The cycle: a new core feature fails the core's gate for lack of a row here,
+/// and the row cannot land first because the pinned core does not declare it.
+#[test]
+fn a_pending_row_is_accepted_while_the_pinned_core_lacks_the_feature() {
+    let problems = unaccounted(
+        &names(&["jxl"]),
+        &|f| (f == "jxl").then(|| "jxl".to_string()),
+        &[],
+        &[("jbig2", "decoder under upstream fuzz findings")],
+    );
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+#[test]
+fn a_core_feature_with_no_row_is_still_red() {
+    let problems = unaccounted(&names(&["jbig2"]), &nothing_forwarded, &[], &[]);
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("`jbig2`"), "{problems:?}");
+}
+
+#[test]
+fn an_unmarked_row_for_a_feature_the_core_lacks_is_still_red() {
+    let problems = unaccounted(&names(&[]), &nothing_forwarded, &[("jbig2", "why")], &[]);
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("no longer declares"), "{problems:?}");
+}
+
+#[test]
+fn a_pending_row_goes_red_once_the_pinned_core_declares_the_feature() {
+    let problems = unaccounted(
+        &names(&["jbig2"]),
+        &nothing_forwarded,
+        &[],
+        &[("jbig2", "why")],
+    );
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(
+        problems[0].contains("pending") && problems[0].contains("move the row"),
+        "the message does not say to move the row: {problems:?}"
+    );
+}
+
+#[test]
+fn a_pending_row_needs_a_reason() {
+    let problems = unaccounted(&names(&[]), &nothing_forwarded, &[], &[("jbig2", " ")]);
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("no reason"), "{problems:?}");
 }
