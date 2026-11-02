@@ -405,4 +405,5 @@
 # facade (tests/pvec_raster_pins.rs), so the pin and the two manifest lines move together. That commit becomes
 # part of libviprs main when that PR merges.
 # Bumped to 09cca562, libviprs main with the spool sink (libviprs#1461), which replaces the branch tip named above.
-09cca562d457e53d5f3483cd42ef3a8afd1f4c31
+3bcb95d84043b0c43e7f4bbd8391ee98bb6c1589
+# Bumped to 3bcb95d8, the merge of libviprs#1469 (libviprs#1466): a cached pdfium source counts its raster against the memory budget, which is what the pdfium budget tests moved in #338 are written for (libviprs-tests#340).
