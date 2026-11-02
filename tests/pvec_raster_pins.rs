@@ -24,11 +24,14 @@ fn the_facade_and_geometry_revisions_are_the_ones_the_core_pins() {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../libviprs/Cargo.toml"),
     )
     .expect("the core checkout beside this one");
-    assert_eq!(rev_of(&ours, "pvec-facade"), rev_of(&core, "pvec-facade"));
-    assert_eq!(
-        rev_of(&ours, "pvec-geometry"),
-        rev_of(&core, "pvec-geometry")
-    );
+    for krate in ["pvec-facade", "pvec-geometry"] {
+        let (mine, theirs) = (rev_of(&ours, krate), rev_of(&core, krate));
+        assert_eq!(
+            mine, theirs,
+            "`{krate}`: libviprs-tests/Cargo.toml pins {mine} but libviprs/Cargo.toml pins {theirs}; \
+             bump the `pvec-facade` and `pvec-geometry` lines here (and Cargo.lock) to {theirs}"
+        );
+    }
 }
 
 #[test]
