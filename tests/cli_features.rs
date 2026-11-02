@@ -316,7 +316,8 @@ fn features_lists_exactly_the_default_build() {
         return;
     }
     let bin = viprs_bin_for(true, &[]);
-    assert_lists_exactly(&bin, "default", &["pdfium"]);
+    // The CLI's `default` is `["pdfium", "pvec-raster"]`; this list follows it.
+    assert_lists_exactly(&bin, "default", &["pdfium", "pvec-raster"]);
 }
 
 #[test]
