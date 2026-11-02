@@ -400,4 +400,8 @@
 # Bumped to 88744ef7, libviprs main's tip when I checked with `git ls-remote https://github.com/libviprs/libviprs.git refs/heads/main` (libviprs-tests#319). The old pin was built on tiff 0.10 and the committed tiff encoder fixture no longer matched what main writes.
 #
 # Bumped to 2200daa5, the tip of libviprs/libviprs#1420, which adds the pvec-convert feature this suite now accounts for (libviprs-tests#326). That commit becomes part of libviprs main when #1420 merges, so the pin stays reachable.
-2200daa51abe6b1b9280c1795dbbb836648c4e9f
+# Bumped to d55f8a8c, the tip of the libviprs spool-sink branch (libviprs#1314, #1373 follow-up), which moves the pvec pin to the
+# streaming writer (libviprs/pvec#235, ff67ecb8). The core and this suite have to name one revision of the
+# facade (tests/pvec_raster_pins.rs), so the pin and the two manifest lines move together. That commit becomes
+# part of libviprs main when that PR merges.
+d55f8a8c6287c853fb9935cdec100a05061f8ebf
