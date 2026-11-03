@@ -13,6 +13,13 @@
 #                                      $LIBVIPRS_DIR and $LIBVIPRS_TESTS_DIR and
 #                                      run tools/run-tests.sh ARGS... there
 #   mars-run.sh clean                  remove the volumes and image this made
+#   mars-run.sh clean --stale [DAYS]   remove only the per-worktree volumes (src, sib,
+#                                      target) that no container holds and whose
+#                                      worktree is gone from THIS machine (judged
+#                                      only for volumes labelled with this host's
+#                                      name) or whose age is at least DAYS (default
+#                                      14). Age is the volume's CreatedAt, not its
+#                                      last use. Reports what it kept as well.
 #
 # Where things go on MARS (devshell@192.168.0.100, native x86_64):
 #   * hook mode keeps no scratch directory at all. Sources live in one docker
@@ -203,6 +210,12 @@ hook_mode() {
     [ -n "$core" ] && mounts="$mounts -v viprs-hook-sib-$repo-$wtid:/w/libviprs"
 
     wait_for_worktree "viprs-hook-$repo-$wtid-"
+    # Label the volumes with this worktree's path, so `clean --stale` can tell a volume whose worktree has
+    # gone from one still in use (libviprs-tests#360). Creating a volume that exists is a no-op.
+    local v
+    for v in src-$repo-$wtid target-$repo-$wtid ${core:+sib-$repo-$wtid}; do
+        mssh "docker volume create --label viprs.hook.path=$(printf '%q' "$top") --label viprs.hook.host=$(hostname) viprs-hook-$v >/dev/null" || true
+    done
     say "running the $repo checks on MARS ($(printf '%.12s' "$tree"))"
     trap 'mssh "docker kill $name >/dev/null 2>&1" || true' INT TERM
     # The driver below runs in the container: unpack, sync, run the hook file.
@@ -380,6 +393,14 @@ mkrepo libviprs-tests "$MARS_TAGS_TESTS"'
 
 # ---------------------------------------------------------------------------
 clean_mode() {
+    if [ "${1:-}" = "--stale" ]; then
+        [ $# -le 2 ] || die "usage: mars-run.sh clean [--stale [DAYS]]"
+        clean_stale "${2:-14}"
+        return
+    fi
+    # Plain clean takes no arguments. Anything else is a misspelt --stale, and falling through to the full
+    # clean would remove every viprs-hook- volume, the shared cargo registry included.
+    [ $# -eq 0 ] || die "usage: mars-run.sh clean [--stale [DAYS]]  (got: $*)"
     local v
     for v in $(mssh "docker volume ls -q --filter name=viprs-hook-"); do
         mssh "docker volume rm $v" >/dev/null && say "removed volume $v"
@@ -387,6 +408,53 @@ clean_mode() {
     if mssh "docker rmi $IMAGE" >/dev/null 2>&1; then
         say "removed image $IMAGE"
     fi
+}
+
+# One line per volume: name|labelled path|labelled host|age in days|containers holding it. The shared cargo
+# registry is not per worktree and is never listed. Dates are read on MARS, where GNU date is. A path that is
+# missing proves a worktree gone only on the host that made the volume, so it counts only when the label
+# names this host (a volume made on another host, or before labels, is judged by age alone).
+clean_stale() {
+    local days="$1" name path host age held me listing failed=0
+    case "$days" in *[!0-9]* | "") die "clean --stale takes a number of days, got '$days'" ;; esac
+    me="$(hostname)"
+    # Removes one volume and says so, or says it could not and makes the run fail.
+    drop() {
+        if mssh "docker volume rm $1" >/dev/null 2>&1; then
+            say "removed $1 ($2)"
+        else
+            say "could not remove $1 ($2)"
+            failed=1
+        fi
+    }
+    # shellcheck disable=SC2016
+    local lister='docker volume ls -q --filter name=viprs-hook- | while read -r v; do
+case $v in viprs-hook-src-*|viprs-hook-sib-*|viprs-hook-target-*) ;; *) continue ;; esac
+p=$(docker volume inspect -f "{{index .Labels \"viprs.hook.path\"}}" "$v")
+o=$(docker volume inspect -f "{{index .Labels \"viprs.hook.host\"}}" "$v")
+c=$(docker volume inspect -f "{{.CreatedAt}}" "$v")
+a=$(( ($(date +%s) - $(date -d "$c" +%s)) / 86400 ))
+h=$(docker ps -aq --filter volume="$v" | wc -l)
+echo "$v|$p|$o|$a|$h"
+done'
+    if ! mssh 'docker info >/dev/null 2>&1'; then
+        die "cannot reach MARS ($MARS) or its docker is not answering, so nothing was listed or removed."
+    fi
+    listing="$(mssh "$lister")" || die "listing the volumes on MARS failed, nothing was removed."
+    while IFS='|' read -r name path host age held; do
+        # Only the per-worktree volumes, whatever the listing says: the cargo registry is shared.
+        case "$name" in viprs-hook-src-* | viprs-hook-sib-* | viprs-hook-target-*) ;; *) continue ;; esac
+        if [ "$held" != 0 ]; then
+            say "kept $name (a container holds it)"
+        elif [ -n "$path" ] && [ "$host" = "$me" ] && [ ! -d "$path" ]; then
+            drop "$name" "worktree $path is gone"
+        elif [ "$age" -ge "$days" ]; then
+            drop "$name" "created $age days ago"
+        else
+            say "kept $name (created $age days ago, worktree not known to be gone)"
+        fi
+    done <<<"$listing"
+    return "$failed"
 }
 
 cmd="${1:-}"
@@ -397,7 +465,7 @@ case "$cmd" in
         hook_mode "$1" "$2"
         ;;
     gate) gate_mode "$@" ;;
-    clean) clean_mode ;;
+    clean) clean_mode "$@" ;;
     *)
         sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d' >&2
         exit 2

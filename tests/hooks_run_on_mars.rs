@@ -50,6 +50,10 @@ case "$last" in
     i=0; while [ "$i" -lt "${FAKE_GATES_RUNNING:-0}" ]; do echo "gate$i"; i=$((i+1)); done; exit 0 ;;
   *"docker ps --filter name=hook-gate-"*)
     i=0; while [ "$i" -lt "${FAKE_GATES_RUNNING:-0}" ]; do echo "hook-gate-$i"; i=$((i+1)); done; exit 0 ;;
+  *"docker volume ls -q --filter name=viprs-hook-"*"viprs.hook.path"*)
+    printf '%s' "${FAKE_VOLUMES:-}"; exit 0 ;;
+  *"docker volume rm"*)
+    [ -n "${FAKE_RM_FAIL:-}" ] && exit 1; exit 0 ;;
   *"docker ps -q"*) exit 0 ;;
   *"docker run --rm -i --name viprs-hook-"*)
     n=$(ls "$FAKE_DIR" | grep -c '^shipped-')
@@ -812,6 +816,182 @@ fn issue_349_two_worktrees_get_different_target_volumes() {
     assert!(
         vols[0].contains("lane-349a"),
         "the target volume does not name its worktree: {vols:?}"
+    );
+}
+
+/// Run `mars-run.sh clean <args>` with the stand-in ssh answering the volume listing from `listing`, one
+/// `name|labelled path|labelled host|age in days|containers holding it` per line.
+fn clean(m: &Mars, args: &[&str], listing: &str, env: &[(&str, &str)]) -> (bool, String) {
+    let mut cmd = Command::new("bash");
+    cmd.arg(m.ws.repo("libviprs-tests").join("tools/mars-run.sh"))
+        .arg("clean")
+        .args(args)
+        .env("PATH", m.path())
+        .env("FAKE_DIR", &m.dir)
+        .env("FAKE_VOLUMES", listing);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().expect("run clean");
+    (
+        out.status.success(),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        ),
+    )
+}
+
+fn removed(m: &Mars, name: &str) -> bool {
+    m.read("ssh.log")
+        .contains(&format!("docker volume rm {name}"))
+}
+
+/// libviprs-tests#360: `clean --stale [DAYS]` drops the per-worktree volumes (src, sib, target) that nothing
+/// holds and whose worktree is gone on THIS host or whose age is at least DAYS, and nothing else.
+#[test]
+fn issue_360_clean_stale_drops_only_the_stale_unheld_volumes() {
+    let m = Mars::new();
+    let here = m.dir.display().to_string();
+    let host =
+        String::from_utf8_lossy(&Command::new("hostname").output().expect("hostname").stdout)
+            .trim()
+            .to_string();
+    let listing = format!(
+        "viprs-hook-target-r-gone-1|/no/such/worktree-360|{host}|1|0\n\
+         viprs-hook-src-r-old-2|{here}|{host}|40|0\n\
+         viprs-hook-sib-r-fresh-3|{here}|{host}|2|0\n\
+         viprs-hook-target-r-held-4|/no/such/worktree-360|{host}|90|1\n\
+         viprs-hook-cargo|{here}|{host}|400|0\n"
+    );
+    let (ok, out) = clean(&m, &["--stale", "14"], &listing, &[]);
+    assert!(ok, "{out}");
+    for gone in ["viprs-hook-target-r-gone-1", "viprs-hook-src-r-old-2"] {
+        assert!(
+            removed(&m, gone),
+            "{gone} was not removed:\n{}",
+            m.read("ssh.log")
+        );
+    }
+    for kept in [
+        "viprs-hook-sib-r-fresh-3",
+        "viprs-hook-target-r-held-4",
+        "viprs-hook-cargo",
+    ] {
+        assert!(
+            !removed(&m, kept),
+            "{kept} was removed:\n{}",
+            m.read("ssh.log")
+        );
+    }
+    assert!(
+        out.contains("kept") && out.contains("viprs-hook-sib-r-fresh-3"),
+        "what was kept is not reported:\n{out}"
+    );
+}
+
+/// A path that is missing here proves nothing about a worktree on another host, so a volume labelled with a
+/// foreign host is judged by age alone.
+#[test]
+fn issue_360_a_missing_path_on_a_foreign_host_is_kept() {
+    let m = Mars::new();
+    let listing = "viprs-hook-target-r-foreign-5|/no/such/worktree-360|some-other-host|1|0\n\
+                   viprs-hook-src-r-foreign-old-6|/no/such/worktree-360|some-other-host|40|0\n";
+    let (ok, out) = clean(&m, &["--stale", "14"], listing, &[]);
+    assert!(ok, "{out}");
+    assert!(!removed(&m, "viprs-hook-target-r-foreign-5"), "{out}");
+    assert!(
+        removed(&m, "viprs-hook-src-r-foreign-old-6"),
+        "age still applies:\n{out}"
+    );
+}
+
+/// A volume with no label (made before labels existed) is judged by age only.
+#[test]
+fn issue_360_a_young_unlabelled_volume_is_kept() {
+    let m = Mars::new();
+    let (ok, out) = clean(
+        &m,
+        &["--stale", "14"],
+        "viprs-hook-src-r-bare-7|||3|0\n",
+        &[],
+    );
+    assert!(ok, "{out}");
+    assert!(!removed(&m, "viprs-hook-src-r-bare-7"), "{out}");
+}
+
+#[test]
+fn issue_360_a_bad_days_or_an_extra_argument_is_rejected_before_anything_is_listed() {
+    let m = Mars::new();
+    for args in [&["--stale", "abc"][..], &["--stale", "14", "extra"][..]] {
+        let (ok, out) = clean(&m, args, "viprs-hook-src-r-x-8|||99|0\n", &[]);
+        assert!(!ok, "{args:?} was accepted:\n{out}");
+        assert!(!removed(&m, "viprs-hook-src-r-x-8"), "{out}");
+    }
+}
+
+/// An unreachable MARS is an error, not an empty listing.
+#[test]
+fn issue_360_clean_stale_fails_when_mars_is_unreachable() {
+    let m = Mars::new();
+    let (ok, out) = clean(&m, &["--stale", "14"], "", &[("FAKE_SSH_MODE", "down")]);
+    assert!(!ok, "an unreachable MARS exited 0:\n{out}");
+    assert!(out.contains("MARS") || out.contains("mars"), "{out}");
+}
+
+/// Anything after `clean` that is not `--stale [DAYS]` is refused: a misspelt flag must never fall through to
+/// the full clean, which removes every viprs-hook- volume including the shared cargo registry.
+#[test]
+fn issue_360_clean_with_anything_but_stale_is_refused_and_removes_nothing() {
+    for args in [
+        &["--stale=7"][..],
+        &["-stale", "7"][..],
+        &["stale"][..],
+        &["--all"][..],
+        &["7"][..],
+    ] {
+        let m = Mars::new();
+        let (ok, out) = clean(&m, args, "viprs-hook-cargo|||999|0\n", &[]);
+        assert!(!ok, "clean {args:?} was accepted:\n{out}");
+        assert!(out.contains("usage"), "no usage line for {args:?}:\n{out}");
+        let log = m.read("ssh.log");
+        assert!(
+            !log.contains("docker volume rm") && !log.contains("docker rmi"),
+            "clean {args:?} removed something:\n{log}"
+        );
+    }
+}
+
+/// A removal that fails is said out loud and makes the run fail, not a silent exit 0.
+#[test]
+fn issue_360_a_failed_removal_is_reported_and_fails_the_run() {
+    let m = Mars::new();
+    let (ok, out) = clean(
+        &m,
+        &["--stale", "14"],
+        "viprs-hook-src-r-old-9|||40|0\n",
+        &[("FAKE_RM_FAIL", "1")],
+    );
+    assert!(!ok, "a failed removal exited 0:\n{out}");
+    assert!(
+        out.contains("could not remove viprs-hook-src-r-old-9"),
+        "{out}"
+    );
+}
+
+/// A hook run labels the volumes it creates with its worktree path, which is what `--stale` reads.
+#[test]
+fn issue_360_a_hook_run_labels_its_volumes_with_the_worktree() {
+    let m = Mars::new();
+    stage(&m.ws.repo("libviprs"), "src/lib.rs", "// staged\n");
+    let (ok, out) = m.commit_hook("libviprs", &[]);
+    assert!(ok, "{out}");
+    let log = m.read("ssh.log");
+    assert!(
+        log.contains("docker volume create --label viprs.hook.path=")
+            && log.contains("--label viprs.hook.host="),
+        "no volume create labelled with the path and the host in the ssh log:\n{log}"
     );
 }
 
