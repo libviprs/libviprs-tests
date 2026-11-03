@@ -501,8 +501,9 @@ const CORE_FEATURES_NOT_IN_CLI: &[(&str, &str)] = &[
     (
         "dwg-acadrust",
         "enables the acadrust provider behind the core's DwgProvider traits, a git-only \
-         dependency pinned by revision; the CLI ships no DWG analytic command and the \
-         core's own CI covers the provider under the feature",
+         dependency pinned by revision and a default feature of the core, so the CLI's \
+         default build already has it; the CLI ships no DWG analytic command yet \
+         (libviprs-cli#140) and the core's own CI covers the provider under the feature",
     ),
     (
         "pvec-normalized",
