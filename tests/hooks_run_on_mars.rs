@@ -50,6 +50,8 @@ case "$last" in
     i=0; while [ "$i" -lt "${FAKE_GATES_RUNNING:-0}" ]; do echo "gate$i"; i=$((i+1)); done; exit 0 ;;
   *"docker ps --filter name=hook-gate-"*)
     i=0; while [ "$i" -lt "${FAKE_GATES_RUNNING:-0}" ]; do echo "hook-gate-$i"; i=$((i+1)); done; exit 0 ;;
+  *"docker volume ls -q --filter name=viprs-hook-"*"viprs.hook.path"*)
+    printf '%s' "${FAKE_VOLUMES:-}"; exit 0 ;;
   *"docker ps -q"*) exit 0 ;;
   *"docker run --rm -i --name viprs-hook-"*)
     n=$(ls "$FAKE_DIR" | grep -c '^shipped-')
@@ -812,6 +814,67 @@ fn issue_349_two_worktrees_get_different_target_volumes() {
     assert!(
         vols[0].contains("lane-349a"),
         "the target volume does not name its worktree: {vols:?}"
+    );
+}
+
+/// libviprs-tests#360: `clean --stale [DAYS]` drops the per-worktree volumes (src, sib, target) that nothing
+/// holds and whose worktree is gone or whose age is at least DAYS, and nothing else. The stand-in ssh answers
+/// the listing from `FAKE_VOLUMES`, one `name|labelled path|age in days|containers holding it` per line.
+#[test]
+fn issue_360_clean_stale_drops_only_the_stale_unheld_volumes() {
+    let m = Mars::new();
+    let here = m.dir.display().to_string();
+    let listing = format!(
+        "viprs-hook-target-r-gone-1|/no/such/worktree-360|1|0\n\
+         viprs-hook-src-r-old-2|{here}|40|0\n\
+         viprs-hook-sib-r-fresh-3|{here}|2|0\n\
+         viprs-hook-target-r-held-4|/no/such/worktree-360|90|1\n\
+         viprs-hook-cargo|{here}|400|0\n"
+    );
+    let out = Command::new("bash")
+        .arg(m.ws.repo("libviprs-tests").join("tools/mars-run.sh"))
+        .args(["clean", "--stale", "14"])
+        .env("PATH", m.path())
+        .env("FAKE_DIR", &m.dir)
+        .env("FAKE_VOLUMES", listing)
+        .output()
+        .expect("run clean --stale");
+    let log = m.read("ssh.log");
+    assert!(
+        out.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for gone in ["viprs-hook-target-r-gone-1", "viprs-hook-src-r-old-2"] {
+        assert!(
+            log.contains(&format!("docker volume rm {gone}")),
+            "{gone} was not removed:\n{log}"
+        );
+    }
+    for kept in [
+        "viprs-hook-sib-r-fresh-3",
+        "viprs-hook-target-r-held-4",
+        "viprs-hook-cargo",
+    ] {
+        assert!(
+            !log.contains(&format!("docker volume rm {kept}")),
+            "{kept} was removed:\n{log}"
+        );
+    }
+}
+
+/// A hook run labels the volumes it creates with its worktree path, which is what `--stale` reads.
+#[test]
+fn issue_360_a_hook_run_labels_its_volumes_with_the_worktree() {
+    let m = Mars::new();
+    stage(&m.ws.repo("libviprs"), "src/lib.rs", "// staged\n");
+    let (ok, out) = m.commit_hook("libviprs", &[]);
+    assert!(ok, "{out}");
+    let log = m.read("ssh.log");
+    assert!(
+        log.contains("docker volume create --label viprs.hook.path="),
+        "no labelled volume create in the ssh log:\n{log}"
     );
 }
 
