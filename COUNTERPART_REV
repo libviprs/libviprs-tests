@@ -405,9 +405,10 @@
 # facade (tests/pvec_raster_pins.rs), so the pin and the two manifest lines move together. That commit becomes
 # part of libviprs main when that PR merges.
 # Bumped to 09cca562, libviprs main with the spool sink (libviprs#1461), which replaces the branch tip named above.
-ac9518b435ba6f8ae087f6b9effbbf069fde2df3
+b7c839df042d217587fe1976f610b1530354e9eb
 # Bumped to 31eef2b6, the merge of libviprs#1464 (libviprs#1093): the core pins pvec at the merge of pvec#260 (240fcd3d), and libviprs-tests#355 moves the pins here with it.
 # Bumped to 45868476, libviprs main after libviprs#1370 and #1470 merged: the core now lints the non-default jbig2 feature in ci.yml, and the hook line added for it here is red against any core without that cell (libviprs-tests#348).
 # Bumped to 3bcb95d8, the merge of libviprs#1469 (libviprs#1466): a cached pdfium source counts its raster against the memory budget, which is what the pdfium budget tests moved in #338 are written for (libviprs-tests#340).
 # Bumped to c1ba9349, libviprs main after libviprs#1496 made dwg-acadrust a default feature (libviprs-tests#350). The core's CI also gained the four pvec-gate jobs the hook defers, which the old pin lacks, so the hook mirror was red against it.
 # Bumped to ac9518b4, the tip of libviprs/libviprs#1507 (stacked on #1504 and #1502, with main as of libviprs#1509 merged in): it adds `PdfConversion` (libviprs#1491), renames the PDF image fill reasons to `*-baked` (#1490) and documents every image refusal key (#1489), which `tests/pvec_blueprint_mix_351.rs` drives (libviprs-tests#351). That commit becomes part of libviprs main when the stack merges, so the pin stays reachable.
+# Re-bumped to b7c839df, the final tip of libviprs/libviprs#1507 after review: the PDF image notes use the bake's own keys, the fill reasons are `*-raster-bake`, and ci.yml lints and tests the pvec-convert and pvec-raster pair (needs libviprs/libviprs#1514 to merge with it).
