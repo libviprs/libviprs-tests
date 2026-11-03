@@ -17,8 +17,9 @@
 # Where things go on MARS (devshell@192.168.0.100, native x86_64):
 #   * hook mode keeps no scratch directory at all. Sources live in one docker
 #     volume per repo and worktree (viprs-hook-src-REPO-WORKTREE), cargo's
-#     registry in viprs-hook-cargo and the build output in viprs-hook-target-REPO, which is
-#     CARGO_TARGET_DIR=/tmp/target in the container. Each run streams a tar in
+#     registry in viprs-hook-cargo and the build output in viprs-hook-target-REPO-WORKTREE (also per
+#     worktree, so one worktree's newer artifacts can never make another skip compiling
+#     its own sources, libviprs-tests#349), which is CARGO_TARGET_DIR=/tmp/target in the container. Each run streams a tar in
 #     and rsyncs it over the volume by checksum, so only files that really
 #     changed get a new mtime and cargo rebuilds only what changed.
 #   * gate mode needs the host's docker (run-tests.sh builds an image), so it
@@ -224,7 +225,7 @@ LIBVIPRS_ON_MARS=1 exec bash /tmp/hook.sh'
         fi
     } | mssh "docker run --rm -i --name $name --platform linux/amd64 --memory $MEM \
         -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/tmp/target -e CARGO_PROFILE_DEV_DEBUG=0 -e CARGO_INCREMENTAL=0 -e MARS_REPO=$repo -e MARS_HOOK_B64=$b64 \
-        -v viprs-hook-cargo:/cargo -v viprs-hook-target-$repo:/tmp/target $mounts \
+        -v viprs-hook-cargo:/cargo -v viprs-hook-target-$repo-$wtid:/tmp/target $mounts \
         $IMAGE bash -c $(printf '%q' "$driver")" || rc=$?
     trap - INT TERM
     if [ "$rc" -eq 255 ]; then
