@@ -152,7 +152,11 @@ deferred_jobs() {
                 msrv 'pinned to a 1.99 toolchain, and checking with the toolchain you happen to have installed answers a different question' \
                 docs 'rustdoc over every feature; it cannot fail on anything the clippy cells pass' \
                 test 'the test half' \
-                integration-test 'the test half, and it lays this harness down beside the core'
+                integration-test 'the test half, and it lays this harness down beside the core' \
+                pvec-gate-fidelity 'the test half: it runs test binaries, which the pre-push gate runs' \
+                pvec-gate-view 'the test half: it runs test binaries, which the pre-push gate runs' \
+                pvec-gate-classification 'the test half: it runs test binaries, which the pre-push gate runs' \
+                pvec-gate-determinism 'the test half: it runs test binaries, which the pre-push gate runs'
             ;;
         libviprs-cli)
             printf '%s\t%s\n' \
