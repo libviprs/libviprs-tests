@@ -762,6 +762,59 @@ fn a_hook_run_from_a_worktree_names_the_worktree() {
     );
 }
 
+/// The volume mounted at `/tmp/target` in a recorded `docker run`.
+fn target_volume(run: &str) -> String {
+    let after = run
+        .split("-v ")
+        .find(|p| p.contains(":/tmp/target"))
+        .unwrap_or_default();
+    after.split(':').next().unwrap_or_default().to_string()
+}
+
+/// libviprs-tests#349: the build cache was one volume per repo while sources
+/// were per worktree, so a worktree with older sources than another's build
+/// was treated as already built. The target volume is per worktree too.
+#[test]
+fn issue_349_two_worktrees_get_different_target_volumes() {
+    let m = Mars::new();
+    let root = m.ws.repo("libviprs");
+    let mut vols = Vec::new();
+    for (i, name) in ["lane-349a", "lane-349b"].iter().enumerate() {
+        let tree = m.ws.worktree("libviprs", name);
+        stage(&tree, "src/lib.rs", "// staged\n");
+        let out = Command::new("bash")
+            .arg(root.join(".git/hooks/pre-commit"))
+            .current_dir(&tree)
+            .env("PATH", m.path())
+            .env("FAKE_DIR", &m.dir)
+            .env_remove("LIBVIPRS_ON_MARS")
+            .env_remove("LIBVIPRS_HOOKS_SKIP_MARS")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .output()
+            .expect("run the hook from the worktree");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        vols.push(target_volume(&m.read(&format!("run-{i}.cmd"))));
+    }
+    assert!(
+        vols[0].starts_with("viprs-hook-target-libviprs"),
+        "{vols:?}"
+    );
+    assert_ne!(
+        vols[0], vols[1],
+        "two worktrees share the target volume {}",
+        vols[0]
+    );
+    assert!(
+        vols[0].contains("lane-349a"),
+        "the target volume does not name its worktree: {vols:?}"
+    );
+}
+
 /// A run must not wait for, or be killed by, another run's container.
 #[test]
 fn a_hook_run_does_not_wait_for_another_runs_container() {
