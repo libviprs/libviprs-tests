@@ -707,19 +707,22 @@ fn core_manifest() -> String {
 /// there to read. In that case this answers "nothing", so no pending row is
 /// judged stale: staleness is then left to the runs where the core is the pin
 /// (hosted CI and the merge gate), which still go red the moment the pin
-/// declares the feature.
-fn pinned_core_features(tested: &[String]) -> Vec<String> {
+/// declares the feature. A core with no `.git` at all is how the fleet merge
+/// gate ships the core at the pin (libviprs-tests#345), so it is the pin.
+fn pinned_core_features(core: &Path, tested: &[String]) -> Vec<String> {
     let rev = read("COUNTERPART_REV")
         .lines()
         .map(str::trim)
         .find(|l| !l.is_empty() && !l.starts_with('#'))
         .expect("COUNTERPART_REV must name a revision")
         .to_string();
-    let core = repo_root().join("../libviprs");
+    if !core.join(".git").exists() {
+        return tested.to_vec();
+    }
     let git = |args: &[&str]| {
         std::process::Command::new("git")
             .arg("-C")
-            .arg(&core)
+            .arg(core)
             .args(args)
             .output()
             .ok()
@@ -843,7 +846,7 @@ fn every_core_feature_is_forwarded_here_or_says_why_not() {
 
     let problems = unaccounted(
         &core,
-        &pinned_core_features(&core),
+        &pinned_core_features(&repo_root().join("../libviprs"), &core),
         &|feature| manifest::forwarder(&ours, &core_table, feature, &[]),
         CORE_FEATURES_NOT_FORWARDED_HERE,
         CORE_FEATURES_PENDING_IN_THE_PIN,
@@ -979,4 +982,39 @@ fn a_declared_feature_with_no_row_stays_red_even_when_the_pin_lacks_it() {
     );
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert!(problems[0].contains("`jbig2`"), "{problems:?}");
+}
+
+/// libviprs-tests#345: the fleet merge gate ships the core at the pin with its
+/// `.git` moved aside, so there is no history to read the pin from. No `.git`
+/// is how that gate says "this core is the pin", so the tested features are the
+/// pin's, and a stale pending row goes red there too.
+#[test]
+fn a_core_shipped_without_git_is_the_pin() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("pin-without-git-345");
+    std::fs::create_dir_all(&dir).unwrap();
+    let tested = names(&["jbig2"]);
+    let pinned = pinned_core_features(&dir, &tested);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(pinned, tested);
+}
+
+/// The snapshot with history that is not the pin keeps answering "nothing", so
+/// the pre-push run on the core being pushed does not judge a row stale.
+#[test]
+fn a_core_with_git_that_lacks_the_pin_answers_nothing() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("pin-with-git-345");
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(args)
+            .status()
+            .is_ok_and(|s| s.success());
+        assert!(ok, "git {args:?} failed");
+    };
+    git(&["init", "-q"]);
+    let pinned = pinned_core_features(&dir, &names(&["jbig2"]));
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(pinned.is_empty(), "{pinned:?}");
 }
