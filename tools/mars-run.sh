@@ -15,8 +15,11 @@
 #   mars-run.sh clean                  remove the volumes and image this made
 #   mars-run.sh clean --stale [DAYS]   remove only the per-worktree volumes (src, sib,
 #                                      target) that no container holds and whose
-#                                      worktree is gone from this machine or whose
-#                                      age is at least DAYS (default 14)
+#                                      worktree is gone from THIS machine (judged
+#                                      only for volumes labelled with this host's
+#                                      name) or whose age is at least DAYS (default
+#                                      14). Age is the volume's CreatedAt, not its
+#                                      last use. Reports what it kept as well.
 #
 # Where things go on MARS (devshell@192.168.0.100, native x86_64):
 #   * hook mode keeps no scratch directory at all. Sources live in one docker
@@ -211,7 +214,7 @@ hook_mode() {
     # gone from one still in use (libviprs-tests#360). Creating a volume that exists is a no-op.
     local v
     for v in src-$repo-$wtid target-$repo-$wtid ${core:+sib-$repo-$wtid}; do
-        mssh "docker volume create --label viprs.hook.path=$(printf '%q' "$top") viprs-hook-$v >/dev/null" || true
+        mssh "docker volume create --label viprs.hook.path=$(printf '%q' "$top") --label viprs.hook.host=$(hostname) viprs-hook-$v >/dev/null" || true
     done
     say "running the $repo checks on MARS ($(printf '%.12s' "$tree"))"
     trap 'mssh "docker kill $name >/dev/null 2>&1" || true' INT TERM
@@ -391,6 +394,7 @@ mkrepo libviprs-tests "$MARS_TAGS_TESTS"'
 # ---------------------------------------------------------------------------
 clean_mode() {
     if [ "${1:-}" = "--stale" ]; then
+        [ $# -le 2 ] || die "usage: mars-run.sh clean --stale [DAYS]"
         clean_stale "${2:-14}"
         return
     fi
@@ -403,30 +407,41 @@ clean_mode() {
     fi
 }
 
-# One line per volume: name|labelled worktree path|age in days|containers holding it. The shared cargo
-# registry is not per worktree and is never listed. Dates are read on MARS, where GNU date is.
+# One line per volume: name|labelled path|labelled host|age in days|containers holding it. The shared cargo
+# registry is not per worktree and is never listed. Dates are read on MARS, where GNU date is. A path that is
+# missing proves a worktree gone only on the host that made the volume, so it counts only when the label
+# names this host (a volume made on another host, or before labels, is judged by age alone).
 clean_stale() {
-    local days="$1" name path age held
+    local days="$1" name path host age held me listing
     case "$days" in *[!0-9]* | "") die "clean --stale takes a number of days, got '$days'" ;; esac
+    me="$(hostname)"
     # shellcheck disable=SC2016
     local lister='docker volume ls -q --filter name=viprs-hook- | while read -r v; do
 case $v in viprs-hook-src-*|viprs-hook-sib-*|viprs-hook-target-*) ;; *) continue ;; esac
 p=$(docker volume inspect -f "{{index .Labels \"viprs.hook.path\"}}" "$v")
+o=$(docker volume inspect -f "{{index .Labels \"viprs.hook.host\"}}" "$v")
 c=$(docker volume inspect -f "{{.CreatedAt}}" "$v")
 a=$(( ($(date +%s) - $(date -d "$c" +%s)) / 86400 ))
 h=$(docker ps -aq --filter volume="$v" | wc -l)
-echo "$v|$p|$a|$h"
+echo "$v|$p|$o|$a|$h"
 done'
-    while IFS='|' read -r name path age held; do
+    if ! mssh 'docker info >/dev/null 2>&1'; then
+        die "cannot reach MARS ($MARS) or its docker is not answering, so nothing was listed or removed."
+    fi
+    listing="$(mssh "$lister")" || die "listing the volumes on MARS failed, nothing was removed."
+    while IFS='|' read -r name path host age held; do
         # Only the per-worktree volumes, whatever the listing says: the cargo registry is shared.
         case "$name" in viprs-hook-src-* | viprs-hook-sib-* | viprs-hook-target-*) ;; *) continue ;; esac
         if [ "$held" != 0 ]; then
-            continue
+            say "kept $name (a container holds it)"
+        elif [ -n "$path" ] && [ "$host" = "$me" ] && [ ! -d "$path" ]; then
+            mssh "docker volume rm $name" >/dev/null && say "removed $name (worktree $path is gone)"
+        elif [ "$age" -ge "$days" ]; then
+            mssh "docker volume rm $name" >/dev/null && say "removed $name (created $age days ago)"
+        else
+            say "kept $name (created $age days ago, worktree not known to be gone)"
         fi
-        if { [ -n "$path" ] && [ ! -d "$path" ]; } || [ "$age" -ge "$days" ]; then
-            mssh "docker volume rm $name" >/dev/null && say "removed stale volume $name"
-        fi
-    done < <(mssh "$lister")
+    done <<<"$listing"
 }
 
 cmd="${1:-}"
