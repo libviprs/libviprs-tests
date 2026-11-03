@@ -239,10 +239,6 @@ const INERT_IN_LIBVIPRS: &[&str] = &[
     // that changes only these runs nothing that could fail.
     "docs/adr/pvec-streaming-strategy.md",
     "docs/pvec-decode-inventory.md",
-    // Added with the bump to core fa9f6452 (libviprs-tests#305): the producer rules page of
-    // libviprs/libviprs#1345. It is rendered from a constant by a test in the core, and nothing
-    // in this suite reads it, so a push that changes only this file runs nothing that could fail.
-    "docs/pvec-raster-producer.md",
     // Added with the bump to core 88744ef7 (libviprs-tests#319): a design note and a
     // provider comparison page. The include_str! scan finds no test that reads either, so a
     // push that changes only these runs nothing that could fail.
