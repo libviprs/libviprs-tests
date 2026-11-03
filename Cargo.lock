@@ -20,23 +20,24 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "acadrust"
-version = "0.5.5"
-source = "git+https://github.com/libviprs/acadrust?rev=72af48970e306ef1d50dd751b227df2b4fc3fb99#72af48970e306ef1d50dd751b227df2b4fc3fb99"
+version = "0.6.8"
+source = "git+https://github.com/libviprs/acadrust?rev=f1e00c11f6371c8cfcff2c726620a51a45a2ad1b#f1e00c11f6371c8cfcff2c726620a51a45a2ad1b"
 dependencies = [
- "ahash",
  "anyhow",
  "bitflags",
  "byteorder",
  "encoding_rs",
  "flate2",
+ "foldhash 0.2.0",
  "indexmap",
  "itoa",
  "memmap2",
  "nom 7.1.3",
+ "oem_cp",
  "once_cell",
  "rayon",
  "ryu",
- "thiserror 1.0.69",
+ "thiserror",
  "web-time",
 ]
 
@@ -66,20 +67,6 @@ dependencies = [
  "cipher 0.5.1",
  "cpubits",
  "cpufeatures 0.3.0",
-]
-
-[[package]]
-name = "ahash"
-version = "0.8.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
-dependencies = [
- "cfg-if",
- "getrandom 0.3.4",
- "once_cell",
- "serde",
- "version_check",
- "zerocopy 0.8.42",
 ]
 
 [[package]]
@@ -714,6 +701,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
+name = "foldhash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
 name = "font-types"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -833,7 +826,7 @@ version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
 dependencies = [
- "foldhash",
+ "foldhash 0.1.5",
 ]
 
 [[package]]
@@ -1327,7 +1320,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "tar",
- "thiserror 2.0.18",
+ "thiserror",
  "tiff 0.11.3",
  "tracing",
  "zip",
@@ -1407,7 +1400,7 @@ dependencies = [
  "rayon",
  "sha2 0.10.9",
  "stringprep",
- "thiserror 2.0.18",
+ "thiserror",
  "time",
  "weezl",
 ]
@@ -1608,6 +1601,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "oem_cp"
+version = "2.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c7959d3349f484aec36462f98226983578bf7d33f9b034c32967489c7000e1f"
+dependencies = [
+ "phf",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1691,6 +1693,24 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "phf"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd6780a80ae0c52cc120a26a1a42c1ae51b247a253e4e06113d23d2c2edd078"
+dependencies = [
+ "phf_shared",
+]
+
+[[package]]
+name = "phf_shared"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67eabc2ef2a60eb7faa00097bd1ffdb5bd28e62bf39990626a582201b7a754e5"
+dependencies = [
+ "siphasher",
 ]
 
 [[package]]
@@ -1854,7 +1874,7 @@ checksum = "1d8f70e07b9c3962945a74e59ca1c511bba65b6419468acc217c457d93f3c740"
 [[package]]
 name = "pvec"
 version = "0.0.0"
-source = "git+https://github.com/libviprs/pvec?rev=ff67ecb85b5367c5db56f7d03f162c02437414a8#ff67ecb85b5367c5db56f7d03f162c02437414a8"
+source = "git+https://github.com/libviprs/pvec?rev=240fcd3da4f0ee52ace31c8837b52d349b5548dd#240fcd3da4f0ee52ace31c8837b52d349b5548dd"
 dependencies = [
  "pvec-capabilities",
  "pvec-codec",
@@ -1869,12 +1889,12 @@ dependencies = [
 [[package]]
 name = "pvec-capabilities"
 version = "0.0.0"
-source = "git+https://github.com/libviprs/pvec?rev=ff67ecb85b5367c5db56f7d03f162c02437414a8#ff67ecb85b5367c5db56f7d03f162c02437414a8"
+source = "git+https://github.com/libviprs/pvec?rev=240fcd3da4f0ee52ace31c8837b52d349b5548dd#240fcd3da4f0ee52ace31c8837b52d349b5548dd"
 
 [[package]]
 name = "pvec-codec"
 version = "0.0.0"
-source = "git+https://github.com/libviprs/pvec?rev=ff67ecb85b5367c5db56f7d03f162c02437414a8#ff67ecb85b5367c5db56f7d03f162c02437414a8"
+source = "git+https://github.com/libviprs/pvec?rev=240fcd3da4f0ee52ace31c8837b52d349b5548dd#240fcd3da4f0ee52ace31c8837b52d349b5548dd"
 dependencies = [
  "pvec-capabilities",
  "pvec-entity",
@@ -1885,7 +1905,7 @@ dependencies = [
 [[package]]
 name = "pvec-components"
 version = "0.0.0"
-source = "git+https://github.com/libviprs/pvec?rev=ff67ecb85b5367c5db56f7d03f162c02437414a8#ff67ecb85b5367c5db56f7d03f162c02437414a8"
+source = "git+https://github.com/libviprs/pvec?rev=240fcd3da4f0ee52ace31c8837b52d349b5548dd#240fcd3da4f0ee52ace31c8837b52d349b5548dd"
 dependencies = [
  "pvec-capabilities",
  "pvec-entity",
@@ -1895,7 +1915,7 @@ dependencies = [
 [[package]]
 name = "pvec-container"
 version = "0.0.0"
-source = "git+https://github.com/libviprs/pvec?rev=ff67ecb85b5367c5db56f7d03f162c02437414a8#ff67ecb85b5367c5db56f7d03f162c02437414a8"
+source = "git+https://github.com/libviprs/pvec?rev=240fcd3da4f0ee52ace31c8837b52d349b5548dd#240fcd3da4f0ee52ace31c8837b52d349b5548dd"
 dependencies = [
  "lz4_flex",
  "miniz_oxide 0.9.1",
@@ -1910,7 +1930,7 @@ dependencies = [
 [[package]]
 name = "pvec-entity"
 version = "0.0.0"
-source = "git+https://github.com/libviprs/pvec?rev=ff67ecb85b5367c5db56f7d03f162c02437414a8#ff67ecb85b5367c5db56f7d03f162c02437414a8"
+source = "git+https://github.com/libviprs/pvec?rev=240fcd3da4f0ee52ace31c8837b52d349b5548dd#240fcd3da4f0ee52ace31c8837b52d349b5548dd"
 dependencies = [
  "pvec-geometry",
  "pvec-numeric",
@@ -1919,7 +1939,7 @@ dependencies = [
 [[package]]
 name = "pvec-geometry"
 version = "0.0.0"
-source = "git+https://github.com/libviprs/pvec?rev=ff67ecb85b5367c5db56f7d03f162c02437414a8#ff67ecb85b5367c5db56f7d03f162c02437414a8"
+source = "git+https://github.com/libviprs/pvec?rev=240fcd3da4f0ee52ace31c8837b52d349b5548dd#240fcd3da4f0ee52ace31c8837b52d349b5548dd"
 dependencies = [
  "pvec-numeric",
 ]
@@ -1927,7 +1947,7 @@ dependencies = [
 [[package]]
 name = "pvec-interchange"
 version = "0.0.0"
-source = "git+https://github.com/libviprs/pvec?rev=ff67ecb85b5367c5db56f7d03f162c02437414a8#ff67ecb85b5367c5db56f7d03f162c02437414a8"
+source = "git+https://github.com/libviprs/pvec?rev=240fcd3da4f0ee52ace31c8837b52d349b5548dd#240fcd3da4f0ee52ace31c8837b52d349b5548dd"
 dependencies = [
  "miniz_oxide 0.9.1",
  "pvec-capabilities",
@@ -1941,12 +1961,12 @@ dependencies = [
 [[package]]
 name = "pvec-numeric"
 version = "0.0.0"
-source = "git+https://github.com/libviprs/pvec?rev=ff67ecb85b5367c5db56f7d03f162c02437414a8#ff67ecb85b5367c5db56f7d03f162c02437414a8"
+source = "git+https://github.com/libviprs/pvec?rev=240fcd3da4f0ee52ace31c8837b52d349b5548dd#240fcd3da4f0ee52ace31c8837b52d349b5548dd"
 
 [[package]]
 name = "pvec-stream"
 version = "0.0.0"
-source = "git+https://github.com/libviprs/pvec?rev=ff67ecb85b5367c5db56f7d03f162c02437414a8#ff67ecb85b5367c5db56f7d03f162c02437414a8"
+source = "git+https://github.com/libviprs/pvec?rev=240fcd3da4f0ee52ace31c8837b52d349b5548dd#240fcd3da4f0ee52ace31c8837b52d349b5548dd"
 dependencies = [
  "pvec-components",
  "pvec-container",
@@ -2485,31 +2505,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
-dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
 version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
 dependencies = [
- "thiserror-impl 2.0.18",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
+ "thiserror-impl",
 ]
 
 [[package]]
