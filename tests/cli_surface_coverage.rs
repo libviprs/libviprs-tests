@@ -353,6 +353,13 @@ const MODULES: &[ModuleRow] = &[
          so there is nothing for a row to name",
     ),
     row(
+        "pvec_convert",
+        Reach::NotApplicable,
+        "the DWG-to-.pvec conversion API behind the core's `pvec-convert` feature; the \
+         analytic path has no viprs command yet (libviprs-cli#140), so there is nothing \
+         for a row to name",
+    ),
+    row(
         "raster_pvec",
         Reach::Builtin("pvec"),
         "the raster pyramid and placement the PVec raster stream stores, reached through \
@@ -516,6 +523,28 @@ const CORE_FEATURES_NOT_IN_CLI: &[(&str, &str)] = &[
         "enables exact B-spline extraction from a provider's RawGeometry::Spline, whose \
          one extra crate is a git-only dependency pinned by revision; the CLI ships no \
          analytic DWG command and the core's own CI covers it under the feature",
+    ),
+    (
+        "pvec-write",
+        "enables the PVec writer funnel (pvec::writer, pvec::publish) over the facade's \
+         PvecWriter, for the analytic DWG path; the CLI ships no analytic DWG command \
+         yet (libviprs-cli#140), and its own `pvec-raster` feature already covers the \
+         `.pvec` raster commands through the facade directly. The core's own CI covers \
+         the writer under the feature",
+    ),
+    (
+        "pvec-convert",
+        "enables pvec_convert, the DWG-to-.pvec conversion API over pvec-write and \
+         dwg-acadrust; the CLI ships no analytic DWG command yet (libviprs-cli#140), \
+         so there is nothing for a forwarded feature to switch on. The core's own CI \
+         covers the API under the feature",
+    ),
+    (
+        "jbig2",
+        "enables JBIG2Decode for PDF image streams in the PVec PDF bake (hayro-jbig2, \
+         libviprs#1365), which the core keeps off its default until its fuzz run is \
+         clean; the CLI has no PVec PDF import command, so forwarding it would ship a \
+         decoder nothing reaches",
     ),
     (
         "test-util",
