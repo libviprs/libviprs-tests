@@ -394,10 +394,13 @@ mkrepo libviprs-tests "$MARS_TAGS_TESTS"'
 # ---------------------------------------------------------------------------
 clean_mode() {
     if [ "${1:-}" = "--stale" ]; then
-        [ $# -le 2 ] || die "usage: mars-run.sh clean --stale [DAYS]"
+        [ $# -le 2 ] || die "usage: mars-run.sh clean [--stale [DAYS]]"
         clean_stale "${2:-14}"
         return
     fi
+    # Plain clean takes no arguments. Anything else is a misspelt --stale, and falling through to the full
+    # clean would remove every viprs-hook- volume, the shared cargo registry included.
+    [ $# -eq 0 ] || die "usage: mars-run.sh clean [--stale [DAYS]]  (got: $*)"
     local v
     for v in $(mssh "docker volume ls -q --filter name=viprs-hook-"); do
         mssh "docker volume rm $v" >/dev/null && say "removed volume $v"
@@ -412,9 +415,18 @@ clean_mode() {
 # missing proves a worktree gone only on the host that made the volume, so it counts only when the label
 # names this host (a volume made on another host, or before labels, is judged by age alone).
 clean_stale() {
-    local days="$1" name path host age held me listing
+    local days="$1" name path host age held me listing failed=0
     case "$days" in *[!0-9]* | "") die "clean --stale takes a number of days, got '$days'" ;; esac
     me="$(hostname)"
+    # Removes one volume and says so, or says it could not and makes the run fail.
+    drop() {
+        if mssh "docker volume rm $1" >/dev/null 2>&1; then
+            say "removed $1 ($2)"
+        else
+            say "could not remove $1 ($2)"
+            failed=1
+        fi
+    }
     # shellcheck disable=SC2016
     local lister='docker volume ls -q --filter name=viprs-hook- | while read -r v; do
 case $v in viprs-hook-src-*|viprs-hook-sib-*|viprs-hook-target-*) ;; *) continue ;; esac
@@ -435,13 +447,14 @@ done'
         if [ "$held" != 0 ]; then
             say "kept $name (a container holds it)"
         elif [ -n "$path" ] && [ "$host" = "$me" ] && [ ! -d "$path" ]; then
-            mssh "docker volume rm $name" >/dev/null && say "removed $name (worktree $path is gone)"
+            drop "$name" "worktree $path is gone"
         elif [ "$age" -ge "$days" ]; then
-            mssh "docker volume rm $name" >/dev/null && say "removed $name (created $age days ago)"
+            drop "$name" "created $age days ago"
         else
             say "kept $name (created $age days ago, worktree not known to be gone)"
         fi
     done <<<"$listing"
+    return "$failed"
 }
 
 cmd="${1:-}"
