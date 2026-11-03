@@ -699,9 +699,15 @@ fn core_manifest() -> String {
 }
 
 /// The feature names the pinned core (the `COUNTERPART_REV` commit) declares.
-/// The sibling checkout is the pin in CI, but the core's pre-push runs this
-/// suite against the core being pushed, so when its HEAD is not the pin the
-/// manifest is read from the pin's commit in that same checkout.
+///
+/// Hosted CI checks the core out at the pin, so the sibling is the pin. The
+/// core's pre-push runs this suite against the core being pushed, and the pin
+/// may be reachable there through git. The MARS gate ships the core as a
+/// one-commit snapshot with no history, though, and then the pin is simply not
+/// there to read. In that case this answers "nothing", so no pending row is
+/// judged stale: staleness is then left to the runs where the core is the pin
+/// (hosted CI and the merge gate), which still go red the moment the pin
+/// declares the feature.
 fn pinned_core_features(tested: &[String]) -> Vec<String> {
     let rev = read("COUNTERPART_REV")
         .lines()
@@ -716,20 +722,17 @@ fn pinned_core_features(tested: &[String]) -> Vec<String> {
             .arg(&core)
             .args(args)
             .output()
-            .unwrap_or_else(|e| panic!("cannot run git in {}: {e}", core.display()))
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
     };
-    let head = git(&["rev-parse", "HEAD"]);
-    if String::from_utf8_lossy(&head.stdout).trim() == rev {
+    if git(&["rev-parse", "HEAD"]).is_some_and(|head| head.trim() == rev) {
         return tested.to_vec();
     }
-    let shown = git(&["show", &format!("{rev}:Cargo.toml")]);
-    assert!(
-        shown.status.success(),
-        "cannot read Cargo.toml at the pinned core {rev} in {}: {}. Fetch the pin there.",
-        core.display(),
-        String::from_utf8_lossy(&shown.stderr)
-    );
-    manifest::feature_names(&String::from_utf8_lossy(&shown.stdout))
+    match git(&["show", &format!("{rev}:Cargo.toml")]) {
+        Some(toml) => manifest::feature_names(&toml),
+        None => Vec::new(),
+    }
 }
 
 /// Rows for core features that the pinned core does not declare yet, because the
