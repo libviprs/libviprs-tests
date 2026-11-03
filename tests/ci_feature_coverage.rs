@@ -707,7 +707,8 @@ fn core_manifest() -> String {
 /// there to read. In that case this answers "nothing", so no pending row is
 /// judged stale: staleness is then left to the runs where the core is the pin
 /// (hosted CI and the merge gate), which still go red the moment the pin
-/// declares the feature.
+/// declares the feature. A core with no `.git` at all is how the fleet merge
+/// gate ships the core at the pin (libviprs-tests#345), so it is the pin.
 fn pinned_core_features(core: &Path, tested: &[String]) -> Vec<String> {
     let rev = read("COUNTERPART_REV")
         .lines()
@@ -715,6 +716,9 @@ fn pinned_core_features(core: &Path, tested: &[String]) -> Vec<String> {
         .find(|l| !l.is_empty() && !l.starts_with('#'))
         .expect("COUNTERPART_REV must name a revision")
         .to_string();
+    if !core.join(".git").exists() {
+        return tested.to_vec();
+    }
     let git = |args: &[&str]| {
         std::process::Command::new("git")
             .arg("-C")
