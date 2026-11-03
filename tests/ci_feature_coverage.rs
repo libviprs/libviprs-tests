@@ -698,13 +698,52 @@ fn core_manifest() -> String {
     read("../libviprs/Cargo.toml")
 }
 
+/// The feature names the pinned core (the `COUNTERPART_REV` commit) declares.
+///
+/// Hosted CI checks the core out at the pin, so the sibling is the pin. The
+/// core's pre-push runs this suite against the core being pushed, and the pin
+/// may be reachable there through git. The MARS gate ships the core as a
+/// one-commit snapshot with no history, though, and then the pin is simply not
+/// there to read. In that case this answers "nothing", so no pending row is
+/// judged stale: staleness is then left to the runs where the core is the pin
+/// (hosted CI and the merge gate), which still go red the moment the pin
+/// declares the feature.
+fn pinned_core_features(tested: &[String]) -> Vec<String> {
+    let rev = read("COUNTERPART_REV")
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with('#'))
+        .expect("COUNTERPART_REV must name a revision")
+        .to_string();
+    let core = repo_root().join("../libviprs");
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&core)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    if git(&["rev-parse", "HEAD"]).is_some_and(|head| head.trim() == rev) {
+        return tested.to_vec();
+    }
+    match git(&["show", &format!("{rev}:Cargo.toml")]) {
+        Some(toml) => manifest::feature_names(&toml),
+        None => Vec::new(),
+    }
+}
+
 /// Rows for core features that the pinned core does not declare yet, because the
 /// commit that adds them is still open in the core. The core's own pre-push gate
 /// runs this suite against the core being pushed, so the row has to exist before
 /// the feature lands, and the pin cannot move to a commit that is not on main
 /// (libviprs-tests#324). A pending row is accepted while the pin lacks the
-/// feature. The first pin bump that brings the feature turns it red until the row
-/// moves to [`CORE_FEATURES_NOT_FORWARDED_HERE`] (or the feature is forwarded).
+/// feature, whether or not the tested core declares it (libviprs-tests#339: the
+/// core being pushed does). The first pin bump that brings the feature turns it
+/// red until the row moves to [`CORE_FEATURES_NOT_FORWARDED_HERE`] (or the
+/// feature is forwarded).
 const CORE_FEATURES_PENDING_IN_THE_PIN: &[(&str, &str)] = &[
     (
         "jbig2",
@@ -722,11 +761,13 @@ const CORE_FEATURES_PENDING_IN_THE_PIN: &[(&str, &str)] = &[
 ];
 
 /// What this suite fails to account for, one message per problem. `forwarded`
-/// answers which of our features forwards a core feature. Rows are held as hard
-/// as the manifest: an excuse for a feature the core does not declare, or one
-/// this crate forwards, is red; a pending row is red once the core declares it.
+/// answers which of our features forwards a core feature. `core` is the tested
+/// core, `pinned` the core at `COUNTERPART_REV`. Rows are held as hard as the
+/// manifest: an excuse for a feature the core does not declare, or one this
+/// crate forwards, is red; a pending row is red once the pin declares it.
 fn unaccounted(
     core: &[String],
+    pinned: &[String],
     forwarded: &dyn Fn(&str) -> Option<String>,
     excused: &[(&str, &str)],
     pending: &[(&str, &str)],
@@ -740,7 +781,7 @@ fn unaccounted(
                 "`{feature}`: CORE_FEATURES_NOT_FORWARDED_HERE excuses it, and this \
                  crate forwards it as `{f}`. Drop the row."
             )),
-            // A pending row for a declared feature is reported below, once.
+            // A pending row covers it; staleness is judged against the pin below.
             (None, false) if pending.iter().any(|(f, _)| f == feature) => {}
             (None, false) => problems.push(format!(
                 "`{feature}`: the core declares it and no feature here enables \
@@ -751,7 +792,7 @@ fn unaccounted(
         }
     }
     for (feature, why) in pending {
-        if core.iter().any(|f| f == feature) {
+        if pinned.iter().any(|f| f == feature) {
             problems.push(format!(
                 "`{feature}`: CORE_FEATURES_PENDING_IN_THE_PIN holds a pending row for it, \
                  and the pinned core now declares it. Pending is over: move the row to \
@@ -802,6 +843,7 @@ fn every_core_feature_is_forwarded_here_or_says_why_not() {
 
     let problems = unaccounted(
         &core,
+        &pinned_core_features(&core),
         &|feature| manifest::forwarder(&ours, &core_table, feature, &[]),
         CORE_FEATURES_NOT_FORWARDED_HERE,
         CORE_FEATURES_PENDING_IN_THE_PIN,
@@ -832,6 +874,7 @@ fn nothing_forwarded(_: &str) -> Option<String> {
 fn a_pending_row_is_accepted_while_the_pinned_core_lacks_the_feature() {
     let problems = unaccounted(
         &names(&["jxl"]),
+        &names(&["jxl"]),
         &|f| (f == "jxl").then(|| "jxl".to_string()),
         &[],
         &[("jbig2", "decoder under upstream fuzz findings")],
@@ -841,14 +884,26 @@ fn a_pending_row_is_accepted_while_the_pinned_core_lacks_the_feature() {
 
 #[test]
 fn a_core_feature_with_no_row_is_still_red() {
-    let problems = unaccounted(&names(&["jbig2"]), &nothing_forwarded, &[], &[]);
+    let problems = unaccounted(
+        &names(&["jbig2"]),
+        &names(&["jbig2"]),
+        &nothing_forwarded,
+        &[],
+        &[],
+    );
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert!(problems[0].contains("`jbig2`"), "{problems:?}");
 }
 
 #[test]
 fn an_unmarked_row_for_a_feature_the_core_lacks_is_still_red() {
-    let problems = unaccounted(&names(&[]), &nothing_forwarded, &[("jbig2", "why")], &[]);
+    let problems = unaccounted(
+        &names(&[]),
+        &names(&[]),
+        &nothing_forwarded,
+        &[("jbig2", "why")],
+        &[],
+    );
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert!(problems[0].contains("no longer declares"), "{problems:?}");
 }
@@ -856,6 +911,7 @@ fn an_unmarked_row_for_a_feature_the_core_lacks_is_still_red() {
 #[test]
 fn a_pending_row_goes_red_once_the_pinned_core_declares_the_feature() {
     let problems = unaccounted(
+        &names(&["jbig2"]),
         &names(&["jbig2"]),
         &nothing_forwarded,
         &[],
@@ -870,7 +926,57 @@ fn a_pending_row_goes_red_once_the_pinned_core_declares_the_feature() {
 
 #[test]
 fn a_pending_row_needs_a_reason() {
-    let problems = unaccounted(&names(&[]), &nothing_forwarded, &[], &[("jbig2", " ")]);
+    let problems = unaccounted(
+        &names(&[]),
+        &names(&[]),
+        &nothing_forwarded,
+        &[],
+        &[("jbig2", " ")],
+    );
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert!(problems[0].contains("no reason"), "{problems:?}");
+}
+
+/// libviprs-tests#339: the core's pre-push runs this suite against the core
+/// being pushed, which already declares the feature the pending row is for. The
+/// pin does not, so the row is forwarded-pending and has to pass.
+#[test]
+fn a_pending_row_is_tolerated_when_the_tested_core_declares_the_feature_and_the_pin_does_not() {
+    let problems = unaccounted(
+        &names(&["jbig2"]),
+        &names(&[]),
+        &nothing_forwarded,
+        &[],
+        &[("jbig2", "why")],
+    );
+    assert!(problems.is_empty(), "{problems:?}");
+}
+
+/// The staleness check follows the pin: once the pin declares the feature the
+/// row is red, whatever the tested core says.
+#[test]
+fn a_pending_row_goes_red_once_the_pin_declares_the_feature_even_if_the_tested_core_does_too() {
+    let problems = unaccounted(
+        &names(&["jbig2"]),
+        &names(&["jbig2"]),
+        &nothing_forwarded,
+        &[],
+        &[("jbig2", "why")],
+    );
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("move the row"), "{problems:?}");
+}
+
+/// Tolerating pending rows must not let a declared feature go without any row.
+#[test]
+fn a_declared_feature_with_no_row_stays_red_even_when_the_pin_lacks_it() {
+    let problems = unaccounted(
+        &names(&["jbig2"]),
+        &names(&[]),
+        &nothing_forwarded,
+        &[],
+        &[("pvec-conformance", "why")],
+    );
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].contains("`jbig2`"), "{problems:?}");
 }
