@@ -239,6 +239,8 @@ const INERT_IN_LIBVIPRS: &[&str] = &[
     // that changes only these runs nothing that could fail.
     "docs/adr/pvec-streaming-strategy.md",
     "docs/pvec-decode-inventory.md",
+    // Added with libviprs#1478: the drift check page. The include_str! scan finds no test that reads it.
+    "docs/pvec-drift-check.md",
     // Added with the bump to core 88744ef7 (libviprs-tests#319): a design note and a
     // provider comparison page. The include_str! scan finds no test that reads either, so a
     // push that changes only these runs nothing that could fail.
