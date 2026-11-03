@@ -248,10 +248,6 @@ const INERT_IN_LIBVIPRS: &[&str] = &[
     // push that changes only these runs nothing that could fail.
     "docs/adr/pvec-tiers-and-spool-rescope.md",
     "docs/provider-differential.md",
-    // Added with libviprs/libviprs#1478: the page for the PVec drift check. `tests/pvec_drift.rs`
-    // and `src/pvec/drift.rs` name it in a comment and nothing opens it, so a push that changes
-    // only this file runs nothing that could fail.
-    "docs/pvec-drift-check.md",
     "docs/spikes/bounded-memory.md",
     "docs/spikes/bounded-memory/results-x64.txt",
     "docs/spikes/bounded-memory/run.sh",
