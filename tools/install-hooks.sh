@@ -288,6 +288,7 @@ LIBVIPRS_STEPS=(
     "cargo clippy --all-targets --features pvec-raster -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features pvec-write -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features pvec-convert -- -D warnings -W clippy::incompatible_msrv -W deprecated"
+    "cargo clippy --all-targets --features pvec-convert,pvec-raster -- -D warnings -W clippy::incompatible_msrv -W deprecated"
     "cargo clippy --all-targets --features jbig2 -- -D warnings -W clippy::incompatible_msrv -W deprecated"
 )
 

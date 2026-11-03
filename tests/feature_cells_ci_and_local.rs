@@ -911,61 +911,10 @@ fn runs(cell: &Cell, test: &TestFn, cli: bool, extra: Option<&Cfg>) -> bool {
 
 /// Feature-gated tests that no CI cell runs on purpose, with the reason.
 ///
-/// Only the blueprint-mix cells (libviprs-tests#351), which take minutes. Kept
-/// honest: a row for a test that does not exist, or that a cell does run after
-/// all, is a failure, so it cannot turn into a list of excuses nobody re-reads.
-const GATED_TESTS_NOT_IN_CI: &[(&str, &str, &str)] = &[
-    (
-        "pvec_blueprint_mix_351",
-        "the_page_is_the_one_the_numbers_below_are_about",
-        "converts the 51 MB blueprint-mix.pdf, about a minute per conversion in a release build and several in a debug one, so it is run by hand with `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --nocapture` (libviprs-tests#351)",
-    ),
-    (
-        "pvec_blueprint_mix_351",
-        "the_artifact_holds_vector_geometry_and_raster_blocks",
-        "converts the 51 MB blueprint-mix.pdf, about a minute per conversion in a release build and several in a debug one, so it is run by hand with `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --nocapture` (libviprs-tests#351)",
-    ),
-    (
-        "pvec_blueprint_mix_351",
-        "every_vector_point_and_raster_footprint_is_inside_the_rotated_page",
-        "converts the 51 MB blueprint-mix.pdf, about a minute per conversion in a release build and several in a debug one, so it is run by hand with `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --nocapture` (libviprs-tests#351)",
-    ),
-    (
-        "pvec_blueprint_mix_351",
-        "raster_placements_follow_the_rotation_and_the_ctm",
-        "converts the 51 MB blueprint-mix.pdf, about a minute per conversion in a release build and several in a debug one, so it is run by hand with `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --nocapture` (libviprs-tests#351)",
-    ),
-    (
-        "pvec_blueprint_mix_351",
-        "rasters_are_rgba_png_pyramids_with_the_soft_mask_in_alpha",
-        "converts the 51 MB blueprint-mix.pdf, about a minute per conversion in a release build and several in a debug one, so it is run by hand with `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --nocapture` (libviprs-tests#351)",
-    ),
-    (
-        "pvec_blueprint_mix_351",
-        "the_reader_returns_the_tiles_the_producer_cut_and_they_hold_pixels",
-        "converts the 51 MB blueprint-mix.pdf, about a minute per conversion in a release build and several in a debug one, so it is run by hand with `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --nocapture` (libviprs-tests#351)",
-    ),
-    (
-        "pvec_blueprint_mix_351",
-        "two_runs_give_the_same_bytes",
-        "converts the 51 MB blueprint-mix.pdf, about a minute per conversion in a release build and several in a debug one, so it is run by hand with `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --nocapture` (libviprs-tests#351)",
-    ),
-    (
-        "pvec_blueprint_mix_351",
-        "every_refused_or_dropped_item_has_a_documented_reason_key",
-        "converts the 51 MB blueprint-mix.pdf, about a minute per conversion in a release build and several in a debug one, so it is run by hand with `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --nocapture` (libviprs-tests#351)",
-    ),
-    (
-        "pvec_blueprint_mix_351",
-        "the_one_call_writes_what_the_composed_pieces_write",
-        "converts the 51 MB blueprint-mix.pdf, about a minute per conversion in a release build and several in a debug one, so it is run by hand with `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --nocapture` (libviprs-tests#351)",
-    ),
-    (
-        "pvec_blueprint_mix_351",
-        "peak_memory_is_under_the_ceiling_and_the_numbers_are_recorded",
-        "converts the 51 MB blueprint-mix.pdf, about a minute per conversion in a release build and several in a debug one, so it is run by hand with `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --nocapture` (libviprs-tests#351)",
-    ),
-];
+/// Empty, and kept honest: a row for a test that does not exist, or that a
+/// cell does run after all, is a failure, so it cannot turn into a list of
+/// excuses nobody re-reads.
+const GATED_TESTS_NOT_IN_CI: &[(&str, &str, &str)] = &[];
 
 /// Every feature-gated test has a CI cell that runs it, and every
 /// feature-conditional half of its body runs in some cell too.

@@ -1,9 +1,9 @@
 //! libviprs-tests#351: `blueprint-mix.pdf` through the PDF to PVec path.
 //!
 //! The fixture is one page (3370 x 4768 pt, `/Rotate 270`, so 4768 x 3370 displayed) with CAD
-//! linework and a row of 12738 x 220 ICC colour strips, each with a soft mask. There is no single
-//! call from a PDF to a `.pvec` (`PvecConversion` takes a DWG), so this composes the public pieces
-//! the way `docs/pvec-raster-producer.md` describes them:
+//! linework and a row of 12738 x 220 ICC colour strips, each with a soft mask. It converts the
+//! page two ways. The first composes the public pieces the way `docs/pvec-raster-producer.md`
+//! describes them, and the last test checks the one-call `PdfConversion` against it:
 //!
 //! ```text
 //! extract_page_paths_from_bytes -> normalize_page -> PvecWriter::push   (vector geometry)
@@ -27,8 +27,9 @@
 //!   `/proc/self/status`; elsewhere the number is not available and the test says so).
 //!
 //! Time: about a minute per conversion in a release build, nearly all of it in the image bake.
-//! The pre-push gate does not run this file (it needs `--features pvec-raster`); run it with
-//! `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --nocapture`.
+//! Every test is `#[ignore]`d, so no per-PR run pays for it. The nightly workflow runs them with
+//! `cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --ignored`, and so
+//! can you, with `--nocapture` to see the numbers.
 
 #![cfg(feature = "pvec-raster")]
 
@@ -230,6 +231,7 @@ fn documented(docs: &str, key: &str) -> bool {
 }
 
 #[test]
+#[ignore = "converts the 51 MB blueprint, about a minute in release; run by nightly.yml"]
 fn the_page_is_the_one_the_numbers_below_are_about() {
     let run = first();
     assert_eq!((run.page.width, run.page.height), (4768.0, 3370.0));
@@ -243,6 +245,7 @@ fn the_page_is_the_one_the_numbers_below_are_about() {
 }
 
 #[test]
+#[ignore = "converts the 51 MB blueprint, about a minute in release; run by nightly.yml"]
 fn the_artifact_holds_vector_geometry_and_raster_blocks() {
     let run = first();
     let reader = PvecReader::open(run.artifact.clone()).expect("PVec opens its own file");
@@ -296,6 +299,7 @@ fn the_artifact_holds_vector_geometry_and_raster_blocks() {
 }
 
 #[test]
+#[ignore = "converts the 51 MB blueprint, about a minute in release; run by nightly.yml"]
 fn every_vector_point_and_raster_footprint_is_inside_the_rotated_page() {
     let run = first();
     let b = page_box(run);
@@ -338,6 +342,7 @@ fn every_vector_point_and_raster_footprint_is_inside_the_rotated_page() {
 }
 
 #[test]
+#[ignore = "converts the 51 MB blueprint, about a minute in release; run by nightly.yml"]
 fn raster_placements_follow_the_rotation_and_the_ctm() {
     let run = first();
     let reader = PvecReader::open(run.artifact.clone()).unwrap();
@@ -371,6 +376,7 @@ fn raster_placements_follow_the_rotation_and_the_ctm() {
 }
 
 #[test]
+#[ignore = "converts the 51 MB blueprint, about a minute in release; run by nightly.yml"]
 fn rasters_are_rgba_png_pyramids_with_the_soft_mask_in_alpha() {
     let run = first();
     let reader = PvecReader::open(run.artifact.clone()).unwrap();
@@ -429,6 +435,7 @@ fn rasters_are_rgba_png_pyramids_with_the_soft_mask_in_alpha() {
 }
 
 #[test]
+#[ignore = "converts the 51 MB blueprint, about a minute in release; run by nightly.yml"]
 fn the_reader_returns_the_tiles_the_producer_cut_and_they_hold_pixels() {
     let run = first();
     let reader = PvecReader::open(run.artifact.clone()).unwrap();
@@ -483,6 +490,7 @@ fn the_reader_returns_the_tiles_the_producer_cut_and_they_hold_pixels() {
 }
 
 #[test]
+#[ignore = "converts the 51 MB blueprint, about a minute in release; run by nightly.yml"]
 fn two_runs_give_the_same_bytes() {
     let a = first();
     let b = convert();
@@ -495,6 +503,7 @@ fn two_runs_give_the_same_bytes() {
 }
 
 #[test]
+#[ignore = "converts the 51 MB blueprint, about a minute in release; run by nightly.yml"]
 fn every_refused_or_dropped_item_has_a_documented_reason_key() {
     let run = first();
     let docs = docs();
@@ -539,6 +548,7 @@ fn every_refused_or_dropped_item_has_a_documented_reason_key() {
 }
 
 #[test]
+#[ignore = "converts the 51 MB blueprint, about a minute in release; run by nightly.yml"]
 fn the_one_call_writes_what_the_composed_pieces_write() {
     let run = first();
     let dir = std::env::temp_dir().join(format!("libviprs-tests-351-{}", std::process::id()));
@@ -601,6 +611,7 @@ fn the_one_call_writes_what_the_composed_pieces_write() {
 }
 
 #[test]
+#[ignore = "converts the 51 MB blueprint, about a minute in release; run by nightly.yml"]
 fn peak_memory_is_under_the_ceiling_and_the_numbers_are_recorded() {
     let run = first();
     eprintln!(
