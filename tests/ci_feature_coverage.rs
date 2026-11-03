@@ -687,13 +687,6 @@ const CORE_FEATURES_NOT_FORWARDED_HERE: &[(&str, &str)] = &[
          tests/pvec_dwg_spline_structural.rs under the feature",
     ),
     (
-        "pvec-convert",
-        "enables the conversion API over pvec-write and dwg-acadrust, both git-only \
-         dependencies pinned by revision. Nothing in this suite drives a conversion, so \
-         forwarding it would add those revisions to every cell and leave the cell nothing to \
-         run. The core's own CI lints and tests it under the feature",
-    ),
-    (
         "pvec-write",
         "enables the PVec writer over pvec-facade, a git-only dependency pinned by \
          revision, and implies pvec-normalized. Nothing in this suite drives the writer, \
