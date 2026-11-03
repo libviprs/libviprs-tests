@@ -647,7 +647,7 @@ const CORE_FEATURES_NOT_FORWARDED_HERE: &[(&str, &str)] = &[
     ),
     (
         "dwg-acadsharp",
-        "enables the acadsharp-rs DWG provider, a git-only dependency (not on \
+        "enables the experimental acadsharp-rs DWG provider (opt-in, never reachable from the core's default features), a git-only dependency (not on \
          crates.io yet) that links a NativeAOT archive from libviprs-dep. Forwarding \
          it would make every cell here fetch and pin that git revision, and without \
          the archive the provider only reports Unlinked, so a cell would have nothing \
@@ -656,11 +656,19 @@ const CORE_FEATURES_NOT_FORWARDED_HERE: &[(&str, &str)] = &[
     ),
     (
         "dwg-acadrust",
-        "enables the first provider behind the core's DwgProvider traits, over the \
-         acadrust crate, a git-only dependency pinned by revision. Nothing in this \
-         suite drives the provider, so forwarding it would add that git revision to \
-         every cell and leave the cell nothing to run. The core's own CI lints it and \
-         runs its provider tests under the feature",
+        "is one of the core's default features (acadrust is the default DWG provider), \
+         so every cell here that builds the core with its defaults already compiles the \
+         provider and its git-only acadrust dependency, pinned by revision. Forwarding \
+         it would name what is already on and give no cell a different build. Nothing in \
+         this suite drives the provider; the core's own CI lints it and runs its \
+         provider tests under the feature",
+    ),
+    (
+        "jbig2",
+        "enables JBIG2Decode in the PDF image bake through hayro-jbig2 (libviprs#1365). \
+         Nothing here drives the bake with JBIG2 streams, and the decoder is under \
+         upstream fuzz findings, so forwarding it would add the dependency to every cell \
+         for nothing to run. The core's own CI lints and tests it under the feature",
     ),
     (
         "pvec-normalized",
@@ -747,21 +755,12 @@ fn pinned_core_features(core: &Path, tested: &[String]) -> Vec<String> {
 /// core being pushed does). The first pin bump that brings the feature turns it
 /// red until the row moves to [`CORE_FEATURES_NOT_FORWARDED_HERE`] (or the
 /// feature is forwarded).
-const CORE_FEATURES_PENDING_IN_THE_PIN: &[(&str, &str)] = &[
-    (
-        "jbig2",
-        "enables JBIG2Decode in the PDF image bake through hayro-jbig2 (libviprs#1365). \
-         Nothing here drives the bake with JBIG2 streams, and the decoder is under \
-         upstream fuzz findings, so forwarding it would add the dependency to every cell \
-         for nothing to run. The core's own CI lints and tests it under the feature",
-    ),
-    (
-        "pvec-conformance",
-        "names the combination of dwg-acadrust, pvec-normalized and pvec-spline that the \
+const CORE_FEATURES_PENDING_IN_THE_PIN: &[(&str, &str)] = &[(
+    "pvec-conformance",
+    "names the combination of dwg-acadrust, pvec-normalized and pvec-spline that the \
          core's own PVec conformance suites need (libviprs#1408), and adds no crate and \
          no code path, so there is nothing here for a cell to run under it",
-    ),
-];
+)];
 
 /// What this suite fails to account for, one message per problem. `forwarded`
 /// answers which of our features forwards a core feature. `core` is the tested
