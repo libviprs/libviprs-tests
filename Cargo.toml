@@ -68,8 +68,11 @@ jp2k = ["libviprs/jp2k"]
 pdfium-static = ["pdfium", "libviprs/pdfium-static"]
 # The core's raster-into-PVec producer (libviprs/libviprs#1328, #1331, #1332): the sink, the
 # pyramid and the PDF image bake. The `pvec_raster_*` suites (libviprs-tests#305) need it, and so
-# do the PVec crates below, which are pinned to the revision the core's own pin names.
-pvec-raster = ["libviprs/pvec-raster"]
+# do the PVec crates below, which are pinned to the revision the core's own pin names. It also turns on
+# the core's `pvec-convert` (libviprs/libviprs#1491): `PdfConversion`, the one call from a PDF page to a
+# `.pvec`, which `tests/pvec_blueprint_mix_351.rs` drives (libviprs-tests#351). That brings the
+# `pvec-write` and `dwg-acadrust` git dependencies into the cells that run `pvec-raster`.
+pvec-raster = ["libviprs/pvec-raster", "libviprs/pvec-convert"]
 
 [dependencies]
 libviprs = { path = "../libviprs" }

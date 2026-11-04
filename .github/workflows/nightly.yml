@@ -58,3 +58,7 @@ jobs:
       # makes them pointlessly slow.
       - name: Large-image stress suite
         run: cargo test --release --test stress -- --ignored
+      # The mixed vector and raster blueprint through the PDF to PVec path (issue #351): the 51 MB
+      # fixture takes about a minute a conversion, so it is `#[ignore]`d and runs here, in release.
+      - name: Blueprint-mix PDF to PVec
+        run: cargo test --release --features pvec-raster --test pvec_blueprint_mix_351 -- --ignored
