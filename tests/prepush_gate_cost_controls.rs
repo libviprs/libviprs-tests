@@ -205,8 +205,8 @@ const INERT_IN_LIBVIPRS_TESTS: &[&str] = &["LICENSE"];
 /// libviprs/libviprs#1010's `docs/pmtiles-benchmarks.md` was not, because
 /// `tests/pmtiles_release_readiness.rs` read it with `include_str!` and
 /// asserted on its columns and on the test names it quotes (libviprs#1534
-/// dropped that, so it is inert now). `inert_path()` goes
-/// and looks, which is why only the first of those two is named here.
+/// dropped that, so it is inert now). `inert_path()` goes and looks, which is
+/// why a doc is on the list below only when the scan finds nothing reading it.
 ///
 /// A standing obligation comes with that, and it is the cost of deciding on the
 /// tree rather than on the path. This list is now measured against three
