@@ -353,6 +353,12 @@ const MODULES: &[ModuleRow] = &[
          so there is nothing for a row to name",
     ),
     row(
+        "pvec_convert",
+        Reach::NotApplicable,
+        "the DWG conversion API over the PVec writer (gated by `pvec-convert`); the CLI \
+         ships no analytic DWG command yet, so there is nothing for a row to name",
+    ),
+    row(
         "raster_pvec",
         Reach::Builtin("pvec"),
         "the raster pyramid and placement the PVec raster stream stores, reached through \
@@ -499,13 +505,6 @@ const CORE_FEATURES_NOT_IN_CLI: &[(&str, &str)] = &[
          path; the CLI's JSON (plan, features --json) is its own versioned shape",
     ),
     (
-        "dwg-acadrust",
-        "enables the acadrust provider behind the core's DwgProvider traits, a git-only \
-         dependency pinned by revision and a default feature of the core, so the CLI's \
-         default build already has it; the CLI ships no DWG analytic command yet \
-         (libviprs-cli#140) and the core's own CI covers the provider under the feature",
-    ),
-    (
         "pvec-normalized",
         "enables Normalized2DGeometry, the adapter over PVec's curve model, whose two \
          PVec crates are git-only dependencies pinned by revision; the CLI ships no \
@@ -516,6 +515,23 @@ const CORE_FEATURES_NOT_IN_CLI: &[(&str, &str)] = &[
         "enables exact B-spline extraction from a provider's RawGeometry::Spline, whose \
          one extra crate is a git-only dependency pinned by revision; the CLI ships no \
          analytic DWG command and the core's own CI covers it under the feature",
+    ),
+    (
+        "pvec-write",
+        "enables the PVec writer for the analytic DWG path; the CLI ships no analytic DWG \
+         command yet, and its `pvec-raster` feature already covers the `.pvec` raster \
+         commands through the facade directly",
+    ),
+    (
+        "pvec-convert",
+        "enables the DWG conversion API (pvec_convert) over the PVec writer and the \
+         acadrust provider; the CLI ships no analytic DWG command yet, so it has no use \
+         for it",
+    ),
+    (
+        "jbig2",
+        "JBIG2Decode for PDF image streams in the PVec PDF bake, kept off the core's \
+         default until its fuzz run is clean; the CLI has no PVec PDF import command",
     ),
     (
         "test-util",
