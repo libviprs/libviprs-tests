@@ -233,6 +233,10 @@ const INERT_IN_LIBVIPRS: &[&str] = &[
     // has no such guard, so its numbers can go stale silently. Pinning it
     // here records that as a deliberate gap rather than closing it.
     "docs/tile-codec-benchmarks.md",
+    // Benchmarks are optional now (libviprs#1533): `pmtiles_release_readiness.rs` no longer
+    // includes this page, so no core test reads it. Inert from the core commit that drops the
+    // include, so `COUNTERPART_REV` moves to that merge in the same wave.
+    "docs/pmtiles-benchmarks.md",
     // Added with the bump to core 48bdb1f1 (#291). These are the PVec spike and
     // inventory notes: design write-ups and a recorded spike run, and no test
     // pulls any of them in with `include_str!` or reads them off disk, so a push
