@@ -84,8 +84,11 @@ const CODECS: &[Codec] = &[
 /// What `--features full` must turn on, in the order `viprs features`
 /// prints (alphabetical). Every capability-bearing feature except
 /// `pdfium-static`, which conflicts with the runtime-binding pdfium path.
+/// `dwg-acadsharp` stays in: it is experimental now, but `full` is what keeps the native
+/// lane compiling and running, and `dwg-acadrust` joined it as the default reader.
 const FULL: &[&str] = &[
     "avif",
+    "dwg-acadrust",
     "dwg-acadsharp",
     "jp2k",
     "jxl",
@@ -316,8 +319,9 @@ fn features_lists_exactly_the_default_build() {
         return;
     }
     let bin = viprs_bin_for(true, &[]);
-    // The CLI's `default` is `["pdfium", "pvec-raster"]`; this list follows it.
-    assert_lists_exactly(&bin, "default", &["pdfium", "pvec-raster"]);
+    // The CLI's `default` is `["pdfium", "pvec-raster", "dwg-acadrust"]` (acadrust is the
+    // default DWG reader, libviprs-cli#140); this list follows it, in print order.
+    assert_lists_exactly(&bin, "default", &["dwg-acadrust", "pdfium", "pvec-raster"]);
 }
 
 #[test]

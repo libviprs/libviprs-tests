@@ -417,3 +417,4 @@
 # Re-bumped to b7c839df, the final tip of libviprs/libviprs#1507 after review: the PDF image notes use the bake's own keys, the fill reasons are `*-raster-bake`, and ci.yml lints and tests the pvec-convert and pvec-raster pair (needs libviprs/libviprs#1514 to merge with it).
 # Bumped to 2c84303b, the tip of libviprs/libviprs#1507 after the second review round (Miri counts on main's 972, #1504 merged in).
 # Bumped to d97e5078, the tip of libviprs/libviprs#1522 (pvec pins at afd2fe6, libviprs#1516). It reaches libviprs main when that PR merges, so the pin stays reachable.
+# 56fa40b0 (libviprs#1521 and #1522) is the core libviprs-cli 1184676 builds against; the pin above, 32ccac20, descends from it, so the CLI's core is an ancestor of this one and the pvec pins are the same afd2fe62 (libviprs-tests#358).

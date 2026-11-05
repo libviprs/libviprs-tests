@@ -159,7 +159,8 @@
 # and `viprs pvec rasters` (libviprs/libviprs-cli#130, merged as #133), behind the CLI's
 # `pvec-raster` feature, which tests/cli_pvec_raster.rs builds the binary with.
 # Bumped to e67c97c1, libviprs-cli main after libviprs-cli#139 moved its core and pvec pins to the streaming writer.
-e67c97c1a2ea8cd3a2bf6dc34239b18a40b32652
+# Bumped to 1184676, libviprs-cli main after #143 (`--provider`, acadrust as the default DWG reader, libviprs-cli#140) and #144. Its core pin is 56fa40b0 and its pvec pins are afd2fe62, the same as COUNTERPART_REV below and Cargo.toml here (libviprs-tests#358).
+1184676359d9aa52b7a3fb7ec3878f5575e0f14d
 #
 # Bumped to 5a689b85, libviprs-cli main after #119 (`viprs vector`). The `vector` row in
 # cli_surface_coverage names that command now (libviprs-tests#295). It needs
