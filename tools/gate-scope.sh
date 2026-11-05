@@ -509,6 +509,30 @@ while IFS= read -r p; do
         map_file "$PUSHED" "$p" "$p"
     fi
 
+    # A tracked dotfile at the root that no test names (libviprs main has carried
+    # .commitmsg-631 since #660) is not code. It gets the cheap guards, the
+    # ones every .github path gets, and not the whole suite (#375).
+    if [ "$ADDED" -eq 0 ]; then
+        case "$p" in
+            .*)
+                case "$p" in
+                    */*) ;;
+                    *)
+                        if [ "$PUSHED" = core ]; then
+                            for guard in local_gate_is_the_job_list local_gate_native_dwg_1295 miri_invocation_parity; do
+                                add_guard core "$guard" "$p -> the CI parity guard $guard"
+                            done
+                        else
+                            for guard in hooks_run_on_mars prepush_gate_cost_controls prepush_gate_tests_the_pushed_tree install_hooks_mirror_ci; do
+                                add_guard tests "$guard" "$p -> the hook guard $guard"
+                            done
+                        fi
+                        ;;
+                esac
+                ;;
+        esac
+    fi
+
     if [ "$ADDED" -eq 0 ]; then
         full "$p maps to no test target, and a scoped run never runs nothing"
     fi
