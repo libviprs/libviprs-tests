@@ -683,6 +683,10 @@ fn every_scoped_run_carries_the_always_on_guards_and_the_lint_half() {
     }
 
     // Core Rust under src/ or tests/ is what the Miri convention reads.
+    let core = with(
+        CORE_BASE,
+        &[("tests/names_foo.rs", "use libviprs::foo::Thing;\n")],
+    );
     let s = scope("libviprs", &["src/foo.rs"], &core, TESTS_BASE, &[], &[]);
     assert!(
         s.lines().contains("core|test|miri_ignore_convention"),
@@ -1171,7 +1175,11 @@ fn prepush_all_still_runs_the_full_suite() {
     let before = m.ws.commit(
         "libviprs",
         "base",
-        &[("src/foo.rs", "// a\n"), ("src/lib.rs", "pub mod foo;\n")],
+        &[
+            ("src/foo.rs", "// a\n"),
+            ("src/lib.rs", "pub mod foo;\n"),
+            ("tests/names_foo.rs", "use libviprs::foo::go;\n"),
+        ],
     );
     let after =
         m.ws.commit("libviprs", "change", &[("src/foo.rs", "// b\n")]);
@@ -1239,6 +1247,7 @@ fn the_lint_half_runs_after_a_scoped_suite_through_the_pre_commit_hook() {
         &[
             ("src/foo.rs", "// a\n"),
             ("src/lib.rs", "pub mod foo;\n"),
+            ("tests/names_foo.rs", "use libviprs::foo::go;\n"),
             ("tests/miri_ignore_convention.rs", "// guard\n"),
         ],
     );

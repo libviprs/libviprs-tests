@@ -369,6 +369,10 @@ TARGETS
     return 0
 }
 
+# A scope list inherited from the environment is somebody else's. mars-run.sh
+# reads these, so only this hook, below, may set them for this push.
+unset LIBVIPRS_GATE_CHANGED_FILE LIBVIPRS_GATE_REPO LIBVIPRS_GATE_TIPS LIBVIPRS_GATE_LINT_HOOK
+
 REF_UPDATES="$(cat)"
 CHANGED=""
 REACHING=""
@@ -411,7 +415,7 @@ if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
         # Unguarded this is a `set -e` exit: a git failure here would abort
         # the push with nothing printed. A range we cannot diff is a range we
         # cannot judge, which is the same answer as a base we could not find.
-        if ! REF_PATHS="$(git diff --name-only "$BASE" "$local_oid" --)"; then
+        if ! REF_PATHS="$(git diff --name-only --no-renames "$BASE" "$local_oid" --)"; then
             UNKNOWN=true
             break
         fi

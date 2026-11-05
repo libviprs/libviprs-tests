@@ -54,6 +54,7 @@ while IFS='|' read -r repo kind arg; do
     # characters a target, a module path, a doctest path or a feature has.
     case "$arg" in
         *[!A-Za-z0-9_:/.,-]*) die "the plan has a name with a character a target cannot have: $arg" ;;
+        -*) die "the plan has a name that starts with a dash and would be read as a cargo flag: $arg" ;;
     esac
     case "$repo|$kind" in
         core\|test) CORE_TESTS="$CORE_TESTS $arg" ;;

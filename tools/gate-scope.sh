@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -u
+# Names from a commit message and from the tree are data, never patterns.
+set -f
 
 # ---------------------------------------------------------------------------
 # gate-scope.sh: choose the test targets of one pushed PR (libviprs-tests#370).
@@ -179,7 +181,8 @@ add() {
 # them would only look precise. Measured on origin/main of both repos: pixel
 # pulls in 172 targets and engine 67, and error names 4 for code every
 # operation returns through. The cap catches the other fat ones (planner 149,
-# sink 98, draw 84, engine_builder 77, source 75, manifest 49).
+# sink 98, draw 84, source 75, manifest 49); engine_builder is a hub already,
+# since src/engine* covers it.
 is_hub() {
     case "$1" in
         src/error.rs | src/error/* | src/pixel* | src/raster* | src/engine*) return 0 ;;
@@ -300,6 +303,9 @@ HITS
             scan_named "$file" "$why"
             ;;
         src/*.rs | src/*/*)
+            if ! tree_has "$kind" "$file"; then
+                full "$file is gone from the tree (a deleted or renamed source file), so nothing says what it ran ($why)"
+            fi
             if [ "$kind" = core ]; then
                 module_targets "${file#src/}" "$why"
             else
@@ -343,6 +349,10 @@ module_targets() {
     m="${m%.rs}"
     add core_lib "$m::" "$why -> unit tests of $m"
     add core_doc "src/$m" "$why -> doctests of $m"
+    # The two filters exist for every module, so they cannot be what says a
+    # module has a test. Only a test that names the module counts as a target
+    # for the "maps to zero targets" rule; without one the push runs everything.
+    ADDED=$((ADDED - 2))
 
     pat="libviprs::$m([^A-Za-z0-9_]|\$)|(^|[^A-Za-z0-9_:])$m::|libviprs::\\{([^}]*[^A-Za-z0-9_])?$m([^A-Za-z0-9_]|\$)|^[[:space:]]+$m,?[[:space:]]*\$"
     for kind in core tests; do
