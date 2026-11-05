@@ -128,7 +128,7 @@ mirror_jobs() {
         libviprs-tests) printf '%s\n' lint feature-cells ported-tests ;;
         libviprs-bench) printf '%s\n' check ;;
         # The whole workflow, on the cost argument in the header.
-        libviprs-org)   printf '%s\n' sync extract test-flags gen-op-sections bench-drift ;;
+        libviprs-org)   printf '%s\n' sync extract test-flags gen-op-sections ;;
         libviprs-dep)   printf '%s\n' lint test shellcheck ;;
         # Nothing. The fork's CI runs no lint at all, so there is nothing here
         # to mirror; see the note above write_pdfium_pre_commit.
@@ -348,7 +348,7 @@ LIBVIPRS_BENCH_STEPS=(
     "cargo clippy --lib --tests --features libvips"
 )
 
-# The doc site. Not Rust, and the four jobs are regenerate-and-assert-no-drift
+# The doc site. Not Rust, and the jobs are regenerate-and-assert-no-drift
 # gates, which is exactly the check you want before a commit rather than after
 # it: they catch "you edited the source and did not re-run the generator".
 #
@@ -373,8 +373,6 @@ LIBVIPRS_ORG_STEPS=(
     "git diff --exit-code cli/tools/gen-op-sections/generated-op-sections.html"
     "node cli/tools/gen-op-sections/placeholder-substitution.test.js"
     "node cli/tools/gen-op-sections/hand-authored.test.js"
-    "node benchmarks/tools/bench-drift.js"
-    "node benchmarks/tools/bench-drift.test.js"
 )
 
 # The dependency build inputs. Python and shell rather than Rust, and the
