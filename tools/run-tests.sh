@@ -15,6 +15,7 @@ set -euo pipefail
 #         ./run-tests.sh arm --miri       # combine arch + flags
 #         ./run-tests.sh --plan           # print what would be built, run nothing
 #         ./run-tests.sh --dry-run        # alias for --plan
+#         ./run-tests.sh --scope B64      # run only the targets of a gate plan
 #
 # Which trees get tested:
 #         ./run-tests.sh --libviprs PATH        # core crate to build
@@ -33,6 +34,12 @@ set -euo pipefail
 # --plan  Resolve and print the trees and the image, then exit without
 #         touching Docker. The cheap way to check that a pre-push hook is
 #         about to test the tree you think it is. --dry-run is the same flag.
+# --scope B64
+#         Run only the targets of a gate plan (tools/gate-scope.sh writes one,
+#         base64 on one line) instead of the whole suite. The container hands
+#         it to tools/scoped-suite.sh, which refuses a plan that selects
+#         nothing rather than falling back to anything. Without it the whole
+#         suite runs, exactly as before (libviprs-tests#370).
 #
 # Container budget:
 #   RUN_TESTS_MEMORY=8g          hard memory ceiling (default 4g, clamped to
@@ -73,6 +80,8 @@ PRINT_PLAN=false
 ARCH=""
 LIBVIPRS_ARG=""
 TESTS_ARG=""
+SCOPE=""
+SET_SCOPE=false
 
 usage() {
     awk '
@@ -98,6 +107,8 @@ while [ "$#" -gt 0 ]; do
         --libviprs=*)        LIBVIPRS_ARG="${1#--libviprs=}" ;;
         --libviprs-tests)    need_value "$1" "$#"; TESTS_ARG="$2"; shift ;;
         --libviprs-tests=*)  TESTS_ARG="${1#--libviprs-tests=}" ;;
+        --scope)             need_value "$1" "$#"; SCOPE="$2"; SET_SCOPE=true; shift ;;
+        --scope=*)           SCOPE="${1#--scope=}"; SET_SCOPE=true ;;
         -*)
             echo "Error: unknown option '$1'."
             echo ""
@@ -108,6 +119,24 @@ while [ "$#" -gt 0 ]; do
     esac
     shift
 done
+
+# The plan goes into the container as LIBVIPRS_GATE_SCOPE. An empty or
+# malformed one is refused here, on the host, because the alternative on offer
+# is a container that quietly runs the whole suite or none of it.
+SCOPE_TEXT=""
+if [ "$SET_SCOPE" = true ]; then
+    case "$SCOPE" in
+        "" | *[!A-Za-z0-9+/=]*)
+            echo "Error: --scope needs the base64 plan that tools/gate-scope.sh writes."
+            exit 1
+            ;;
+    esac
+    SCOPE_TEXT="$(printf '%s' "$SCOPE" | { base64 -d 2>/dev/null || base64 -D 2>/dev/null; } || true)"
+    if [ -z "$SCOPE_TEXT" ]; then
+        echo "Error: --scope is not a base64 plan."
+        exit 1
+    fi
+fi
 
 # Auto-detect architecture if not specified
 if [ -z "$ARCH" ]; then
@@ -360,6 +389,10 @@ echo "  image:          $IMAGE_NAME"
 echo "  container:      $CONTAINER_NAME"
 echo "  context:        $CONTEXT_ROOT"
 echo "  budget:         --memory=$DOCKER_MEMORY, $BUILD_JOBS cargo build job(s)$MEMORY_NOTE"
+if [ "$SET_SCOPE" = true ]; then
+    echo "  scope:          only the targets of this plan"
+    printf '%s\n' "$SCOPE_TEXT" | sed 's/^/                  /'
+fi
 
 if [ "$PRINT_PLAN" = true ]; then
     exit 0
@@ -696,6 +729,7 @@ docker run \
     --memory="$DOCKER_MEMORY" \
     -e CARGO_BUILD_JOBS="$BUILD_JOBS" \
     ${RUN_TESTS_TEST_THREADS:+-e RUST_TEST_THREADS="$RUN_TESTS_TEST_THREADS"} \
+    ${SCOPE:+-e LIBVIPRS_GATE_SCOPE="$SCOPE"} \
     ${DOCKER_RUN_MOUNTS[@]+"${DOCKER_RUN_MOUNTS[@]}"} \
     "$IMAGE_NAME"
 EXIT_CODE=$?

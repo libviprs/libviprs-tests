@@ -182,7 +182,15 @@ ENV CARGO_PROFILE_DEV_DEBUG=0
 # into /src/libviprs-tests/tmp/. When the mount is absent (offline host with
 # no cached copy) the script skips that step with a clear message instead of
 # failing, matching how the repo treats optional fixtures.
+#
+# When the pre-push gate scopes a push to its own PR it passes the plan as
+# LIBVIPRS_GATE_SCOPE (run-tests.sh --scope), and the container runs
+# tools/scoped-suite.sh instead of the chain below. That script refuses a plan
+# that selects nothing, so a scoped run never falls through to the full chain
+# and never quietly runs nothing (libviprs-tests#370). Without the variable
+# this is the full suite, unchanged.
 CMD sh -c '\
+    if [ -n "$LIBVIPRS_GATE_SCOPE" ]; then exec sh /src/libviprs-tests/tools/scoped-suite.sh; fi && \
     echo "================================================================" && \
     echo "Running libviprs unit tests (with pdfium)..." && \
     echo "================================================================" && \
