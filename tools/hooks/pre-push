@@ -391,31 +391,50 @@ if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
             *)      continue ;;
         esac
 
-        # The default branch, which a PR's own changes are measured against.
-        UPSTREAM="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
-        if [ -z "$UPSTREAM" ]; then
-            UPSTREAM="origin/main"
-        fi
-        # As the remote has it now: a clone's origin/main is often days behind,
-        # and everything main gained since would count as this branch's own
-        # (#375). Best effort and bounded, since a hook must not hang on a
-        # network; if it fails the ref stays as stale as it was, which can only
-        # make the push look bigger and so run more.
+        # The default branch, which a PR's own changes are measured against. A
+        # clone's origin/HEAD is not always right (libviprs's pointed at the
+        # initial commit, so nothing of main's was subtracted, #379), so main and
+        # master count too when they exist, and every candidate is subtracted: a
+        # wrong one costs nothing, a missing one costs the whole of main.
+        #
+        # As the remote has each now: a clone's ref is often days behind, and
+        # everything main gained since would count as this branch's own (#375).
+        # Best effort and bounded, since a hook must not hang on a network; if a
+        # fetch fails the ref stays as stale as it was, which can only make the
+        # push look bigger and so run more.
         if [ "$FETCHED_DEFAULT" = false ]; then
             FETCHED_DEFAULT=true
-            case "$UPSTREAM" in
-                origin/*)
-                    # The ssh command the user has set stays theirs, with the
-                    # bounds added: ServerAlive ends a host that connects and
-                    # then goes quiet, which ConnectTimeout does not.
-                    FETCH_SSH="${GIT_SSH_COMMAND:-$(git config --get core.sshCommand 2>/dev/null || true)}"
-                    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${FETCH_SSH:-ssh} -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2" \
-                        git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 \
-                        fetch -q --no-tags origin "+refs/heads/${UPSTREAM#origin/}:refs/remotes/$UPSTREAM" >/dev/null 2>&1 || true
-                    ;;
-            esac
+            DEFAULT_REFS=""
+            head_ref="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+            for cand in "$head_ref" origin/main origin/master; do
+                case "$cand" in
+                    origin/*) : ;;
+                    *) continue ;;
+                esac
+                case " $DEFAULT_REFS " in
+                    *" $cand "*) continue ;;
+                esac
+                if [ "$cand" = "$head_ref" ] || git rev-parse --verify --quiet "${cand}^{commit}" >/dev/null 2>&1; then
+                    DEFAULT_REFS="$DEFAULT_REFS $cand"
+                fi
+            done
+            # The ssh command the user has set stays theirs, with the bounds
+            # added: ServerAlive ends a host that connects and then goes quiet,
+            # which ConnectTimeout does not.
+            FETCH_SSH="${GIT_SSH_COMMAND:-$(git config --get core.sshCommand 2>/dev/null || true)}"
+            for cand in $DEFAULT_REFS; do
+                GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${FETCH_SSH:-ssh} -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2" \
+                    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 \
+                    fetch -q --no-tags origin "+refs/heads/${cand#origin/}:refs/remotes/$cand" >/dev/null 2>&1 || true
+            done
         fi
-        UPSTREAM_OID="$(git rev-parse --verify --quiet "${UPSTREAM}^{commit}" 2>/dev/null || true)"
+        DEFAULT_OIDS=()
+        for cand in $DEFAULT_REFS; do
+            cand_oid="$(git rev-parse --verify --quiet "${cand}^{commit}" 2>/dev/null || true)"
+            if [ -n "$cand_oid" ]; then
+                DEFAULT_OIDS+=("$cand_oid")
+            fi
+        done
 
         BASE=""
         case "${remote_oid:-}" in
@@ -428,7 +447,18 @@ if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
         if [ -z "$BASE" ]; then
             # New branch. Compare against whatever the remote's default branch
             # already has, and give up rather than guess if that is not here.
-            BASE="$(git merge-base "$local_oid" "$UPSTREAM" 2>/dev/null || true)"
+            # The candidate nearest the pushed tip, so the base is where this
+            # branch left the default branch and not where it started.
+            BEST=""
+            for cand_oid in ${DEFAULT_OIDS[@]+"${DEFAULT_OIDS[@]}"}; do
+                CAND_BASE="$(git merge-base "$local_oid" "$cand_oid" 2>/dev/null || true)"
+                [ -n "$CAND_BASE" ] || continue
+                CAND_COUNT="$(git rev-list --count "$CAND_BASE..$local_oid" 2>/dev/null || echo 999999999)"
+                if [ -z "$BEST" ] || [ "$CAND_COUNT" -lt "$BEST" ]; then
+                    BEST="$CAND_COUNT"
+                    BASE="$CAND_BASE"
+                fi
+            done
         fi
         if [ -z "$BASE" ]; then
             UNKNOWN=true
@@ -448,8 +478,12 @@ if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
         # have touched it (a merge counts for what it changes against all its
         # parents, so a pure merge-forward counts for nothing). Without a
         # default branch there is nothing to subtract and the range stands.
-        if [ -n "$UPSTREAM_OID" ]; then
-            if ! OWN_COMMITS="$(git rev-list "$BASE..$local_oid" "^$UPSTREAM_OID")"; then
+        if [ "${#DEFAULT_OIDS[@]}" -gt 0 ]; then
+            EXCLUDE=()
+            for cand_oid in "${DEFAULT_OIDS[@]}"; do
+                EXCLUDE+=("^$cand_oid")
+            done
+            if ! OWN_COMMITS="$(git rev-list "$BASE..$local_oid" "${EXCLUDE[@]}")"; then
                 UNKNOWN=true
                 break
             fi
