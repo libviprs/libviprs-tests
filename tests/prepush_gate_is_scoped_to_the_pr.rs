@@ -547,7 +547,7 @@ fn shared_infrastructure_runs_the_full_suite() {
             "tools/gate-scope.sh",
             "tools/scoped-suite.sh",
         ] {
-            let s = scope(repo, &["README.md", path], CORE_BASE, TESTS_BASE, &[], &[]);
+            let s = scope(repo, &[path], CORE_BASE, TESTS_BASE, &[], &[]);
             let why = s.full().unwrap_or_else(|| {
                 panic!(
                     "{repo}: a change to {path} was scoped:\n{}{}",
