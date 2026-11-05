@@ -232,10 +232,6 @@ const INERT_IN_LIBVIPRS: &[&str] = &[
     // to naming tests that exist and documenting every exported column;
     // libviprs#1534 dropped that, so both pages are unguarded and inert now.
     "docs/tile-codec-benchmarks.md",
-    // Benchmarks are optional now (libviprs#1533): `pmtiles_release_readiness.rs` no longer
-    // includes this page, so no core test reads it. Inert from the core commit that drops the
-    // include, so `COUNTERPART_REV` moves to that merge in the same wave.
-    "docs/pmtiles-benchmarks.md",
     // Added with the bump to core 48bdb1f1 (#291). These are the PVec spike and
     // inventory notes: design write-ups and a recorded spike run, and no test
     // pulls any of them in with `include_str!` or reads them off disk, so a push
@@ -254,6 +250,16 @@ const INERT_IN_LIBVIPRS: &[&str] = &[
     "docs/spikes/bounded-memory/run.sh",
     "docs/spikes/bounded-memory/spool_spike.rs",
 ];
+
+/// Paths that are inert in a core which has dropped their reader and read in one
+/// that has not, so the guard accepts either (libviprs-tests#376). The list
+/// above has to be true of every core a push can carry, and a core push is
+/// gated against this harness at `origin/main` whatever vintage its own branch
+/// is. `docs/pmtiles-benchmarks.md` is inert from libviprs#1534 (benchmarks are
+/// optional, `pmtiles_release_readiness.rs` no longer includes it) and read by
+/// every core branch cut before that. A path leaves this list for the one above
+/// once the pin and every in-flight core branch have the change.
+const INERT_ONCE_THE_READER_IS_GONE: &[&str] = &["docs/pmtiles-benchmarks.md"];
 
 /// The skip list may only hold paths nothing reads, and the only way to know
 /// that is to run every path there is through it.
@@ -279,7 +285,15 @@ fn the_skip_list_exempts_exactly_the_pinned_paths() {
         );
 
         let got = inert_paths(repo_name, &root, &paths);
-        let want: BTreeSet<String> = pinned.iter().map(|s| s.to_string()).collect();
+        let mut want: BTreeSet<String> = pinned.iter().map(|s| s.to_string()).collect();
+        if repo_name == "libviprs" {
+            // Either answer is right for these, so take the tree's.
+            for path in INERT_ONCE_THE_READER_IS_GONE {
+                if got.contains(*path) {
+                    want.insert(path.to_string());
+                }
+            }
+        }
 
         let newly_exempt: Vec<&String> = got.difference(&want).collect();
         let no_longer_there: Vec<&String> = want.difference(&got).collect();
@@ -442,6 +456,40 @@ fn a_doc_a_test_includes_is_read_and_one_nothing_includes_is_inert() {
          inert_path() wanted to run the whole Docker suite for it, which is \
          what taught everyone to reach for --no-verify (#683). It called these \
          inert: {inert:?}"
+    );
+}
+
+/// The pinned list is measured against whatever core the push carries, and a
+/// core branch cut before libviprs#1534 still reads
+/// `docs/pmtiles-benchmarks.md` with `include_str!`. So the list may only
+/// require a path to be inert when that holds in every vintage of the core
+/// (libviprs-tests#376): a stand-in of that older core must not make any path
+/// the list pins, and the tree holds, come back read.
+#[test]
+fn the_pinned_list_holds_only_paths_every_core_vintage_leaves_inert() {
+    let dir = tempfile::tempdir().expect("scratch dir");
+    let tree = dir.path();
+    lay_down(
+        tree,
+        &[
+            ("docs/pmtiles-benchmarks.md", "| column |\n"),
+            (
+                "tests/pmtiles_release_readiness.rs",
+                "const BENCHMARK_DOC: &str = include_str!(\"../docs/pmtiles-benchmarks.md\");\n",
+            ),
+        ],
+    );
+    let paths = vec!["docs/pmtiles-benchmarks.md".to_string()];
+    let got = inert_paths("libviprs", tree, &paths);
+    let wrongly_pinned: Vec<&&str> = INERT_IN_LIBVIPRS
+        .iter()
+        .filter(|p| paths.iter().any(|q| q == **p) && !got.contains(**p))
+        .collect();
+    assert!(
+        wrongly_pinned.is_empty(),
+        "the pinned list demands these be inert, and a core cut before the \
+         change that dropped their reader reads them: {wrongly_pinned:?}. Put \
+         them on the transitional list so the guard accepts either."
     );
 }
 
