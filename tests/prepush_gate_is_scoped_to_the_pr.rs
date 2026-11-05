@@ -1017,6 +1017,7 @@ impl FakeMars {
             .env_remove("LIBVIPRS_HOOKS_MARS_RUN")
             .env_remove("LIBVIPRS_PREPUSH_ALL")
             .env_remove("LIBVIPRS_GATE_SCOPE_CAP")
+            .env_remove("GIT_SSH_COMMAND")
             .env_remove("GIT_DIR")
             .env_remove("GIT_INDEX_FILE")
             .stdin(Stdio::piped())
@@ -1545,35 +1546,51 @@ fn a_pure_main_merge_forward_contributes_nothing() {
 }
 
 /// An issue form is read by the tests that name it and checked by the CI
-/// parity guards. It is not a reason to run what a shared helper reaches
-/// through the bare `.github` directory.
+/// parity guards, and it is scoped, not the full suite. A test that walks all of
+/// `.github` for what it contains is a reader of every file there, so it comes
+/// along for a workflow or a form (libviprs's pvec_1079_provider_default does,
+/// for libredwg and dwg2svg names).
 #[test]
 fn an_issue_form_change_maps_to_its_readers_and_the_cheap_guards() {
     let core = with(
         CORE_BASE,
         &[
             (".github/ISSUE_TEMPLATE/epic.yml", "name: Epic\n"),
+            (".github/workflows/native-dwg.yml", "name: dwg\n"),
             (
                 "tests/epic_form.rs",
                 "const F: &str = include_str!(\"../.github/ISSUE_TEMPLATE/epic.yml\");\n",
             ),
             (
-                "tests/common/workflows.rs",
-                "pub fn read() { let _ = std::path::Path::new(\".github\"); }\n",
-            ),
-            (
-                "tests/wf_one.rs",
-                "mod common;\nuse common::workflows::read;\n",
-            ),
-            (
-                "tests/wf_two.rs",
-                "mod common;\nuse common::workflows::read;\n",
+                "tests/pvec_1079_provider_default.rs",
+                "fn walk() { let root = std::path::Path::new(\".\").join(\".github\"); let _ = root; }\n",
             ),
             ("tests/local_gate_is_the_job_list.rs", "// guard\n"),
             ("tests/local_gate_native_dwg_1295.rs", "// guard\n"),
             ("tests/miri_invocation_parity.rs", "// guard\n"),
         ],
     );
+    for path in [
+        ".github/ISSUE_TEMPLATE/epic.yml",
+        ".github/workflows/native-dwg.yml",
+    ] {
+        let s = scope("libviprs", &[path], &core, TESTS_BASE, &[], &[]);
+        assert!(s.full().is_none(), "{path}: {}", s.stdout);
+        let lines = s.lines();
+        for want in [
+            "core|test|pvec_1079_provider_default",
+            "core|test|local_gate_is_the_job_list",
+            "core|test|local_gate_native_dwg_1295",
+            "core|test|miri_invocation_parity",
+            "lint",
+        ] {
+            assert!(
+                lines.contains(want),
+                "{path}: no `{want}` in:\n{}",
+                s.stdout
+            );
+        }
+    }
     let s = scope(
         "libviprs",
         &[".github/ISSUE_TEMPLATE/epic.yml"],
@@ -1582,18 +1599,7 @@ fn an_issue_form_change_maps_to_its_readers_and_the_cheap_guards() {
         &[],
         &[],
     );
-    assert_eq!(
-        s.lines(),
-        set(&[
-            "core|test|epic_form",
-            "core|test|local_gate_is_the_job_list",
-            "core|test|local_gate_native_dwg_1295",
-            "core|test|miri_invocation_parity",
-            "lint",
-        ]),
-        "stderr: {}",
-        s.stderr
-    );
+    assert!(s.lines().contains("core|test|epic_form"), "{}", s.stdout);
 }
 
 /// A tracked dotfile at the root that no test names (`.commitmsg-631` is one
@@ -1700,5 +1706,175 @@ fn a_new_branch_is_measured_against_the_fetched_default_branch() {
     assert!(
         m.scope_of_the_gate().is_some(),
         "main's newer commits counted as the new branch's own:\n{out}"
+    );
+}
+
+/// Only the old `.commitmsg-*` scratch files get the cheap guards. Other root
+/// dotfiles change what is tested or how (`.gitattributes` export-ignore changes
+/// the tree `git archive` ships to MARS), so they stay the full suite.
+#[test]
+fn other_root_dotfiles_still_run_the_full_suite() {
+    for path in [
+        ".gitattributes",
+        ".gitmodules",
+        ".lfsconfig",
+        ".clippy.toml",
+        ".env",
+        ".env.local",
+        ".fill-631.sh",
+    ] {
+        for repo in ["libviprs", "libviprs-tests"] {
+            let s = scope(repo, &[path], CORE_BASE, TESTS_BASE, &[], &[]);
+            assert!(
+                s.full().is_some_and(|why| why.contains(path)),
+                "{repo}: {path} was scoped:\n{}{}",
+                s.stdout,
+                s.stderr
+            );
+        }
+    }
+}
+
+/// A merge commit's own resolution is the PR's change even though the commit
+/// has main's changes beside it.
+#[test]
+fn a_change_made_in_the_merge_commit_itself_is_the_prs() {
+    let m = FakeMars::new();
+    let repo = m.ws.repo("libviprs");
+    let remote_tip = branch_with_main_ahead(&m);
+    git(
+        &repo,
+        &[
+            "-c",
+            "user.name=scope guard",
+            "-c",
+            "user.email=guard@example.invalid",
+            "merge",
+            "-q",
+            "--no-commit",
+            "--no-ff",
+            "origin/main",
+        ],
+    );
+    std::fs::write(repo.join("tests/evil.rs"), "// resolved by hand\n").expect("write");
+    git(&repo, &["add", "tests/evil.rs"]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "user.name=scope guard",
+            "-c",
+            "user.email=guard@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            // The stand-in's installed pre-commit hook would go to the real MARS.
+            "--no-verify",
+            "--no-edit",
+        ],
+    );
+    let tip = git(&repo, &["rev-parse", "HEAD"]).trim().to_string();
+    let (ok, out) = m.push("libviprs", &remote_tip, &tip, &[]);
+    assert!(ok, "{out}");
+    let plan = m
+        .scope_of_the_gate()
+        .unwrap_or_else(|| panic!("the merge's own change was lost or main's counted:\n{out}"));
+    assert!(plan.contains("core|test|evil"), "{plan}");
+}
+
+/// With no default branch to subtract, the pushed range stands, so main's
+/// manifest change is visible in it and the push is the full suite, while an
+/// ordinary change is still scoped.
+#[test]
+fn without_a_default_branch_the_range_stands() {
+    let m = FakeMars::new();
+    let before = m.ws.commit(
+        "libviprs",
+        "base",
+        &[
+            ("src/foo.rs", "// a\n"),
+            ("src/lib.rs", "pub mod foo;\n"),
+            ("tests/names_foo.rs", "use libviprs::foo::go;\n"),
+        ],
+    );
+    let ordinary = m.ws.commit("libviprs", "work", &[("src/foo.rs", "// b\n")]);
+    let (ok, out) = m.push("libviprs", &before, &ordinary, &[]);
+    assert!(ok, "{out}");
+    assert!(m.scope_of_the_gate().is_some(), "{out}");
+
+    let _ = std::fs::remove_file(m.dir.join("gate.cmd"));
+    let manifest =
+        m.ws.commit("libviprs", "manifest", &[("Cargo.toml", "# x\n")]);
+    let (ok, out) = m.push("libviprs", &ordinary, &manifest, &[]);
+    assert!(ok, "{out}");
+    assert!(m.scope_of_the_gate().is_none(), "{out}");
+}
+
+/// A fetch that fails must not fail the push: the ref stays as stale as it
+/// was and the push is measured against that.
+#[test]
+fn a_failing_fetch_of_the_default_branch_does_not_refuse_the_push() {
+    let m = FakeMars::new();
+    let repo = m.ws.repo("libviprs");
+    let before = m.ws.commit(
+        "libviprs",
+        "base",
+        &[
+            ("src/foo.rs", "// a\n"),
+            ("src/lib.rs", "pub mod foo;\n"),
+            ("tests/names_foo.rs", "use libviprs::foo::go;\n"),
+        ],
+    );
+    git(
+        &repo,
+        &["remote", "add", "origin", "/nonexistent/origin.git"],
+    );
+    git(&repo, &["update-ref", "refs/remotes/origin/main", &before]);
+    let after = m.ws.commit("libviprs", "work", &[("src/foo.rs", "// b\n")]);
+    let (ok, out) = m.push("libviprs", &before, &after, &[]);
+    assert!(ok, "a failed fetch refused the push:\n{out}");
+    assert!(m.scope_of_the_gate().is_some(), "{out}");
+}
+
+/// The fetch is bounded once ssh has connected and it composes with the
+/// ssh command the user has configured instead of replacing it.
+#[test]
+fn the_fetch_keeps_a_configured_ssh_command_and_bounds_a_silent_host() {
+    let m = FakeMars::new();
+    let repo = m.ws.repo("libviprs");
+    let before = m.ws.commit(
+        "libviprs",
+        "base",
+        &[("src/foo.rs", "// a\n"), ("src/lib.rs", "pub mod foo;\n")],
+    );
+    let recorder = m.dir.join("user-ssh");
+    write_exec(
+        &recorder,
+        &format!(
+            "#!/bin/sh\necho \"$*\" >> \"{}/user-ssh.log\"\nexit 1\n",
+            m.dir.display()
+        ),
+    );
+    git(
+        &repo,
+        &["remote", "add", "origin", "ssh://example.invalid/x.git"],
+    );
+    git(
+        &repo,
+        &[
+            "config",
+            "core.sshCommand",
+            recorder.to_str().expect("utf-8"),
+        ],
+    );
+    git(&repo, &["update-ref", "refs/remotes/origin/main", &before]);
+    let after = m.ws.commit("libviprs", "work", &[("src/foo.rs", "// b\n")]);
+    let (ok, out) = m.push("libviprs", &before, &after, &[]);
+    assert!(ok, "{out}");
+    let log = m.read("user-ssh.log");
+    assert!(
+        log.contains("ServerAliveInterval=5") && log.contains("ServerAliveCountMax=2"),
+        "the configured ssh command never ran bounded; it logged: {log:?}"
     );
 }
