@@ -212,15 +212,17 @@ full_path_rule() {
 
 # Everything the tests/ and src/ of a tree name by a path-shaped string literal,
 # the way the hook's own scan reads them: the file itself, or a directory above
-# it. The top-level tests and src directories are not counted as a directory
-# above, since a literal "tests" names nothing in particular.
+# it. The top-level tests, src and .github directories are not counted as a
+# directory above, since a literal "tests" names nothing in particular and
+# the bare ".github" a shared workflows helper spells would pull in every test
+# that helper reaches for a change to one issue form (#375).
 scan_named() {
     local p="$1" why="$2" kind target above targets hits h pat
     targets="$p"
     above="$p"
     while [ "${above%/*}" != "$above" ]; do
         above="${above%/*}"
-        if [ "$above" != tests ] && [ "$above" != src ]; then
+        if [ "$above" != tests ] && [ "$above" != src ] && [ "$above" != .github ]; then
             targets="$targets
 $above"
         fi

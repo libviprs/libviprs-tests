@@ -390,6 +390,13 @@ if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
             *)      continue ;;
         esac
 
+        # The default branch, which a PR's own changes are measured against.
+        UPSTREAM="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+        if [ -z "$UPSTREAM" ]; then
+            UPSTREAM="origin/main"
+        fi
+        UPSTREAM_OID="$(git rev-parse --verify --quiet "${UPSTREAM}^{commit}" 2>/dev/null || true)"
+
         BASE=""
         case "${remote_oid:-}" in
             *[!0]*)
@@ -401,10 +408,6 @@ if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
         if [ -z "$BASE" ]; then
             # New branch. Compare against whatever the remote's default branch
             # already has, and give up rather than guess if that is not here.
-            UPSTREAM="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
-            if [ -z "$UPSTREAM" ]; then
-                UPSTREAM="origin/main"
-            fi
             BASE="$(git merge-base "$local_oid" "$UPSTREAM" 2>/dev/null || true)"
         fi
         if [ -z "$BASE" ]; then
@@ -418,6 +421,44 @@ if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
         if ! REF_PATHS="$(git diff --name-only --no-renames "$BASE" "$local_oid" --)"; then
             UNKNOWN=true
             break
+        fi
+        # Main merged into the branch puts main's commits in the range, and
+        # their Cargo.toml and .github changes are not the PR's (#375). Keep a
+        # path only if a commit in the range that the default branch does not
+        # have touched it (a merge counts for what it changes against all its
+        # parents, so a pure merge-forward counts for nothing). Without a
+        # default branch there is nothing to subtract and the range stands.
+        if [ -n "$UPSTREAM_OID" ]; then
+            if ! OWN_COMMITS="$(git rev-list "$BASE..$local_oid" "^$UPSTREAM_OID")"; then
+                UNKNOWN=true
+                break
+            fi
+            OWN_PATHS=""
+            while IFS= read -r own_commit; do
+                [ -n "$own_commit" ] || continue
+                if ! COMMIT_PATHS="$(git show --no-renames --format= --name-only --cc "$own_commit" --)"; then
+                    UNKNOWN=true
+                    break
+                fi
+                OWN_PATHS="$OWN_PATHS
+$COMMIT_PATHS"
+            done <<OWN_LIST
+$OWN_COMMITS
+OWN_LIST
+            if [ "$UNKNOWN" = true ]; then
+                break
+            fi
+            KEPT=""
+            while IFS= read -r range_path; do
+                [ -n "$range_path" ] || continue
+                if grep -qxF -e "$range_path" <<<"$OWN_PATHS"; then
+                    KEPT="$KEPT
+$range_path"
+                fi
+            done <<RANGE_LIST
+$REF_PATHS
+RANGE_LIST
+            REF_PATHS="$KEPT"
         fi
         CHANGED="$CHANGED
 $REF_PATHS"
