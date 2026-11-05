@@ -67,7 +67,7 @@ TESTS_TREE=""
 MESSAGES=()
 
 usage() {
-    sed -n '2,/^# -\{20,\}$/p' "$0" | sed -n '3,$p' | sed 's/^# \{0,1\}//' >&2
+    awk '/^# -{20,}/ { fence++; if (fence == 2) exit; next } fence == 1 && /^#/ { sub(/^# ?/, ""); print }' "$0" >&2
     exit 2
 }
 

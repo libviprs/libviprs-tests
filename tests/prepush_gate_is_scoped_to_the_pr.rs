@@ -336,8 +336,14 @@ fn scope(
     let changed_file = root.join("changed");
     std::fs::write(&changed_file, changed.join("\n") + "\n").expect("write the changed list");
 
+    // Run from a directory that holds a file named like a trailer item, so a
+    // trailer that is globbed instead of read as data would find a match.
+    let cwd = root.join("cwd");
+    std::fs::create_dir_all(&cwd).expect("create the working directory");
+    std::fs::write(cwd.join("core:x"), "").expect("write a file a glob would match");
     let mut cmd = Command::new("bash");
-    cmd.arg(repo_root().join("tools/gate-scope.sh"))
+    cmd.current_dir(&cwd)
+        .arg(repo_root().join("tools/gate-scope.sh"))
         .args(["--repo", repo, "--changed"])
         .arg(&changed_file)
         .arg("--core-git")
@@ -1224,7 +1230,11 @@ fn an_unknown_merge_base_runs_the_full_suite() {
     let after = m.ws.commit(
         "libviprs",
         "a new branch with nothing to compare against",
-        &[("src/foo.rs", "// b\n"), ("src/lib.rs", "pub mod foo;\n")],
+        &[
+            ("src/foo.rs", "// b\n"),
+            ("src/lib.rs", "pub mod foo;\n"),
+            ("tests/names_foo.rs", "use libviprs::foo::go;\n"),
+        ],
     );
     let zeros = "0".repeat(40);
     let (ok, out) = m.push("libviprs", &zeros, &after, &[]);
@@ -1360,7 +1370,13 @@ fn an_inherited_scope_list_does_not_narrow_an_unknown_base_push() {
     let after = m.ws.commit(
         "libviprs",
         "a new branch with nothing to compare against",
-        &[("src/foo.rs", "// b\n"), ("src/lib.rs", "pub mod foo;\n")],
+        &[
+            ("src/foo.rs", "// b\n"),
+            ("src/lib.rs", "pub mod foo;\n"),
+            // The stale list names this file, so it has to exist for the list
+            // to narrow anything: only the unset stands between the two.
+            ("tests/unrelated.rs", "fn main() {}\n"),
+        ],
     );
     let stale = m.ws.root.join("stale-changed");
     std::fs::write(&stale, "tests/unrelated.rs\n").expect("write a stale list");
