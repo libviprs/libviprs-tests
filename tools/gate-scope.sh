@@ -212,17 +212,18 @@ full_path_rule() {
 
 # Everything the tests/ and src/ of a tree name by a path-shaped string literal,
 # the way the hook's own scan reads them: the file itself, or a directory above
-# it. The top-level tests, src and .github directories are not counted as a
-# directory above, since a literal "tests" names nothing in particular and
-# the bare ".github" a shared workflows helper spells would pull in every test
-# that helper reaches for a change to one issue form (#375).
+# it. The top-level tests and src directories are not counted as a directory
+# above, since a literal "tests" names nothing in particular. The bare ".github"
+# is counted: a test that walks all of .github (the core's
+# pvec_1079_provider_default does, for libredwg and dwg2svg names) reads every
+# file there, and a workflow or an issue form can break it.
 scan_named() {
     local p="$1" why="$2" kind target above targets hits h pat
     targets="$p"
     above="$p"
     while [ "${above%/*}" != "$above" ]; do
         above="${above%/*}"
-        if [ "$above" != tests ] && [ "$above" != src ] && [ "$above" != .github ]; then
+        if [ "$above" != tests ] && [ "$above" != src ]; then
             targets="$targets
 $above"
         fi
@@ -509,12 +510,15 @@ while IFS= read -r p; do
         map_file "$PUSHED" "$p" "$p"
     fi
 
-    # A tracked dotfile at the root that no test names (libviprs main has carried
-    # .commitmsg-631 since #660) is not code. It gets the cheap guards, the
-    # ones every .github path gets, and not the whole suite (#375).
+    # The old .commitmsg-* scratch files that main carries (.commitmsg-631 since
+    # #660) are not code and nothing reads them. They get the cheap guards, the
+    # ones every .github path gets, and not the whole suite (#375). Every other
+    # root dotfile stays the full suite: .gitattributes export-ignore changes the
+    # tree git archive ships to MARS, and .clippy.toml, .env* and the like change
+    # how or what is built.
     if [ "$ADDED" -eq 0 ]; then
         case "$p" in
-            .*)
+            .commitmsg-*)
                 case "$p" in
                     */*) ;;
                     *)

@@ -405,7 +405,11 @@ if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
             FETCHED_DEFAULT=true
             case "$UPSTREAM" in
                 origin/*)
-                    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes -o ConnectTimeout=10" \
+                    # The ssh command the user has set stays theirs, with the
+                    # bounds added: ServerAlive ends a host that connects and
+                    # then goes quiet, which ConnectTimeout does not.
+                    FETCH_SSH="${GIT_SSH_COMMAND:-$(git config --get core.sshCommand 2>/dev/null || true)}"
+                    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${FETCH_SSH:-ssh} -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2" \
                         git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 \
                         fetch -q --no-tags origin "+refs/heads/${UPSTREAM#origin/}:refs/remotes/$UPSTREAM" >/dev/null 2>&1 || true
                     ;;
