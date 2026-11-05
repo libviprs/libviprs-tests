@@ -167,6 +167,10 @@ fn the_scoped_container_refuses_a_plan_that_runs_nothing() {
             Some(encode("core|test|x\nsurprise|y\n")),
         ),
         (
+            "a target name that is a cargo flag",
+            Some(encode("core|test|--release\n")),
+        ),
+        (
             "a target name with a glob in it",
             Some(encode("core|test|x*\n")),
         ),
@@ -553,7 +557,15 @@ fn shared_infrastructure_runs_the_full_suite() {
             "tools/gate-scope.sh",
             "tools/scoped-suite.sh",
         ] {
-            let s = scope(repo, &[path], CORE_BASE, TESTS_BASE, &[], &[]);
+            // One mapped path alongside, so the infrastructure path has to win.
+            let s = scope(
+                repo,
+                &["tests/unrelated.rs", path],
+                CORE_BASE,
+                TESTS_BASE,
+                &[],
+                &[],
+            );
             let why = s.full().unwrap_or_else(|| {
                 panic!(
                     "{repo}: a change to {path} was scoped:\n{}{}",
@@ -1288,5 +1300,129 @@ fn a_push_naming_a_missing_target_in_tests_is_refused() {
         m.read("gate.cmd"),
         "",
         "the suite ran for a refused push:\n{out}"
+    );
+}
+
+/// A source path that no test names is not "the module's own filters": the
+/// filters always exist, so they cannot be what decides a module has a test.
+/// A deleted source file maps to nothing that exists either.
+#[test]
+fn a_source_path_no_test_names_runs_the_full_suite() {
+    let core = with(
+        CORE_BASE,
+        &[
+            ("src/quiet.rs", "// nobody names me\n"),
+            ("src/m/other.rs", "// kept\n"),
+        ],
+    );
+    for path in ["src/quiet.rs", "src/m/x.rs"] {
+        let s = scope("libviprs", &[path], &core, TESTS_BASE, &[], &[]);
+        let why = s
+            .full()
+            .unwrap_or_else(|| panic!("{path} was scoped:\n{}{}", s.stdout, s.stderr));
+        assert!(why.contains(path), "the reason does not name {path}: {why}");
+    }
+}
+
+/// A `Tests:` trailer is data. A glob in it must be refused, never expanded
+/// against the directory the hook happens to run in.
+#[test]
+fn a_tests_trailer_glob_is_refused() {
+    let core = with(CORE_BASE, &[("tests/x.rs", "// x\n")]);
+    for bad in ["core:*", "*", "tests:x?"] {
+        let s = scope(
+            "libviprs",
+            &["tests/x.rs"],
+            &core,
+            TESTS_BASE,
+            &[&format!("Change\n\nTests: {bad}")],
+            &[],
+        );
+        assert!(!s.ok, "`{bad}` was accepted:\n{}{}", s.stdout, s.stderr);
+        assert_eq!(s.stdout, "", "a refused push printed a plan:\n{}", s.stdout);
+    }
+}
+
+/// A scope list left in the environment by something else is not this push's.
+/// With no base to compare against there is no list, and the full suite runs.
+#[test]
+fn an_inherited_scope_list_does_not_narrow_an_unknown_base_push() {
+    let m = FakeMars::new();
+    let after = m.ws.commit(
+        "libviprs",
+        "a new branch with nothing to compare against",
+        &[("src/foo.rs", "// b\n"), ("src/lib.rs", "pub mod foo;\n")],
+    );
+    let stale = m.ws.root.join("stale-changed");
+    std::fs::write(&stale, "tests/unrelated.rs\n").expect("write a stale list");
+    let (ok, out) = m.push(
+        "libviprs",
+        &"0".repeat(40),
+        &after,
+        &[
+            ("LIBVIPRS_GATE_CHANGED_FILE", stale.to_str().expect("utf-8")),
+            ("LIBVIPRS_GATE_REPO", "libviprs"),
+            ("LIBVIPRS_GATE_TIPS", &after),
+        ],
+    );
+    assert!(ok, "{out}");
+    assert!(
+        m.scope_of_the_gate().is_none(),
+        "an inherited list narrowed the push:\n{out}"
+    );
+}
+
+/// A rename is a delete and an add. Listing only the new name would scope a
+/// push to a file and never see the one that went away.
+#[test]
+fn a_renamed_test_file_counts_its_old_name_too() {
+    let m = FakeMars::new();
+    let body = "#[test] fn t() { assert!(true); }\n// enough text to be a rename\n";
+    let before = m.ws.commit(
+        "libviprs",
+        "base",
+        &[
+            ("src/lib.rs", "pub mod foo;\n"),
+            ("src/foo.rs", "// a\n"),
+            ("tests/old.rs", body),
+        ],
+    );
+    git(
+        &m.ws.repo("libviprs"),
+        &["mv", "tests/old.rs", "tests/new.rs"],
+    );
+    let after = m.ws.commit("libviprs", "rename", &[]);
+    let (ok, out) = m.push("libviprs", &before, &after, &[]);
+    assert!(ok, "{out}");
+    assert!(
+        m.scope_of_the_gate().is_none(),
+        "the old name of a renamed test never reached the selector:\n{out}"
+    );
+}
+
+/// If the selector itself falls over, the answer is the whole suite.
+#[test]
+fn a_selector_that_crashes_runs_the_full_suite() {
+    let m = FakeMars::new();
+    write_exec(
+        &m.ws.repo("libviprs-tests").join("tools/gate-scope.sh"),
+        "#!/bin/sh\necho boom >&2\nexit 1\n",
+    );
+    let before = m.ws.commit(
+        "libviprs",
+        "base",
+        &[("src/foo.rs", "// a\n"), ("src/lib.rs", "pub mod foo;\n")],
+    );
+    let after =
+        m.ws.commit("libviprs", "change", &[("src/foo.rs", "// b\n")]);
+    let (ok, out) = m.push("libviprs", &before, &after, &[]);
+    assert!(ok, "a crashed selector refused the push:\n{out}");
+    assert!(
+        m.scope_of_the_gate().is_none(),
+        "a crashed selector still scoped the run:\n{out}"
+    );
+    assert!(
+        out.contains("whole suite"),
+        "the fallback was silent:\n{out}"
     );
 }
