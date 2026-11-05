@@ -96,7 +96,13 @@ impl Container {
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)
         );
-        let calls = std::fs::read_to_string(self.root.join("calls.log")).unwrap_or_default();
+        // The ported-cells recorder has no arguments to echo, which leaves a
+        // trailing space on its line.
+        let calls = std::fs::read_to_string(self.root.join("calls.log"))
+            .unwrap_or_default()
+            .lines()
+            .map(|l| format!("{}\n", l.trim_end()))
+            .collect();
         (out.status.success(), text, calls)
     }
 }
