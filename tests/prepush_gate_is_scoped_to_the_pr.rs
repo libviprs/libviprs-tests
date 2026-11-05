@@ -1878,3 +1878,60 @@ fn the_fetch_keeps_a_configured_ssh_command_and_bounds_a_silent_host() {
         "the configured ssh command never ran bounded; it logged: {log:?}"
     );
 }
+
+// ===========================================================================
+// A clone whose origin/HEAD is not the default branch (libviprs-tests#379)
+// ===========================================================================
+
+/// The libviprs clone's `refs/remotes/origin/HEAD` points at `origin/init`, the
+/// initial commit, while the remote's HEAD is main. Everything main has done
+/// since then must still be subtracted.
+fn point_origin_head_at_the_initial_commit(m: &FakeMars) {
+    let repo = m.ws.repo("libviprs");
+    let root = git(&repo, &["rev-list", "--max-parents=0", "HEAD"])
+        .trim()
+        .to_string();
+    git(&repo, &["update-ref", "refs/remotes/origin/init", &root]);
+    git(
+        &repo,
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/init",
+        ],
+    );
+}
+
+#[test]
+fn a_stale_origin_head_does_not_hide_that_main_was_merged_in() {
+    let m = FakeMars::new();
+    let remote_tip = branch_with_main_ahead(&m);
+    point_origin_head_at_the_initial_commit(&m);
+    merge_main(&m);
+    let tip =
+        m.ws.commit("libviprs", "more work", &[("src/foo.rs", "// c\n")]);
+
+    let (ok, out) = m.push("libviprs", &remote_tip, &tip, &[]);
+    assert!(ok, "{out}");
+    assert!(
+        m.scope_of_the_gate().is_some(),
+        "main's commits counted as the PR's because origin/HEAD is stale:\n{out}"
+    );
+}
+
+#[test]
+fn a_never_pushed_branch_is_based_on_main_even_with_a_stale_origin_head() {
+    let m = FakeMars::new();
+    branch_with_main_ahead(&m);
+    point_origin_head_at_the_initial_commit(&m);
+    merge_main(&m);
+    let tip =
+        m.ws.commit("libviprs", "more work", &[("src/foo.rs", "// c\n")]);
+
+    let (ok, out) = m.push("libviprs", &"0".repeat(40), &tip, &[]);
+    assert!(ok, "{out}");
+    assert!(
+        m.scope_of_the_gate().is_some(),
+        "a new branch was measured from the initial commit:\n{out}"
+    );
+}
