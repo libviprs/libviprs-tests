@@ -1451,3 +1451,147 @@ fn a_selector_that_crashes_runs_the_full_suite() {
         "the fallback was silent:\n{out}"
     );
 }
+
+// ===========================================================================
+// The PR's own changes (libviprs-tests#375)
+// ===========================================================================
+
+/// The tree under test: a base commit with a module and a test naming it,
+/// and `origin/main` moved on by a manifest change that is not on the branch.
+/// Returns the stand-in and the branch tip the remote already has.
+fn branch_with_main_ahead(m: &FakeMars) -> String {
+    let repo = m.ws.repo("libviprs");
+    m.ws.commit(
+        "libviprs",
+        "base",
+        &[
+            ("src/foo.rs", "// a\n"),
+            ("src/lib.rs", "pub mod foo;\n"),
+            ("tests/names_foo.rs", "use libviprs::foo::go;\n"),
+        ],
+    );
+    git(&repo, &["checkout", "-q", "-b", "side"]);
+    m.ws.commit(
+        "libviprs",
+        "main moves on",
+        &[
+            ("Cargo.toml", "[package]\nname = \"libviprs\"\n"),
+            (".github/workflows/ci.yml", "# new\n"),
+        ],
+    );
+    git(&repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    git(&repo, &["checkout", "-q", "main"]);
+    m.ws.commit("libviprs", "work on the PR", &[("src/foo.rs", "// b\n")])
+}
+
+fn merge_main(m: &FakeMars) -> String {
+    let repo = m.ws.repo("libviprs");
+    git(
+        &repo,
+        &[
+            "-c",
+            "user.name=scope guard",
+            "-c",
+            "user.email=guard@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "merge",
+            "-q",
+            "--no-edit",
+            "origin/main",
+        ],
+    );
+    git(&repo, &["rev-parse", "HEAD"]).trim().to_string()
+}
+
+/// Main merged into the branch is not the PR's change. A manifest change that
+/// is on main only must not make the push the full suite.
+#[test]
+fn a_main_merge_does_not_make_mains_changes_the_prs() {
+    let m = FakeMars::new();
+    let remote_tip = branch_with_main_ahead(&m);
+    merge_main(&m);
+    let tip =
+        m.ws.commit("libviprs", "more work", &[("src/foo.rs", "// c\n")]);
+
+    let (ok, out) = m.push("libviprs", &remote_tip, &tip, &[]);
+    assert!(ok, "{out}");
+    let plan = m
+        .scope_of_the_gate()
+        .unwrap_or_else(|| panic!("main's changes made the PR a full run:\n{out}"));
+    assert!(plan.contains("core|lib|foo::"), "{plan}");
+    assert!(plan.contains("core|test|names_foo"), "{plan}");
+}
+
+/// A merge-forward and nothing else adds nothing of the PR's own, so there is
+/// nothing new to run.
+#[test]
+fn a_pure_main_merge_forward_contributes_nothing() {
+    let m = FakeMars::new();
+    let remote_tip = branch_with_main_ahead(&m);
+    let tip = merge_main(&m);
+
+    let (ok, out) = m.push("libviprs", &remote_tip, &tip, &[]);
+    assert!(ok, "{out}");
+    assert_eq!(
+        m.read("gate.cmd"),
+        "",
+        "a merge-forward ran the suite:\n{out}"
+    );
+    assert!(
+        out.contains("nothing in this push reaches the test suite"),
+        "{out}"
+    );
+}
+
+/// An issue form is read by the tests that name it and checked by the CI
+/// parity guards. It is not a reason to run what a shared helper reaches
+/// through the bare `.github` directory.
+#[test]
+fn an_issue_form_change_maps_to_its_readers_and_the_cheap_guards() {
+    let core = with(
+        CORE_BASE,
+        &[
+            (".github/ISSUE_TEMPLATE/epic.yml", "name: Epic\n"),
+            (
+                "tests/epic_form.rs",
+                "const F: &str = include_str!(\"../.github/ISSUE_TEMPLATE/epic.yml\");\n",
+            ),
+            (
+                "tests/common/workflows.rs",
+                "pub fn read() { let _ = std::path::Path::new(\".github\"); }\n",
+            ),
+            (
+                "tests/wf_one.rs",
+                "mod common;\nuse common::workflows::read;\n",
+            ),
+            (
+                "tests/wf_two.rs",
+                "mod common;\nuse common::workflows::read;\n",
+            ),
+            ("tests/local_gate_is_the_job_list.rs", "// guard\n"),
+            ("tests/local_gate_native_dwg_1295.rs", "// guard\n"),
+            ("tests/miri_invocation_parity.rs", "// guard\n"),
+        ],
+    );
+    let s = scope(
+        "libviprs",
+        &[".github/ISSUE_TEMPLATE/epic.yml"],
+        &core,
+        TESTS_BASE,
+        &[],
+        &[],
+    );
+    assert_eq!(
+        s.lines(),
+        set(&[
+            "core|test|epic_form",
+            "core|test|local_gate_is_the_job_list",
+            "core|test|local_gate_native_dwg_1295",
+            "core|test|miri_invocation_parity",
+            "lint",
+        ]),
+        "stderr: {}",
+        s.stderr
+    );
+}
