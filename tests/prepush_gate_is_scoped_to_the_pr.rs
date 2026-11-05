@@ -1595,3 +1595,110 @@ fn an_issue_form_change_maps_to_its_readers_and_the_cheap_guards() {
         s.stderr
     );
 }
+
+/// A tracked dotfile at the root that no test names (`.commitmsg-631` is one
+/// that main has carried since #660) is not code and not a reason for the
+/// whole suite. It maps to the cheap guards, present or deleted.
+#[test]
+fn a_root_dotfile_no_test_names_maps_to_the_cheap_guards_only() {
+    let core = with(
+        CORE_BASE,
+        &[
+            (".commitmsg-631", "an old message\n"),
+            ("tests/local_gate_is_the_job_list.rs", "// guard\n"),
+            ("tests/local_gate_native_dwg_1295.rs", "// guard\n"),
+            ("tests/miri_invocation_parity.rs", "// guard\n"),
+        ],
+    );
+    let guards = set(&[
+        "core|test|local_gate_is_the_job_list",
+        "core|test|local_gate_native_dwg_1295",
+        "core|test|miri_invocation_parity",
+        "lint",
+    ]);
+    let s = scope("libviprs", &[".commitmsg-631"], &core, TESTS_BASE, &[], &[]);
+    assert_eq!(s.lines(), guards, "present: {}{}", s.stdout, s.stderr);
+    let s = scope("libviprs", &[".commitmsg-632"], &core, TESTS_BASE, &[], &[]);
+    assert_eq!(s.lines(), guards, "deleted: {}{}", s.stdout, s.stderr);
+
+    // A dotfile a test does name still runs that test.
+    let core = with(
+        &core,
+        &[(
+            "tests/reads_msg.rs",
+            "fn f() { let _ = std::fs::read(\".commitmsg-631\"); }\n",
+        )],
+    );
+    let s = scope("libviprs", &[".commitmsg-631"], &core, TESTS_BASE, &[], &[]);
+    assert!(s.lines().contains("core|test|reads_msg"), "{}", s.stdout);
+}
+
+/// A branch that was never pushed is measured against the default branch as
+/// the remote has it now, not as this clone last saw it. With a stale
+/// origin/main the commits main gained since count as the branch's own.
+#[test]
+fn a_new_branch_is_measured_against_the_fetched_default_branch() {
+    let m = FakeMars::new();
+    let repo = m.ws.repo("libviprs");
+    let base = m.ws.commit(
+        "libviprs",
+        "base",
+        &[
+            ("src/foo.rs", "// a\n"),
+            ("src/lib.rs", "pub mod foo;\n"),
+            ("tests/names_foo.rs", "use libviprs::foo::go;\n"),
+        ],
+    );
+    let bare = m.ws.root.join("origin.git");
+    git(
+        &m.ws.root,
+        &[
+            "clone",
+            "-q",
+            "--bare",
+            repo.to_str().expect("utf-8"),
+            bare.to_str().expect("utf-8"),
+        ],
+    );
+    git(
+        &repo,
+        &["remote", "add", "origin", bare.to_str().expect("utf-8")],
+    );
+    git(&repo, &["fetch", "-q", "origin"]);
+
+    // Main moves on at the remote only: this clone's origin/main stays stale.
+    git(&repo, &["checkout", "-q", "-b", "side"]);
+    m.ws.commit("libviprs", "main moves on", &[("Cargo.toml", "# main\n")]);
+    // Fetched into the bare repository, so no hook runs and this clone's
+    // remote-tracking ref does not move.
+    git(
+        &bare,
+        &["fetch", "-q", repo.to_str().expect("utf-8"), "+side:main"],
+    );
+
+    git(&repo, &["checkout", "-q", "-b", "feat", &base]);
+    m.ws.commit("libviprs", "the PR's work", &[("src/foo.rs", "// b\n")]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "user.name=scope guard",
+            "-c",
+            "user.email=guard@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "merge",
+            "-q",
+            "--no-edit",
+            "side",
+        ],
+    );
+    let tip = git(&repo, &["rev-parse", "HEAD"]).trim().to_string();
+
+    let (ok, out) = m.push("libviprs", &"0".repeat(40), &tip, &[]);
+    assert!(ok, "{out}");
+    assert!(
+        m.scope_of_the_gate().is_some(),
+        "main's newer commits counted as the new branch's own:\n{out}"
+    );
+}
