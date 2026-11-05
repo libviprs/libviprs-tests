@@ -258,7 +258,10 @@ const INERT_IN_LIBVIPRS: &[&str] = &[
 /// is. `docs/pmtiles-benchmarks.md` is inert from libviprs#1534 (benchmarks are
 /// optional, `pmtiles_release_readiness.rs` no longer includes it) and read by
 /// every core branch cut before that. A path leaves this list for the one above
-/// once the pin and every in-flight core branch have the change.
+/// once the pin and every in-flight core branch have the change, and
+/// `the_pinned_list_holds_only_paths_every_core_vintage_leaves_inert` has to be
+/// deleted in the same edit, since it fails for any path on the main list that an
+/// older core still reads.
 const INERT_ONCE_THE_READER_IS_GONE: &[&str] = &["docs/pmtiles-benchmarks.md"];
 
 /// The skip list may only hold paths nothing reads, and the only way to know
