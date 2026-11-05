@@ -445,6 +445,40 @@ fn a_doc_a_test_includes_is_read_and_one_nothing_includes_is_inert() {
     );
 }
 
+/// The pinned list is measured against whatever core the push carries, and a
+/// core branch cut before libviprs#1534 still reads
+/// `docs/pmtiles-benchmarks.md` with `include_str!`. So the list may only
+/// require a path to be inert when that holds in every vintage of the core
+/// (libviprs-tests#376): a stand-in of that older core must not make any path
+/// the list pins, and the tree holds, come back read.
+#[test]
+fn the_pinned_list_holds_only_paths_every_core_vintage_leaves_inert() {
+    let dir = tempfile::tempdir().expect("scratch dir");
+    let tree = dir.path();
+    lay_down(
+        tree,
+        &[
+            ("docs/pmtiles-benchmarks.md", "| column |\n"),
+            (
+                "tests/pmtiles_release_readiness.rs",
+                "const BENCHMARK_DOC: &str = include_str!(\"../docs/pmtiles-benchmarks.md\");\n",
+            ),
+        ],
+    );
+    let paths = vec!["docs/pmtiles-benchmarks.md".to_string()];
+    let got = inert_paths("libviprs", tree, &paths);
+    let wrongly_pinned: Vec<&&str> = INERT_IN_LIBVIPRS
+        .iter()
+        .filter(|p| paths.iter().any(|q| q == **p) && !got.contains(**p))
+        .collect();
+    assert!(
+        wrongly_pinned.is_empty(),
+        "the pinned list demands these be inert, and a core cut before the \
+         change that dropped their reader reads them: {wrongly_pinned:?}. Put \
+         them on the transitional list so the guard accepts either."
+    );
+}
+
 /// Write `files` under `tree`, creating directories as needed.
 fn lay_down(tree: &Path, files: &[(&str, &str)]) {
     for (rel, contents) in files {
