@@ -202,10 +202,11 @@ const INERT_IN_LIBVIPRS_TESTS: &[&str] = &["LICENSE"];
 /// `docs/` is not on this list as a directory either, and for the same reason.
 /// Whether a doc is inert is a question about the tree, not about the path:
 /// `docs/streaming-pdf-rotation.md` is inert because nothing pulls it in, and
-/// libviprs/libviprs#1010's `docs/pmtiles-benchmarks.md` is not, because
-/// `tests/pmtiles_release_readiness.rs` reads it with `include_str!` and
-/// asserts on its columns and on the test names it quotes. `inert_path()` goes
-/// and looks, which is why only the first of those two is named here.
+/// libviprs/libviprs#1010's `docs/pmtiles-benchmarks.md` was not, because
+/// `tests/pmtiles_release_readiness.rs` read it with `include_str!` and
+/// asserted on its columns and on the test names it quotes (libviprs#1534
+/// dropped that, so it is inert now). `inert_path()` goes and looks, which is
+/// why a doc is on the list below only when the scan finds nothing reading it.
 ///
 /// A standing obligation comes with that, and it is the cost of deciding on the
 /// tree rather than on the path. This list is now measured against three
@@ -226,13 +227,15 @@ const INERT_IN_LIBVIPRS: &[&str] = &[
     // mentions it in two doc comments and no test pulls it in, so a push
     // that changes only this file genuinely runs nothing that could fail.
     //
-    // Worth knowing that its sibling is not in this position.
-    // `docs/pmtiles-benchmarks.md` comes in through `include_str!` in
-    // `pmtiles_release_readiness.rs`, where four cells hold it to naming
-    // tests that exist and documenting every exported column. This file
-    // has no such guard, so its numbers can go stale silently. Pinning it
-    // here records that as a deliberate gap rather than closing it.
+    // Its sibling `docs/pmtiles-benchmarks.md` used to be read through
+    // `include_str!` in `pmtiles_release_readiness.rs`, where cells held it
+    // to naming tests that exist and documenting every exported column;
+    // libviprs#1534 dropped that, so both pages are unguarded and inert now.
     "docs/tile-codec-benchmarks.md",
+    // Benchmarks are optional now (libviprs#1533): `pmtiles_release_readiness.rs` no longer
+    // includes this page, so no core test reads it. Inert from the core commit that drops the
+    // include, so `COUNTERPART_REV` moves to that merge in the same wave.
+    "docs/pmtiles-benchmarks.md",
     // Added with the bump to core 48bdb1f1 (#291). These are the PVec spike and
     // inventory notes: design write-ups and a recorded spike run, and no test
     // pulls any of them in with `include_str!` or reads them off disk, so a push
@@ -382,8 +385,9 @@ fn the_skip_list_never_exempts_what_the_suite_reads() {
 ///
 /// `docs/*` used to mean inert on the strength of the pattern alone, and the
 /// day a test pulled a doc in, the gate started waving through the doc edits
-/// that break it: libviprs/libviprs#1010 adds `docs/pmtiles-benchmarks.md`,
-/// whose contents two cells in `tests/pmtiles_release_readiness.rs` assert on.
+/// that break it: libviprs/libviprs#1010 added `docs/pmtiles-benchmarks.md`,
+/// whose contents two cells in `tests/pmtiles_release_readiness.rs` asserted on
+/// (since dropped in libviprs#1534, the shape is what matters).
 /// A push changing only that file skipped the suite and failed in CI instead.
 ///
 /// Both halves are here because either one passes on its own for the wrong
@@ -898,7 +902,7 @@ fn the_hook_skips_and_runs_the_way_the_list_says() {
             "tests/reads_a_doc.rs pulls it in with include_str!, so editing it \
              changes what a test asserts against. This is the shape of \
              libviprs/libviprs#1010's docs/pmtiles-benchmarks.md, which two \
-             cells in tests/pmtiles_release_readiness.rs read",
+             cells in tests/pmtiles_release_readiness.rs used to read",
         ),
         (
             "libviprs",

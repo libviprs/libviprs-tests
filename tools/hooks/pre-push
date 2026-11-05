@@ -185,9 +185,9 @@ fi
 # The second half of the answer is not a pattern at all. `docs/*` says "this
 # is not code", which is not the same as "nothing reads it", and the day a
 # test pulled a doc in the two stopped meaning the same thing:
-# libviprs/libviprs#1010 adds docs/pmtiles-benchmarks.md and reads it from
-# tests/pmtiles_release_readiness.rs with include_str!, with two cells
-# asserting on its columns and on the test names it quotes. A push changing
+# libviprs/libviprs#1010 added docs/pmtiles-benchmarks.md and read it from
+# tests/pmtiles_release_readiness.rs with include_str! (libviprs#1534 later
+# dropped that), with two cells asserting on its columns and on the test names it quotes. A push changing
 # only that file was skipping the suite and failing in CI instead. So for the
 # patterns that claim nothing reads the file, go and look: scan the pushed
 # tree's tests/ for paths, and anything one of them names is read, whatever the

@@ -147,10 +147,6 @@ fn nightly_selects_ignored_tests_by_target_not_crate_wide() {
              manual diagnostics, and deferred stubs that do not pass yet (issue #59)"
         );
     }
-    assert!(
-        ignored_cmds
-            .iter()
-            .any(|c| c.contains("--features pdfium") && c.contains("pdfium_streaming_perf_smoke")),
-        "nightly.yml must still run the wall-clock perf-ratio smokes (issue #59)"
-    );
+    // The wall-clock perf-ratio smoke used to be required here. Benchmarks are optional now, so the
+    // nightly may run it but nothing fails if it stops.
 }
