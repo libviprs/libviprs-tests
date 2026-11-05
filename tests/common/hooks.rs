@@ -157,6 +157,7 @@ impl Workspace {
         for rel in [
             "tools/install-hooks.sh",
             "tools/mars-run.sh",
+            "tools/gate-scope.sh",
             "tools/Dockerfile.hooks",
             PRE_PUSH_HOOK,
         ] {

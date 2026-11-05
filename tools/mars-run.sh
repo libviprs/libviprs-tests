@@ -50,6 +50,16 @@
 #   LIBVIPRS_HOOK_TREEISH=REV    hook mode: gate REV's tree instead of the index
 #   LIBVIPRS_TESTS_REV=REV       gate mode: use the harness at REV, not its checkout
 #   LIBVIPRS_CORE_REV=pin|REV    gate mode: use the core COUNTERPART_REV names (pin) or REV
+#
+# A pre-push gate scopes itself to the pushed PR (libviprs-tests#370). The hook
+# names what the push changed, and gate mode asks tools/gate-scope.sh which
+# targets that selects in the two trees it is about to ship, so the choice and
+# the run read the same trees. The answer is the whole suite whenever it cannot
+# be sure, and it is never "nothing". Without these there is no scope at all:
+#   LIBVIPRS_GATE_CHANGED_FILE   non-inert paths the push changes, one per line
+#   LIBVIPRS_GATE_REPO           libviprs or libviprs-tests, the repo being pushed
+#   LIBVIPRS_GATE_TIPS           the commits being pushed, space separated
+#   LIBVIPRS_GATE_LINT_HOOK      the pre-commit hook; a scoped run lints each tip with it
 set -euo pipefail
 
 MARS="${LIBVIPRS_HOOKS_MARS:-devshell@192.168.0.100}"
@@ -283,6 +293,75 @@ wait_for_gate_slot() {
     done
 }
 
+# Set by scope_plan: the plan, base64 on one line, and whether the lint half
+# is part of it. Empty and false mean the whole suite.
+SCOPE_B64=""
+SCOPE_LINT=false
+
+# Ask gate-scope.sh what this push selects. Every way this can go wrong ends in
+# the whole suite, which is the safe direction, except a Tests: name that is not
+# in the tree, which refuses the push.
+scope_plan() {
+    local core="$1" core_tree="$2" tests="$3" tests_tree="$4"
+    local gs="$SELF_DIR/gate-scope.sh" pushed tip dir plan rc=0 n=0
+    local margs=()
+    [ -n "${LIBVIPRS_GATE_CHANGED_FILE:-}" ] || return 0
+    [ "${LIBVIPRS_PREPUSH_ALL:-0}" != 1 ] || return 0
+    if [ ! -r "$gs" ] || [ ! -r "$LIBVIPRS_GATE_CHANGED_FILE" ]; then
+        say "no gate-scope.sh or no list of changed paths, so the whole suite runs"
+        return 0
+    fi
+    pushed="$tests"
+    [ "${LIBVIPRS_GATE_REPO:-}" != libviprs ] || pushed="$core"
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/mars-run-scope.XXXXXX")"
+    for tip in ${LIBVIPRS_GATE_TIPS:-}; do
+        n=$((n + 1))
+        cleangit -C "$pushed" log -1 --format=%B "$tip" > "$dir/message-$n" 2>/dev/null || true
+        margs+=(--message "$dir/message-$n")
+    done
+    plan="$(bash "$gs" --repo "${LIBVIPRS_GATE_REPO:-}" --changed "$LIBVIPRS_GATE_CHANGED_FILE" \
+        --core-git "$core" --core-tree "$core_tree" --tests-git "$tests" --tests-tree "$tests_tree" \
+        ${margs[@]+"${margs[@]}"})" || rc=$?
+    while [ "$n" -gt 0 ]; do
+        rm -f "$dir/message-$n"
+        n=$((n - 1))
+    done
+    rmdir "$dir" 2>/dev/null || true
+    if [ "$rc" -eq 3 ]; then
+        die "this push is refused, see above"
+    fi
+    if [ "$rc" -ne 0 ]; then
+        say "gate-scope.sh failed (status $rc), so the whole suite runs"
+        return 0
+    fi
+    case "$plan" in
+        FULL\|* | "") return 0 ;;
+    esac
+    # A plan with no target in it is not a plan.
+    if ! printf '%s\n' "$plan" | grep -qE '^(core\|(test|lib|doc)|tests\|test)\||^ported$'; then
+        say "gate-scope.sh answered with no target, so the whole suite runs"
+        return 0
+    fi
+    SCOPE_B64="$(printf '%s\n' "$plan" | base64 | tr -d '\n')"
+    if printf '%s\n' "$plan" | grep -qx lint; then
+        SCOPE_LINT=true
+    fi
+}
+
+lint_tips() {
+    local tip
+    local hook="${LIBVIPRS_GATE_LINT_HOOK:-}"
+    if [ ! -x "$hook" ]; then
+        say "a scoped run lints each tip with the pre-commit hook, and there is none at '$hook'."
+        say "Run libviprs-tests/tools/install-hooks.sh."
+        return 1
+    fi
+    for tip in ${LIBVIPRS_GATE_TIPS:-}; do
+        say "scoped run: the lint half for ${tip:0:12}"
+        LIBVIPRS_HOOK_TREEISH="$tip" "$hook" || return 1
+    done
+}
+
 GATE_JOB=""
 gate_cleanup() {
     [ -n "$GATE_JOB" ] || return 0
@@ -328,6 +407,8 @@ gate_mode() {
         core_tree="$(snapshot_tree "$core")"
     fi
 
+    scope_plan "$core" "$core_tree" "$tests" "$tests_tree"
+
     local dir
     local args=""
     # Global: the EXIT trap below runs after this function has returned.
@@ -336,6 +417,9 @@ gate_mode() {
     dir="$SCRATCH_PARENT/$job"
     local a
     for a in ${@+"$@"}; do args="${args} $(printf '%q' "$a")"; done
+    if [ -n "$SCOPE_B64" ]; then
+        args="${args} --scope $SCOPE_B64"
+    fi
 
     trap gate_cleanup EXIT
     trap 'mssh "docker kill $GATE_JOB >/dev/null 2>&1" || true; exit 130' INT TERM
@@ -387,6 +471,12 @@ mkrepo libviprs-tests "$MARS_TAGS_TESTS"'
         bash -c $(printf '%q' "tools/run-tests.sh$args")" </dev/null || rc=$?
     if [ "$rc" -eq 255 ]; then
         die "lost the connection to MARS mid-run, so the suite did not finish. Run again."
+    fi
+    # The lint half is the same pre-commit hook a commit runs, so the mirror of
+    # the core's CI list stays one list. It follows a scoped suite that passed;
+    # a full run has never linted.
+    if [ "$rc" -eq 0 ] && [ "$SCOPE_LINT" = true ]; then
+        lint_tips || rc=$?
     fi
     return "$rc"
 }
