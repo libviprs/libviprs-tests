@@ -29,6 +29,24 @@ set -euo pipefail
 # is refused and the message names LIBVIPRS_HOOKS_SKIP_MARS=1, which skips the
 # run loudly. --no-verify is not the way around a MARS that is down.
 #
+# THE SUITE IS SCOPED TO THE PR (libviprs-tests#370)
+#
+# A push runs the tests that belong to it, not the whole suite. The paths it
+# changes (the ones above that are not inert) go to tools/gate-scope.sh through
+# tools/mars-run.sh, which asks it once both trees are known, so the choice is
+# read from the same core and harness that run: a core push selects against the
+# harness at origin/main and a harness push against the core COUNTERPART_REV
+# pins. The plan is printed before anything runs.
+#
+# It never scopes to nothing. Shared infrastructure (manifests, lockfiles, build
+# scripts, Dockerfiles, the pins, run-tests.sh, tests/common/mod.rs, src/lib.rs
+# and the hub modules), a base this hook cannot find, a failing grep, a path no
+# rule maps and a selection over the cap all run the full suite, as does
+# LIBVIPRS_PREPUSH_ALL=1. A `Tests: core:NAME, tests:NAME` trailer on the tip adds
+# targets and cannot remove any; a name that is not in the tree refuses the push.
+# After a scoped suite passes, each tip also gets the lint half (the pre-commit
+# hook), so the mirror of the core's ci.yml list stays the one list.
+#
 # RED TEST-FIRST COMMITS
 #
 # A commit that adds failing tests before the fix has to be pushable, or every
@@ -351,8 +369,13 @@ TARGETS
     return 0
 }
 
+# A scope list inherited from the environment is somebody else's. mars-run.sh
+# reads these, so only this hook, below, may set them for this push.
+unset LIBVIPRS_GATE_CHANGED_FILE LIBVIPRS_GATE_REPO LIBVIPRS_GATE_TIPS LIBVIPRS_GATE_LINT_HOOK
+
 REF_UPDATES="$(cat)"
 CHANGED=""
+REACHING=""
 SKIP_SUITE=false
 
 if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
@@ -392,7 +415,7 @@ if [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ] && [ -n "$REF_UPDATES" ]; then
         # Unguarded this is a `set -e` exit: a git failure here would abort
         # the push with nothing printed. A range we cannot diff is a range we
         # cannot judge, which is the same answer as a base we could not find.
-        if ! REF_PATHS="$(git diff --name-only "$BASE" "$local_oid" --)"; then
+        if ! REF_PATHS="$(git diff --name-only --no-renames "$BASE" "$local_oid" --)"; then
             UNKNOWN=true
             break
         fi
@@ -411,9 +434,14 @@ REFS
             if inert_path "$changed_path"; then
                 continue
             fi
+            if [ "$SKIP_SUITE" = true ]; then
+                echo "Pre-push: $changed_path can reach the suite, running it${REACH_REASON:+ ($REACH_REASON)}."
+            fi
             SKIP_SUITE=false
-            echo "Pre-push: $changed_path can reach the suite, running it${REACH_REASON:+ ($REACH_REASON)}."
-            break
+            # Every path that reaches the suite, for the scope. A base this hook
+            # could not find never gets here, and that is the full suite.
+            REACHING="$REACHING
+$changed_path"
         done <<PATHS
 $CHANGED
 PATHS
@@ -517,6 +545,27 @@ RED_REFS
             fi
         done
         exit 0
+    fi
+
+    # What the push changes that reaches the suite, for tools/gate-scope.sh. With
+    # no list (an unknown base, LIBVIPRS_PREPUSH_ALL=1, no ref update) there is
+    # nothing to scope from and the whole suite runs, as it always did.
+    if [ -n "$REACHING" ] && [ -n "$REF_UPDATES" ] && [ "${LIBVIPRS_PREPUSH_ALL:-0}" != "1" ]; then
+        GATE_CHANGED_FILE="$(mktemp "${TMPDIR:-/tmp}/prepush-changed.XXXXXX")"
+        trap 'rm -f "$GATE_CHANGED_FILE"' EXIT
+        printf '%s\n' "$REACHING" | sed '/^$/d' > "$GATE_CHANGED_FILE"
+        GATE_TIPS=""
+        while read -r _l_ref l_oid _r_ref _r_oid; do
+            case "${l_oid:-}" in
+                "" | *[!0]*) [ -z "${l_oid:-}" ] || GATE_TIPS="$GATE_TIPS $l_oid" ;;
+            esac
+        done <<TIP_REFS
+$REF_UPDATES
+TIP_REFS
+        export LIBVIPRS_GATE_CHANGED_FILE="$GATE_CHANGED_FILE"
+        export LIBVIPRS_GATE_REPO="$REPO_NAME"
+        export LIBVIPRS_GATE_TIPS="${GATE_TIPS# }"
+        export LIBVIPRS_GATE_LINT_HOOK="$MAIN_CHECKOUT/.git/hooks/pre-commit"
     fi
 
     echo "Running pre-push test suite on MARS for $TREE..."
