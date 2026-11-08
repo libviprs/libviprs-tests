@@ -34,6 +34,32 @@ fn the_facade_and_geometry_revisions_are_the_ones_the_core_pins() {
     }
 }
 
+/// Every pvec crate this manifest names sits on one revision, so a bump that moves only the two the
+/// core check reads still fails here (libviprs-tests#381).
+#[test]
+fn every_pvec_crate_here_is_on_the_core_revision() {
+    let ours =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")).unwrap();
+    let core = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../libviprs/Cargo.toml"),
+    )
+    .expect("the core checkout beside this one");
+    let theirs = rev_of(&core, "pvec-facade");
+    for krate in [
+        "pvec-interchange",
+        "pvec-facade",
+        "pvec-geometry",
+        "pvec-container",
+        "pvec-capabilities",
+    ] {
+        assert_eq!(
+            rev_of(&ours, krate),
+            theirs,
+            "`{krate}` is not on the core's pvec revision"
+        );
+    }
+}
+
 #[test]
 fn both_counterpart_pins_are_full_shas() {
     for name in ["COUNTERPART_REV", "CLI_COUNTERPART_REV"] {
