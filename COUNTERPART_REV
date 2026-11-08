@@ -408,7 +408,9 @@
 # Bumped to 32ccac20, the merge of libviprs#1534 (benchmarks optional). That change stops
 # tests/pmtiles_release_readiness.rs from reading docs/pmtiles-benchmarks.md, which the skip list in
 # tests/prepush_gate_cost_controls.rs now pins as inert, so the pin has to move with it.
-32ccac20ff52b1054a29453b917e1a4a6c257d5a
+# Bumped to 8f72e055, libviprs main's tip when I checked: the core moved its pvec pin to 07b7a82f in
+# libviprs#1552, and the five pvec lines in Cargo.toml move with it (libviprs-tests#381).
+8f72e0550fd3a08c3a679a19d77a166160406245
 # Bumped to 31eef2b6, the merge of libviprs#1464 (libviprs#1093): the core pins pvec at the merge of pvec#260 (240fcd3d), and libviprs-tests#355 moves the pins here with it.
 # Bumped to 45868476, libviprs main after libviprs#1370 and #1470 merged: the core now lints the non-default jbig2 feature in ci.yml, and the hook line added for it here is red against any core without that cell (libviprs-tests#348).
 # Bumped to 3bcb95d8, the merge of libviprs#1469 (libviprs#1466): a cached pdfium source counts its raster against the memory budget, which is what the pdfium budget tests moved in #338 are written for (libviprs-tests#340).
