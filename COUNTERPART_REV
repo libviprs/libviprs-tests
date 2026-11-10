@@ -411,7 +411,7 @@
 # Bumped to 8f72e055, libviprs main's tip when I checked: the core moved its pvec pin to 07b7a82f in
 # libviprs#1552, and the five pvec lines in Cargo.toml move with it (libviprs-tests#381).
 # Bumped to b39fa2aa, the tip of the libviprs 1578 L2 branch (stroke paint), the first core on pvec 1a9d972; the five pvec lines in Cargo.toml move with it (libviprs-tests#383). It is now on libviprs main as c3f0641a below.
-f5dc07cf16ca30a18710300fe4a2f7401bd3a51f
+90ee089f425a02229001f670df39a9a9e810bf18
 # Bumped to c3f0641a, the merge of libviprs#1596 on libviprs main, which carries the 1578 L2 stroke paint work on pvec 1a9d972 (libviprs-tests#383).
 # Bumped to 31eef2b6, the merge of libviprs#1464 (libviprs#1093): the core pins pvec at the merge of pvec#260 (240fcd3d), and libviprs-tests#355 moves the pins here with it.
 # Bumped to 45868476, libviprs main after libviprs#1370 and #1470 merged: the core now lints the non-default jbig2 feature in ci.yml, and the hook line added for it here is red against any core without that cell (libviprs-tests#348).
@@ -422,4 +422,4 @@ f5dc07cf16ca30a18710300fe4a2f7401bd3a51f
 # Bumped to 2c84303b, the tip of libviprs/libviprs#1507 after the second review round (Miri counts on main's 972, #1504 merged in).
 # Bumped to d97e5078, the tip of libviprs/libviprs#1522 (pvec pins at afd2fe6, libviprs#1516). It reaches libviprs main when that PR merges, so the pin stays reachable.
 # 56fa40b0 (libviprs#1521 and #1522) is the core libviprs-cli 1184676 builds against; the pin above, 32ccac20, descends from it, so the CLI's core is an ancestor of this one and the pvec pins are the same afd2fe62 (libviprs-tests#358).
-# Bumped to f5dc07cf, the tip of libviprs/libviprs#1603 (pvec pins at 7a6a1fb, libviprs/pvec#302). It reaches libviprs main when that PR merges, so the pin stays reachable; the final re-pin to the merge commits follows the merge.
+# Bumped to 90ee089f, the tip of libviprs/libviprs#1603 (pvec pins at 7a6a1fb, libviprs/pvec#302). It reaches libviprs main when that PR merges, so the pin stays reachable; the final re-pin to the merge commits follows the merge.
