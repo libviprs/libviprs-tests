@@ -411,8 +411,8 @@
 # Bumped to 8f72e055, libviprs main's tip when I checked: the core moved its pvec pin to 07b7a82f in
 # libviprs#1552, and the five pvec lines in Cargo.toml move with it (libviprs-tests#381).
 # Bumped to b39fa2aa, the tip of the libviprs 1578 L2 branch (stroke paint), the first core on pvec 1a9d972; the five pvec lines in Cargo.toml move with it (libviprs-tests#383). It is now on libviprs main as c3f0641a below.
-10db9c5c5f64b11b28e90b8270c04d8efb37853a
-# Bumped to 10db9c5c, the tip of libviprs/libviprs's gate branch for libviprs/pvec#302, the first core on pvec 925476a; the five pvec lines in Cargo.toml move with it. It reaches libviprs main when that PR merges, so the pin stays reachable.
+33d9d32c96475ad8c0bddd2026e4b2b937ed4f55
+# Bumped to 33d9d32c, the tip of libviprs/libviprs's gate branch for libviprs/pvec#302, the first core on pvec 925476a; the five pvec lines in Cargo.toml move with it. It reaches libviprs main when that PR merges, so the pin stays reachable.
 # Bumped to c3f0641a, the merge of libviprs#1596 on libviprs main, which carries the 1578 L2 stroke paint work on pvec 1a9d972 (libviprs-tests#383).
 # Bumped to 31eef2b6, the merge of libviprs#1464 (libviprs#1093): the core pins pvec at the merge of pvec#260 (240fcd3d), and libviprs-tests#355 moves the pins here with it.
 # Bumped to 45868476, libviprs main after libviprs#1370 and #1470 merged: the core now lints the non-default jbig2 feature in ci.yml, and the hook line added for it here is red against any core without that cell (libviprs-tests#348).
