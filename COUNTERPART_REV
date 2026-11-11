@@ -411,7 +411,7 @@
 # Bumped to 8f72e055, libviprs main's tip when I checked: the core moved its pvec pin to 07b7a82f in
 # libviprs#1552, and the five pvec lines in Cargo.toml move with it (libviprs-tests#381).
 # Bumped to b39fa2aa, the tip of the libviprs 1578 L2 branch (stroke paint), the first core on pvec 1a9d972; the five pvec lines in Cargo.toml move with it (libviprs-tests#383). It is now on libviprs main as c3f0641a below.
-c35df6e571b6ef37d0cf75fc0148fd35709ab59f
+0e3de080106702995de50c8ca10a7db8fd2968c1
 # Bumped to c3f0641a, the merge of libviprs#1596 on libviprs main, which carries the 1578 L2 stroke paint work on pvec 1a9d972 (libviprs-tests#383).
 # Bumped to 31eef2b6, the merge of libviprs#1464 (libviprs#1093): the core pins pvec at the merge of pvec#260 (240fcd3d), and libviprs-tests#355 moves the pins here with it.
 # Bumped to 45868476, libviprs main after libviprs#1370 and #1470 merged: the core now lints the non-default jbig2 feature in ci.yml, and the hook line added for it here is red against any core without that cell (libviprs-tests#348).
@@ -423,3 +423,4 @@ c35df6e571b6ef37d0cf75fc0148fd35709ab59f
 # Bumped to d97e5078, the tip of libviprs/libviprs#1522 (pvec pins at afd2fe6, libviprs#1516). It reaches libviprs main when that PR merges, so the pin stays reachable.
 # 56fa40b0 (libviprs#1521 and #1522) is the core libviprs-cli 1184676 builds against; the pin above, 32ccac20, descends from it, so the CLI's core is an ancestor of this one and the pvec pins are the same afd2fe62 (libviprs-tests#358).
 # Bumped to c35df6e, the tip of libviprs/libviprs#1603 (it carries the #1604 tip too; pvec pins at e1a768b, the pvec main head after libviprs/pvec#312). It reaches libviprs main when that PR merges, so the pin stays reachable; the final re-pin to the merge commit follows the merge.
+# Re-pinned to 0e3de080, the merge of libviprs/libviprs#1603 on libviprs main (it carries #1604 and the pvec pins at e1a768b), so the pin is on main now (libviprs-tests#386).
