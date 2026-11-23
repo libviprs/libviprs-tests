@@ -262,7 +262,13 @@ const INERT_IN_LIBVIPRS: &[&str] = &[
 /// `the_pinned_list_holds_only_paths_every_core_vintage_leaves_inert` has to be
 /// deleted in the same edit, since it fails for any path on the main list that an
 /// older core still reads.
-const INERT_ONCE_THE_READER_IS_GONE: &[&str] = &["docs/pmtiles-benchmarks.md"];
+///
+/// `.gitattributes` is the other way round: the planviewer core added it
+/// (libviprs#1642, issue #1634) and nothing reads it, so it is inert wherever it
+/// exists, but a core cut before that has no such file to answer for. The guard
+/// takes the tree's answer rather than pinning a path some vintages lack
+/// (libviprs-tests#386).
+const INERT_ONCE_THE_READER_IS_GONE: &[&str] = &["docs/pmtiles-benchmarks.md", ".gitattributes"];
 
 /// The skip list may only hold paths nothing reads, and the only way to know
 /// that is to run every path there is through it.
